@@ -1,3 +1,3 @@
-"""Amigo v2 backend."""
+"""Amigo v3 backend."""
 
-__version__ = "2.1.0"
+__version__ = "3.0.0"

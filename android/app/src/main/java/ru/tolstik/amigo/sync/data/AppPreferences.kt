@@ -1,0 +1,244 @@
+package ru.tolstik.amigo.sync.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import java.time.Instant
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import ru.tolstik.amigo.sync.sync.RecordType
+import ru.tolstik.amigo.sync.sync.SnapshotCursor
+import ru.tolstik.amigo.sync.sync.SyncStateStore
+import ru.tolstik.amigo.sync.wire.CanonicalJson
+
+data class DeviceRegistration(
+    val serverUrl: String,
+    val deviceId: String,
+    val pairingCode: String,
+    val status: String,
+)
+
+data class LocalStatus(
+    val serverUrl: String,
+    val deviceLabel: String,
+    val registration: DeviceRegistration?,
+    val discoveredOrigins: Set<String>,
+    val selectedOrigin: String?,
+    val lastSync: Instant?,
+    val dataAsOf: Instant?,
+    val lastError: String?,
+    val completedTypes: Int,
+)
+
+class AppPreferences(context: Context) : SyncStateStore {
+    private val values: SharedPreferences = context.getSharedPreferences("amigo_sync", Context.MODE_PRIVATE)
+    private val json = Json { ignoreUnknownKeys = true }
+
+    @Synchronized
+    fun status(): LocalStatus = LocalStatus(
+        serverUrl = values.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL,
+        deviceLabel = values.getString(KEY_DEVICE_LABEL, android.os.Build.MODEL) ?: "Android",
+        registration = registration(),
+        discoveredOrigins = values.getStringSet(KEY_ORIGINS, emptySet())?.toSet().orEmpty(),
+        selectedOrigin = selectedOrigin(),
+        lastSync = instant(KEY_LAST_SYNC),
+        dataAsOf = dataAsOf(),
+        lastError = values.getString(KEY_LAST_ERROR, null),
+        completedTypes = RecordType.entries.count(::isSnapshotComplete),
+    )
+
+    fun setServerUrl(value: String) {
+        values.edit().putString(KEY_SERVER_URL, value.trim()).apply()
+    }
+
+    fun setDeviceLabel(value: String) {
+        values.edit().putString(KEY_DEVICE_LABEL, value.trim()).apply()
+    }
+
+    fun setDiscoveredOrigins(origins: Set<String>) {
+        values.edit().putStringSet(KEY_ORIGINS, origins.toSet()).apply()
+    }
+
+    fun markHealthPermissionsObserved(at: Instant = Instant.now()) {
+        if (!values.contains(KEY_FIRST_HEALTH_PERMISSION_AT)) {
+            values.edit().putString(KEY_FIRST_HEALTH_PERMISSION_AT, at.toString()).apply()
+        }
+    }
+
+    fun fallbackHistoryFloor(): Instant =
+        instant(KEY_FIRST_HEALTH_PERMISSION_AT)?.minusSeconds(30L * 24 * 60 * 60)
+            ?: Instant.now().minusSeconds(30L * 24 * 60 * 60)
+
+    fun resetAllSnapshots() {
+        values.edit().also { editor ->
+            RecordType.entries.forEach { type ->
+                editor.remove(syncKey(type, "cursor"))
+                editor.putBoolean(syncKey(type, "complete"), false)
+            }
+        }.apply()
+    }
+
+    @Synchronized
+    fun selectOrigin(origin: String) {
+        require(origin.isNotBlank())
+        if (registration() != null && selectedOrigin() != origin) {
+            throw IllegalStateException("Reset pairing before changing the Health Connect source")
+        }
+        if (selectedOrigin() == origin) return
+        clearSyncState(values.edit()).putString(KEY_SELECTED_ORIGIN, origin).apply()
+    }
+
+    @Synchronized
+    fun saveRegistration(registration: DeviceRegistration) {
+        values.edit()
+            .putString(KEY_SERVER_URL, registration.serverUrl)
+            .putString(KEY_DEVICE_ID, registration.deviceId)
+            .putString(KEY_PAIRING_CODE, registration.pairingCode)
+            .putString(KEY_PAIRING_STATUS, registration.status)
+            .apply()
+    }
+
+    fun updatePairingStatus(status: String, pairingCode: String? = null) {
+        values.edit()
+            .putString(KEY_PAIRING_STATUS, status)
+            .apply {
+                when {
+                    !pairingCode.isNullOrBlank() -> putString(KEY_PAIRING_CODE, pairingCode)
+                    status != "pending" -> remove(KEY_PAIRING_CODE)
+                }
+            }
+            .apply()
+    }
+
+    @Synchronized
+    fun resetPairing() {
+        clearSyncState(
+            values.edit()
+                .remove(KEY_DEVICE_ID)
+                .remove(KEY_PAIRING_CODE)
+                .remove(KEY_PAIRING_STATUS),
+        ).apply()
+    }
+
+    fun registration(): DeviceRegistration? {
+        val id = values.getString(KEY_DEVICE_ID, null)?.takeIf(String::isNotBlank) ?: return null
+        return DeviceRegistration(
+            serverUrl = values.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL,
+            deviceId = id,
+            pairingCode = values.getString(KEY_PAIRING_CODE, "") ?: "",
+            status = values.getString(KEY_PAIRING_STATUS, "pending") ?: "pending",
+        )
+    }
+
+    override fun selectedOrigin(): String? = values.getString(KEY_SELECTED_ORIGIN, null)
+
+    override fun changesToken(type: RecordType): String? =
+        values.getString(syncKey(type, "changes_token"), null)
+
+    override fun setChangesToken(type: RecordType, token: String) {
+        values.edit().putString(syncKey(type, "changes_token"), token).apply()
+    }
+
+    override fun snapshotCursor(type: RecordType): SnapshotCursor? {
+        val raw = values.getString(syncKey(type, "cursor"), null) ?: return null
+        return runCatching {
+            val item = json.parseToJsonElement(raw).jsonObject
+            SnapshotCursor(
+                generation = item.required("generation"),
+                target = Instant.parse(item.required("target")),
+                rangeStart = Instant.parse(item.required("range_start")),
+                rangeEnd = Instant.parse(item.required("range_end")),
+                pageToken = item.optional("page_token"),
+                pageIndex = item.required("page_index").toInt(),
+                knownEmpty = item.required("known_empty").toBooleanStrict(),
+                emptyUntil = item.optional("empty_until")?.let(Instant::parse),
+                formatVersion = item.optional("format_version")?.toInt() ?: 1,
+            )
+        }.getOrNull()
+    }
+
+    override fun setSnapshotCursor(type: RecordType, cursor: SnapshotCursor) {
+        val payload = buildJsonObject {
+            put("generation", cursor.generation)
+            put("format_version", cursor.formatVersion)
+            put("known_empty", cursor.knownEmpty)
+            cursor.emptyUntil?.let { put("empty_until", it.toString()) }
+            put("page_index", cursor.pageIndex)
+            cursor.pageToken?.let { put("page_token", it) }
+            put("range_end", cursor.rangeEnd.toString())
+            put("range_start", cursor.rangeStart.toString())
+            put("target", cursor.target.toString())
+        }
+        values.edit()
+            .putString(syncKey(type, "cursor"), CanonicalJson.render(payload))
+            .putBoolean(syncKey(type, "complete"), false)
+            .apply()
+    }
+
+    override fun isSnapshotComplete(type: RecordType): Boolean =
+        values.getBoolean(syncKey(type, "complete"), false)
+
+    override fun markSnapshotComplete(type: RecordType) {
+        values.edit()
+            .putBoolean(syncKey(type, "complete"), true)
+            .remove(syncKey(type, "cursor"))
+            .apply()
+    }
+
+    override fun resetSnapshot(type: RecordType) {
+        values.edit()
+            .putBoolean(syncKey(type, "complete"), false)
+            .remove(syncKey(type, "cursor"))
+            .apply()
+    }
+
+    override fun setDataAsOf(value: Instant) {
+        val current = dataAsOf()
+        if (current == null || value > current) values.edit().putString(KEY_DATA_AS_OF, value.toString()).apply()
+    }
+
+    override fun dataAsOf(): Instant? = instant(KEY_DATA_AS_OF)
+
+    override fun setLastSync(value: Instant) {
+        values.edit().putString(KEY_LAST_SYNC, value.toString()).apply()
+    }
+
+    override fun setLastError(value: String?) {
+        values.edit().apply {
+            if (value == null) remove(KEY_LAST_ERROR) else putString(KEY_LAST_ERROR, value.take(300))
+        }.apply()
+    }
+
+    private fun instant(key: String): Instant? =
+        values.getString(key, null)?.let { runCatching { Instant.parse(it) }.getOrNull() }
+
+    private fun syncKey(type: RecordType, suffix: String) = "sync.${type.wireName}.$suffix"
+
+    private fun clearSyncState(editor: SharedPreferences.Editor): SharedPreferences.Editor {
+        values.all.keys.filter { it.startsWith("sync.") }.forEach(editor::remove)
+        return editor.remove(KEY_LAST_SYNC).remove(KEY_DATA_AS_OF).remove(KEY_LAST_ERROR)
+    }
+
+    companion object {
+        const val DEFAULT_SERVER_URL = "https://amigo.tolstik.ru"
+        private const val KEY_SERVER_URL = "server_url"
+        private const val KEY_DEVICE_LABEL = "device_label"
+        private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_PAIRING_CODE = "pairing_code"
+        private const val KEY_PAIRING_STATUS = "pairing_status"
+        private const val KEY_ORIGINS = "health_origins"
+        private const val KEY_SELECTED_ORIGIN = "selected_origin"
+        private const val KEY_LAST_SYNC = "last_sync"
+        private const val KEY_DATA_AS_OF = "data_as_of"
+        private const val KEY_LAST_ERROR = "last_error"
+        private const val KEY_FIRST_HEALTH_PERMISSION_AT = "first_health_permission_at"
+    }
+}
+
+private fun kotlinx.serialization.json.JsonObject.required(key: String): String =
+    getValue(key).jsonPrimitive.content
+
+private fun kotlinx.serialization.json.JsonObject.optional(key: String): String? =
+    get(key)?.jsonPrimitive?.content

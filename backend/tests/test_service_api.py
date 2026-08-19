@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.db import get_db
 from app.main import app
+from app.ai_models import AiAnalysisJob, AiAnalysisResult
 from app.models import SyncState
 from app.service import composition_series, ensure_default_plan, overview, pressure_series, weight_series
 
@@ -85,6 +86,34 @@ def test_fastapi_is_read_only_and_returns_csv(db, add_group):
             assert client.post("/api/v1/overview").status_code == 405
     finally:
         app.dependency_overrides.clear()
+
+
+def test_public_ai_gets_read_only_cached_state_without_invoking_codex(db, monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("a public GET must never invoke or enqueue Codex")
+
+    monkeypatch.setattr("app.ai_gateway.CodexRunner.run", fail_if_called)
+    monkeypatch.setattr("app.ai_snapshot.enqueue_current_analysis", fail_if_called)
+    monkeypatch.setattr("app.ai_queue.enqueue_analysis", fail_if_called)
+
+    def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        with TestClient(app) as client:
+            analysis = client.get("/api/v1/ai-analysis")
+            insights = client.get("/api/v1/insights")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert analysis.status_code == 200
+    assert analysis.json()["status"] == "unavailable"
+    assert analysis.json()["ai_generated"] is True
+    assert insights.status_code == 200
+    assert insights.json()["status"] == "unavailable"
+    assert db.query(AiAnalysisJob).count() == 0
+    assert db.query(AiAnalysisResult).count() == 0
 
 
 def test_program_overview_excludes_pre_program_weight(db, add_group):

@@ -15,6 +15,7 @@ from sqlalchemy import text
 
 from .config import get_settings
 from .db import SessionLocal
+from .ai_snapshot import enqueue_current_analysis
 from .legacy import import_legacy, import_legacy_weight_file
 from .models import ProviderCredential
 from .crypto import SecretCipher
@@ -32,12 +33,13 @@ def migrate() -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="amigo", description="Amigo v2 administrative CLI")
+    parser = argparse.ArgumentParser(prog="amigo", description="Amigo v3 administrative CLI")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("migrate", help="apply all database migrations")
     commands.add_parser("health", help="check database connectivity")
     commands.add_parser("bootstrap", help="migrate, seed the plan, and import OAuth tokens from secrets")
     commands.add_parser("telegram-test", help="send an explicitly marked non-health test message")
+    commands.add_parser("ai-enqueue", help="enqueue an immediate minimized AI snapshot")
     handoff = commands.add_parser(
         "withings-token-handoff",
         help="write the current OAuth pair to a root-only rollback handoff mount",
@@ -89,10 +91,23 @@ def execute(args: argparse.Namespace) -> int:
     if args.command == "telegram-test":
         client = TelegramClient(settings)
         try:
-            client.send_message("<b>[Amigo v2 test]</b> Проверка доставки Telegram.")
+            client.send_message("<b>[Amigo v3 test]</b> Проверка доставки Telegram.")
         finally:
             client.close()
         print("test message sent")
+        return 0
+    if args.command == "ai-enqueue":
+        with SessionLocal() as db:
+            job = enqueue_current_analysis(
+                db,
+                settings,
+                trigger="manual",
+                debounce_seconds=0,
+            )
+        if job is None:
+            print("AI analysis is disabled")
+        else:
+            print(f"AI analysis job {job.id} queued")
         return 0
     if args.command == "withings-token-handoff":
         directory = Path(args.directory)

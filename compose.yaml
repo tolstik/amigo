@@ -27,7 +27,15 @@ x-application: &application
     AMIGO_SYNC_INTERVAL_SECONDS: ${AMIGO_SYNC_INTERVAL_SECONDS:-300}
     AMIGO_NOTIFICATION_DEBOUNCE_SECONDS: ${AMIGO_NOTIFICATION_DEBOUNCE_SECONDS:-120}
     AMIGO_WEEKLY_DIGEST_DAY: ${AMIGO_WEEKLY_DIGEST_DAY:-mon}
-    AMIGO_WEEKLY_DIGEST_TIME: ${AMIGO_WEEKLY_DIGEST_TIME:-08:00}
+    AMIGO_WEEKLY_DIGEST_TIME: ${AMIGO_WEEKLY_DIGEST_TIME:-09:00}
+    AMIGO_DAILY_DIGEST_TIME: ${AMIGO_DAILY_DIGEST_TIME:-09:00}
+    AMIGO_AI_ENABLED: ${AMIGO_AI_ENABLED:-true}
+    AMIGO_AI_GATEWAY_URL: ${AMIGO_AI_GATEWAY_URL:-http://ai-gateway:8090}
+    AMIGO_AI_GATEWAY_TIMEOUT_SECONDS: ${AMIGO_AI_GATEWAY_TIMEOUT_SECONDS:-90}
+    AMIGO_AI_POLL_SECONDS: ${AMIGO_AI_POLL_SECONDS:-5}
+    AMIGO_AI_DEBOUNCE_SECONDS: ${AMIGO_AI_DEBOUNCE_SECONDS:-300}
+    AMIGO_AI_ACTIVITY_MIN_INTERVAL_SECONDS: ${AMIGO_AI_ACTIVITY_MIN_INTERVAL_SECONDS:-3600}
+    AMIGO_AI_STALE_SECONDS: ${AMIGO_AI_STALE_SECONDS:-86400}
   secrets:
     - postgres_password
   volumes:
@@ -136,11 +144,109 @@ services:
       start_period: 30s
     stop_grace_period: 30s
 
+  ingest:
+    <<: *application
+    command:
+      - python
+      - -m
+      - uvicorn
+      - app.ingest_main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --proxy-headers
+      - --forwarded-allow-ips=*
+    ports:
+      - ${AMIGO_INGEST_BIND:-127.0.0.1}:${AMIGO_INGEST_PORT:-18182}:8000
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read()
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    stop_grace_period: 30s
+
+  ai-worker:
+    <<: *application
+    command: ["python", "-m", "app.ai_worker"]
+    networks:
+      - backend
+      - ai_private
+    depends_on:
+      db:
+        condition: service_healthy
+      ai-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.ai_worker", "--health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+
+  ai-gateway:
+    image: amigo:${AMIGO_IMAGE_TAG:?AMIGO_IMAGE_TAG must be a Git SHA}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: "65532:65532"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HOME: /tmp/amigo-ai-home
+      CODEX_HOME: /run/amigo-ai-codex
+      AMIGO_AI_GATEWAY_HOST: 0.0.0.0
+      AMIGO_AI_GATEWAY_PORT: 8090
+      AMIGO_AI_CODEX_BINARY: /opt/amigo/codex
+      AMIGO_AI_CODEX_HOME: /run/amigo-ai-codex
+      AMIGO_AI_CODEX_WORK_DIR: /tmp/amigo-ai-work
+      AMIGO_AI_CODEX_TIMEOUT_SECONDS: ${AMIGO_AI_CODEX_TIMEOUT_SECONDS:-75}
+      AMIGO_AI_CODEX_CONCURRENCY: 1
+      AMIGO_LOG_LEVEL: ${AMIGO_LOG_LEVEL:-INFO}
+    volumes:
+      - type: bind
+        source: /srv/amigo/data/codex-bin/codex
+        target: /opt/amigo/codex
+        read_only: true
+      - type: bind
+        source: /srv/amigo/data/codex-state
+        target: /run/amigo-ai-codex
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    networks:
+      - ai_private
+    command: ["python", "-m", "app.ai_gateway"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=3).read()
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 100s
+
 volumes:
   postgres_data:
 
 networks:
   backend:
+    internal: false
+  ai_private:
     internal: false
 
 secrets:

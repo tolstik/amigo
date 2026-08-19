@@ -21,17 +21,21 @@ function planPosition(deviation: number | null): string {
 export function OverviewPage() {
   const overview = useOutletContext<OverviewContext>();
   const loadPreview = useCallback((signal: AbortSignal) => api.weight("90d", signal), []);
-  const loadInsights = useCallback((signal: AbortSignal) => api.insights(signal), []);
+  const loadAi = useCallback((signal: AbortSignal) => api.aiAnalysis(signal), []);
+  const loadActivity = useCallback((signal: AbortSignal) => api.activity("30d", signal), []);
+  const loadRecovery = useCallback((signal: AbortSignal) => api.recovery("30d", signal), []);
   const preview = useApi(loadPreview);
-  const insightQuery = useApi(loadInsights);
+  const ai = useApi(loadAi);
+  const activity = useApi(loadActivity);
+  const recovery = useApi(loadRecovery);
 
   if (overview.loading && !overview.data) return <LoadingState />;
   if (overview.error && !overview.data) return <ErrorState message={overview.error.message} onRetry={overview.reload} />;
   if (!overview.data) return null;
 
   const { weight, plan, pressure, composition } = overview.data;
-  const insights = overview.data.insights.length ? overview.data.insights : (insightQuery.data ?? []);
   const progress = weight.progressPct;
+  const aiItems = ai.data ? [...ai.data.insights, ...ai.data.recommendations] : [];
 
   return (
     <>
@@ -97,7 +101,7 @@ export function OverviewPage() {
         </article>
 
         <article className="panel today-panel">
-          <div className="panel__head"><div><span className="eyebrow">Последние данные</span><h2>Давление и состав</h2></div></div>
+          <div className="panel__head"><div><span className="eyebrow">Последние данные</span><h2>Здоровье и активность</h2></div></div>
           <Link className="today-row" to="/pressure">
             <span className="today-row__icon today-row__icon--coral"><Icon name="heart" /></span>
             <span><small>Давление</small><strong>{pressure.latestSystolic === null ? "—" : `${formatNumber(pressure.latestSystolic, 0)} / ${formatNumber(pressure.latestDiastolic, 0)}`}</strong><em>{pressure.latestAt ? formatDateTime(pressure.latestAt) : "Нет данных"}</em></span>
@@ -108,23 +112,44 @@ export function OverviewPage() {
             <span><small>Доля жира · BIA-оценка</small><strong>{composition.fatPct === null ? "—" : `${formatNumber(composition.fatPct)}%`}</strong><em>{composition.measuredAt ? formatDateTime(composition.measuredAt) : "Нет данных"}</em></span>
             <Icon name="arrow" />
           </Link>
+          <Link className="today-row" to="/activity">
+            <span className="today-row__icon today-row__icon--green"><Icon name="activity" /></span>
+            <span><small>Активность</small><strong>{activity.data?.summary.steps == null ? "—" : `${formatNumber(activity.data.summary.steps, 0)} шагов`}</strong><em>{activity.data?.summary.latestDate ? formatDate(activity.data.summary.latestDate) : "Ожидаем Health Connect"}</em></span>
+            <Icon name="arrow" />
+          </Link>
+          <Link className="today-row" to="/recovery">
+            <span className="today-row__icon today-row__icon--blue"><Icon name="clock" /></span>
+            <span><small>Сон</small><strong>{recovery.data?.summary.sleepMinutes == null ? "—" : `${Math.floor(recovery.data.summary.sleepMinutes / 60)} ч ${Math.round(recovery.data.summary.sleepMinutes % 60)} мин`}</strong><em>{recovery.data?.summary.latestDate ? formatDate(recovery.data.summary.latestDate) : "Ожидаем Health Connect"}</em></span>
+            <Icon name="arrow" />
+          </Link>
           {pressure.latestPulse !== null && <p className="today-panel__note">Пульс в последней сессии: <strong>{formatNumber(pressure.latestPulse, 0)} уд/мин</strong></p>}
         </article>
       </section>
 
-      {insights.length > 0 && (
-        <section className="insights-section" aria-labelledby="insights-title">
-          <div className="section-heading"><div><span className="eyebrow">По вашим трендам</span><h2 id="insights-title">Наблюдения</h2></div><span className="rules-badge"><Icon name="sparkle" /> Без «чёрного ящика»</span></div>
-          <div className="insight-grid">
-            {insights.slice(0, 3).map((insight) => (
-              <article className={`insight insight--${insight.tone}`} key={insight.id}>
-                <span className="insight__icon"><Icon name={insight.tone === "achievement" ? "sparkle" : "activity"} /></span>
-                <div><strong>{insight.title}</strong><p>{insight.text}</p></div>
-              </article>
-            ))}
+      <section className="insights-section" aria-labelledby="insights-title">
+        <div className="section-heading">
+          <div><span className="eyebrow">Персональный разбор</span><h2 id="insights-title">ИИ-анализ</h2></div>
+          <span className={`rules-badge rules-badge--${ai.data?.status ?? "pending"}`}><Icon name="sparkle" /> {ai.data?.generatedAt ? `${ai.data.status === "stale" ? "Устарел · " : ""}${formatDateTime(ai.data.generatedAt)}` : "Готовится"}</span>
+        </div>
+        {ai.loading && !ai.data ? <LoadingState compact /> : ai.error && !ai.data ? (
+          <div className="ai-unavailable"><strong>ИИ-анализ временно недоступен</strong><p>Числовые показатели продолжают рассчитываться без модели.</p></div>
+        ) : ai.data?.status === "unavailable" || ai.data?.status === "pending" ? (
+          <div className="ai-unavailable"><strong>{ai.data.status === "pending" ? "Анализ новых данных готовится" : "ИИ-анализ временно недоступен"}</strong><p>Здесь нет шаблонной подмены: до готовности модели остаются только проверяемые факты.</p></div>
+        ) : (
+          <div className="ai-analysis panel">
+            <div className="ai-analysis__intro"><span className="ai-orbit"><Icon name="sparkle" /></span><div><h3>{ai.data?.headline ?? "Разбор текущей динамики"}</h3>{ai.data?.summary && <p>{ai.data.summary}</p>}<small>Данные на {formatDateTime(ai.data?.dataAsOf)} · {ai.data?.model ?? "Codex"} · не медицинская рекомендация</small></div></div>
+            {aiItems.length > 0 && <div className="insight-grid">
+              {aiItems.slice(0, 6).map((item, index) => (
+                <article className={`insight ${index >= (ai.data?.insights.length ?? 0) ? "insight--recommendation" : ""}`} key={item.id}>
+                  <span className="insight__icon"><Icon name={index >= (ai.data?.insights.length ?? 0) ? "progress" : "activity"} /></span>
+                  <div><strong>{item.title}</strong><p>{item.text}</p>{item.evidenceIds.length > 0 && <small>Основание: {item.evidenceIds.join(", ")}</small>}</div>
+                </article>
+              ))}
+            </div>}
+            {ai.data?.limitations.length ? <p className="ai-analysis__limitations">Ограничения: {ai.data.limitations.join(" · ")}</p> : null}
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
       {preview.data?.points.length ? (
         <ChartCard

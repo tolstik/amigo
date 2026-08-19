@@ -48,11 +48,12 @@ CHECKED_AT_MOSCOW="$(TZ=Europe/Moscow date +'%Y-%m-%d %H:%M:%S %Z')"
 COMPOSE_SHA256="$(sha256sum "${AMIGO_COMPOSE_FILE}" | awk '{ print $1 }')"
 NGINX_SNIPPET_SHA256="$(sha256sum "${AMIGO_NGINX_SNIPPET}" | awk '{ print $1 }')"
 NGINX_HTTP_SHA256="$(sha256sum "${AMIGO_NGINX_HTTP_CONFIG}" | awk '{ print $1 }')"
+CODEX_BINARY_SHA256="$(sha256sum /srv/amigo/data/codex-bin/codex | awk '{ print $1 }')"
 TEMP_BLOCK="$(mktemp /run/amigo-checkpoint-block.XXXXXX)"
 TEMP_DOCUMENT="$(mktemp /run/amigo-checkpoint-document.XXXXXX)"
 TEMP_IMAGES="$(mktemp /run/amigo-checkpoint-images.XXXXXX)"
 readonly GIT_SHA CHECKED_AT_UTC CHECKED_AT_MOSCOW
-readonly COMPOSE_SHA256 NGINX_SNIPPET_SHA256 NGINX_HTTP_SHA256
+readonly COMPOSE_SHA256 NGINX_SNIPPET_SHA256 NGINX_HTTP_SHA256 CODEX_BINARY_SHA256
 readonly TEMP_BLOCK TEMP_DOCUMENT TEMP_IMAGES
 
 cleanup() {
@@ -60,7 +61,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for service in web worker db; do
+for service in web worker ingest ai-worker ai-gateway db; do
     container_id=$(amigo_compose ps -q "${service}")
     [[ -n "${container_id}" ]] || amigo_die "cannot record image for missing service: ${service}"
     image_ref=$(docker inspect --format '{{.Config.Image}}' "${container_id}")
@@ -81,7 +82,8 @@ done
     printf -- '- Latest rollback snapshot: `%s`\n' "${SNAPSHOT}"
     printf -- '- Installed config SHA-256: Compose `%s`; nginx locations `%s`; nginx rate limit `%s`.\n' \
         "${COMPOSE_SHA256}" "${NGINX_SNIPPET_SHA256}" "${NGINX_HTTP_SHA256}"
-    printf -- '- Verification: Compose `web`, `worker`, and `db` running; PostgreSQL ready; web bound to `127.0.0.1:18181`; direct health, hidden public health routes, origin proxy, public HTTPS dashboard/API, relative `308`, security headers, route rollback rehearsal, cron isolation, and rollback assets passed.\n'
+    printf -- '- Pinned Codex: `0.148.0` (`sha256:%s`).\n' "${CODEX_BINARY_SHA256}"
+    printf -- '- Verification: all six Compose services healthy; application services use the release image; PostgreSQL ready; web and ingest bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; container secret boundaries, pinned Codex hash, isolated unpublished AI gateway, direct health, hidden public health routes, exact unsigned-ingest rejection, origin proxy, public HTTPS dashboard and overview/activity/recovery/AI JSON, relative `308`, security headers, route rollback rehearsal, cron isolation, and rollback assets passed.\n'
     printf -- '- Installed image references and IDs:\n\n'
     cat "${TEMP_IMAGES}"
     printf -- '- Rollback command: `sudo /srv/amigo/deploy/rollback.sh %s`\n' "${SNAPSHOT}"

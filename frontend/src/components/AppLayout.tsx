@@ -9,6 +9,8 @@ const navItems: Array<{ to: string; label: string; icon: IconName; end?: boolean
   { to: "/history", label: "Вся история", icon: "history" },
   { to: "/pressure", label: "Давление", icon: "pressure" },
   { to: "/composition", label: "Состав тела", icon: "composition" },
+  { to: "/activity", label: "Активность", icon: "activity" },
+  { to: "/recovery", label: "Восстановление", icon: "clock" },
 ];
 
 const statusLabels = {

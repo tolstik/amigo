@@ -32,7 +32,7 @@ frontend/*.d.ts
 .idea/
 .vscode/
 
-data/
+/data/
 backups/
 *.dump
 *.sqlite*

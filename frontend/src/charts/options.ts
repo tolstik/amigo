@@ -1,7 +1,10 @@
 import type { BarSeriesOption, EChartsOption, LineSeriesOption } from "echarts";
 import type {
+  ActivityPoint,
   CompositionPoint,
   PressurePoint,
+  RecoveryPoint,
+  WeeklyActivityPoint,
   WeeklyWeightPoint,
   WeightPlanPoint,
   WeightPoint,
@@ -243,6 +246,128 @@ export function weeklyChangeChartOption(points: WeeklyWeightPoint[]): EChartsOpt
     series: [
       fact,
       { ...weeklyBar("План", points.map((point) => point.plannedChangeKg), colors.blue), itemStyle: { color: colors.blue, opacity: 0.72, borderRadius: [4, 4, 4, 4] } },
+    ],
+  };
+}
+
+export function activityDailyChartOption(points: ActivityPoint[]): EChartsOption {
+  return {
+    animationDuration: 500,
+    color: [colors.green, colors.blue],
+    grid: sharedGrid,
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: {
+      trigger: "axis",
+      confine: true,
+      formatter: tooltipFormatter,
+      backgroundColor: "rgba(22,31,25,.95)",
+      borderWidth: 0,
+      textStyle: { color: "#fff" },
+    },
+    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false } },
+    yAxis: [
+      { ...sharedAxis, type: "value", name: "шаги", nameTextStyle: { color: colors.muted }, min: 0 },
+      { ...sharedAxis, type: "value", name: "мин", nameTextStyle: { color: colors.muted }, min: 0, splitLine: { show: false } },
+    ],
+    dataZoom: [{ type: "inside", filterMode: "none" }],
+    series: [
+      {
+        name: "Шаги",
+        type: "bar",
+        data: points.map((point) => [point.measuredAt, point.steps]),
+        barMaxWidth: 16,
+        itemStyle: { color: colors.green, borderRadius: [4, 4, 1, 1] },
+      },
+      timeLine("Активные минуты", points.map((point) => [point.measuredAt, point.activeMinutes]), colors.blue, { yAxisIndex: 1 }),
+    ],
+  };
+}
+
+export function weeklyActivityChartOption(points: WeeklyActivityPoint[]): EChartsOption {
+  const axis = points.map((point) => point.startDate);
+  return {
+    animationDuration: 500,
+    color: [colors.green, colors.blue],
+    grid: sharedGrid,
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      confine: true,
+      backgroundColor: "rgba(22,31,25,.95)",
+      borderWidth: 0,
+      textStyle: { color: "#fff" },
+    },
+    xAxis: {
+      ...sharedAxis,
+      type: "category",
+      data: axis,
+      axisLabel: { ...sharedAxis.axisLabel, formatter: (value: string) => formatDate(value, false) },
+      splitLine: { show: false },
+    },
+    yAxis: { ...sharedAxis, type: "value", min: 0, name: "шаги за неделю", nameTextStyle: { color: colors.muted } },
+    dataZoom: [{ type: "inside", filterMode: "none" }],
+    series: [
+      weeklyBar("Факт", points.map((point) => point.actualSteps), colors.green),
+      { ...weeklyBar("Личная база", points.map((point) => point.baselineSteps), colors.blue), itemStyle: { color: colors.blue, opacity: .72, borderRadius: [5, 5, 1, 1] } },
+    ],
+  };
+}
+
+export function sleepChartOption(points: RecoveryPoint[]): EChartsOption {
+  return {
+    animationDuration: 500,
+    color: [colors.violet, colors.blue, colors.green],
+    grid: sharedGrid,
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: {
+      trigger: "axis",
+      confine: true,
+      formatter: tooltipFormatter,
+      backgroundColor: "rgba(22,31,25,.95)",
+      borderWidth: 0,
+      textStyle: { color: "#fff" },
+    },
+    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false } },
+    yAxis: { ...sharedAxis, type: "value", min: 0, name: "минуты", nameTextStyle: { color: colors.muted } },
+    dataZoom: [{ type: "inside", filterMode: "none" }],
+    series: [
+      {
+        name: "Сон",
+        type: "bar",
+        data: points.map((point) => [point.measuredAt, point.sleepMinutes]),
+        barMaxWidth: 18,
+        itemStyle: { color: colors.violet, borderRadius: [4, 4, 1, 1] },
+      },
+      timeLine("Глубокий сон", points.map((point) => [point.measuredAt, point.deepSleepMinutes]), colors.blue),
+      timeLine("REM", points.map((point) => [point.measuredAt, point.remSleepMinutes]), colors.green),
+    ],
+  };
+}
+
+export function recoveryChartOption(points: RecoveryPoint[]): EChartsOption {
+  return {
+    animationDuration: 500,
+    color: [colors.coral, colors.green],
+    grid: sharedGrid,
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: {
+      trigger: "axis",
+      confine: true,
+      formatter: tooltipFormatter,
+      backgroundColor: "rgba(22,31,25,.95)",
+      borderWidth: 0,
+      textStyle: { color: "#fff" },
+    },
+    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false } },
+    yAxis: [
+      { ...sharedAxis, type: "value", scale: true, name: "пульс", nameTextStyle: { color: colors.muted } },
+      { ...sharedAxis, type: "value", scale: true, name: "HRV, мс", nameTextStyle: { color: colors.muted }, splitLine: { show: false } },
+    ],
+    dataZoom: [{ type: "inside", filterMode: "none" }],
+    series: [
+      timeLine("Пульс покоя", points.map((point) => [point.measuredAt, point.restingHeartRateBpm]), colors.coral),
+      timeLine("HRV", points.map((point) => [point.measuredAt, point.hrvRmssdMs]), colors.green, { yAxisIndex: 1 }),
     ],
   };
 }

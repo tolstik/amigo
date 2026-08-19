@@ -24,6 +24,7 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://amigo@localhost/amigo",
         validation_alias=AliasChoices("AMIGO_DATABASE_URL", "DATABASE_URL"),
     )
+    env: str = "development"
     timezone: str = "Europe/Moscow"
     public_url: str = "https://amigo.tolstik.ru/amigo/"
     static_dir: Path = Path("/app/static")
@@ -52,8 +53,23 @@ class Settings(BaseSettings):
         ),
     )
     weekly_digest_day: str = "mon"
-    weekly_digest_time: time = time(8, 0)
+    weekly_digest_time: time = time(9, 0)
+    daily_digest_time: time = time(9, 0)
     worker_once: bool = False
+
+    # AI analysis runs out of process. The public web application never calls
+    # the gateway directly; these settings are consumed by the dedicated AI
+    # queue worker.
+    ai_enabled: bool = False
+    ai_gateway_url: str = "http://ai-gateway:8090"
+    ai_gateway_timeout_seconds: int = 90
+    ai_poll_seconds: int = 5
+    ai_debounce_seconds: int = 300
+    ai_activity_min_interval_seconds: int = 3600
+    ai_stale_seconds: int = 86400
+    ai_lease_seconds: int = 180
+    ai_max_attempts: int = 4
+    ai_backoff_base_seconds: int = 60
 
     @model_validator(mode="after")
     def load_docker_secrets(self) -> Settings:
@@ -93,12 +109,59 @@ class Settings(BaseSettings):
         ZoneInfo(value)
         return value
 
-    @field_validator("sync_interval_seconds", "outbox_poll_seconds")
+    @field_validator("env")
+    @classmethod
+    def valid_environment(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"development", "test", "production"}:
+            raise ValueError("environment must be development, test, or production")
+        return normalized
+
+    @field_validator(
+        "sync_interval_seconds",
+        "outbox_poll_seconds",
+        "ai_gateway_timeout_seconds",
+        "ai_poll_seconds",
+        "ai_stale_seconds",
+        "ai_lease_seconds",
+        "ai_max_attempts",
+        "ai_backoff_base_seconds",
+    )
     @classmethod
     def positive_interval(cls, value: int) -> int:
         if value < 1:
             raise ValueError("interval must be positive")
         return value
+
+    @field_validator("ai_debounce_seconds", "ai_activity_min_interval_seconds")
+    @classmethod
+    def non_negative_interval(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("interval must not be negative")
+        return value
+
+    @field_validator("ai_gateway_url")
+    @classmethod
+    def valid_ai_gateway_url(cls, value: str) -> str:
+        normalized = value.strip().rstrip("/")
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("AI gateway URL must use HTTP or HTTPS")
+        return normalized
+
+    @model_validator(mode="after")
+    def enforce_production_ai_boundary(self) -> Settings:
+        if self.env == "production":
+            if not self.ai_enabled:
+                raise ValueError("AI analysis must be enabled in production")
+            if self.ai_gateway_url != "http://ai-gateway:8090":
+                raise ValueError("production AI gateway must use the isolated Compose service")
+            if (
+                self.weekly_digest_day != "mon"
+                or self.weekly_digest_time != time(9, 0)
+                or self.daily_digest_time != time(9, 0)
+            ):
+                raise ValueError("production Telegram digests must use the 09:00 Monday contract")
+        return self
 
     @field_validator("weekly_digest_day")
     @classmethod

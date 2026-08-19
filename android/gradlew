@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROPERTIES="$APP_HOME/gradle/wrapper/gradle-wrapper.properties"
+DIST_URL=$(sed -n 's/^distributionUrl=//p' "$PROPERTIES" | sed 's#\\:#:#g')
+DIST_SHA=$(sed -n 's/^distributionSha256Sum=//p' "$PROPERTIES")
+DIST_NAME=$(basename "$DIST_URL" .zip)
+UNPACKED_NAME=${DIST_NAME%-bin}
+GRADLE_HOME_DIR=${GRADLE_USER_HOME:-"$HOME/.gradle"}
+INSTALL_DIR="$GRADLE_HOME_DIR/wrapper/dists/$DIST_NAME"
+GRADLE_BIN="$INSTALL_DIR/$UNPACKED_NAME/bin/gradle"
+
+if [ ! -x "$GRADLE_BIN" ]; then
+    if ! command -v java >/dev/null 2>&1 && [ ! -x "${JAVA_HOME:-}/bin/java" ]; then
+        echo "A JDK 17 or newer is required." >&2
+        exit 1
+    fi
+    command -v curl >/dev/null 2>&1 || {
+        echo "curl is required to bootstrap Gradle." >&2
+        exit 1
+    }
+    command -v unzip >/dev/null 2>&1 || {
+        echo "unzip is required to bootstrap Gradle." >&2
+        exit 1
+    }
+    mkdir -p "$INSTALL_DIR"
+    ARCHIVE="$INSTALL_DIR/$DIST_NAME.zip"
+    curl --fail --location --retry 3 --output "$ARCHIVE.tmp" "$DIST_URL"
+    printf '%s  %s\n' "$DIST_SHA" "$ARCHIVE.tmp" | sha256sum --check --status || {
+        rm -f "$ARCHIVE.tmp"
+        echo "Gradle distribution checksum mismatch." >&2
+        exit 1
+    }
+    mv "$ARCHIVE.tmp" "$ARCHIVE"
+    unzip -q "$ARCHIVE" -d "$INSTALL_DIR"
+    rm -f "$ARCHIVE"
+fi
+
+exec "$GRADLE_BIN" "$@"

@@ -10,7 +10,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 amigo_require_root
 amigo_require_commands \
-    awk cmp crontab curl docker git grep mariadb mktemp nginx python3 rm rmdir ss stat
+    awk cmp crontab curl docker git grep mariadb mktemp nginx python3 rm rmdir sha256sum ss stat
 amigo_require_production_layout
 
 TMP_DIR="$(mktemp -d /run/amigo-verify.XXXXXX)"
@@ -19,6 +19,8 @@ readonly DASHBOARD_HEADERS="${TMP_DIR}/dashboard.headers"
 readonly DASHBOARD_BODY="${TMP_DIR}/dashboard.body"
 readonly API_HEADERS="${TMP_DIR}/api.headers"
 readonly API_BODY="${TMP_DIR}/api.body"
+readonly INGEST_HEADERS="${TMP_DIR}/ingest.headers"
+readonly INGEST_BODY="${TMP_DIR}/ingest.body"
 readonly ASSET_HEADERS="${TMP_DIR}/asset.headers"
 readonly REDIRECT_HEADERS="${TMP_DIR}/redirect.headers"
 readonly CRONTAB_FILE="${TMP_DIR}/tolstik.crontab"
@@ -29,6 +31,8 @@ cleanup() {
         "${DASHBOARD_BODY}" \
         "${API_HEADERS}" \
         "${API_BODY}" \
+        "${INGEST_HEADERS}" \
+        "${INGEST_BODY}" \
         "${ASSET_HEADERS}" \
         "${REDIRECT_HEADERS}" \
         "${CRONTAB_FILE}"
@@ -50,9 +54,43 @@ check_service() {
     health=$(docker inspect \
         --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
         "${container_id}")
-    [[ "${health}" == "none" || "${health}" == "healthy" ]] \
-        || amigo_die "Compose service is unhealthy: ${service} (${health})"
+    [[ "${health}" == "healthy" ]] \
+        || amigo_die "Compose service is not healthy: ${service} (${health})"
     amigo_log "PASS service ${service}: running, health=${health}"
+}
+
+secret_destinations() {
+    local container_id=$1
+    docker inspect "${container_id}" | python3 -c '
+import json, sys
+mounts = json.load(sys.stdin)[0]["Mounts"]
+print(" ".join(sorted(
+    mount["Destination"]
+    for mount in mounts
+    if mount["Destination"].startswith("/run/secrets/")
+)))
+'
+}
+
+container_networks() {
+    local container_id=$1
+    docker inspect "${container_id}" | python3 -c '
+import json, sys
+networks = json.load(sys.stdin)[0]["NetworkSettings"].get("Networks") or {}
+print(" ".join(sorted(networks)))
+'
+}
+
+require_service_networks() {
+    local service=$1
+    local expected=$2
+    local container_id
+    local actual
+
+    container_id=$(amigo_compose ps -q "${service}")
+    actual=$(container_networks "${container_id}")
+    [[ "${actual}" == "${expected}" ]] \
+        || amigo_die "${service} network membership is '${actual}', expected exactly '${expected}'"
 }
 
 require_header() {
@@ -67,35 +105,88 @@ amigo_compose config --quiet
 check_service db
 check_service web
 check_service worker
+check_service ingest
+check_service ai-worker
+check_service ai-gateway
 amigo_compose exec -T db pg_isready -U amigo -d amigo >/dev/null
 
-EXPECTED_IMAGE="amigo:$(amigo_current_release)"
-readonly EXPECTED_IMAGE
-for application_service in web worker; do
+require_service_networks db "amigo_backend"
+require_service_networks web "amigo_backend"
+require_service_networks worker "amigo_backend"
+require_service_networks ingest "amigo_backend"
+require_service_networks ai-worker "amigo_ai_private amigo_backend"
+require_service_networks ai-gateway "amigo_ai_private"
+amigo_log "PASS every service has exactly the expected Docker network membership"
+
+CURRENT_RELEASE="$(amigo_current_release)"
+EXPECTED_IMAGE="amigo:${CURRENT_RELEASE}"
+readonly CURRENT_RELEASE EXPECTED_IMAGE
+for application_service in web worker ingest ai-worker ai-gateway; do
     application_container=$(amigo_compose ps -q "${application_service}")
     actual_image=$(docker inspect --format '{{.Config.Image}}' "${application_container}")
     [[ "${actual_image}" == "${EXPECTED_IMAGE}" ]] \
         || amigo_die "${application_service} runs ${actual_image}, expected immutable ${EXPECTED_IMAGE}"
+    actual_revision=$(docker inspect \
+        --format '{{if .Config.Labels}}{{index .Config.Labels "org.opencontainers.image.revision"}}{{end}}' \
+        "${application_container}")
+    [[ "${actual_revision}" == "${CURRENT_RELEASE}" ]] \
+        || amigo_die "${application_service} OCI revision is '${actual_revision}', expected ${CURRENT_RELEASE}"
 done
-amigo_log "PASS web and worker use the Git-SHA image tag"
+db_container=$(amigo_compose ps -q db)
+db_image=$(docker inspect --format '{{.Config.Image}}' "${db_container}")
+[[ "${db_image}" == "postgres:17-alpine" ]] \
+    || amigo_die "db runs ${db_image}, expected postgres:17-alpine"
+amigo_log "PASS all five application services use the Git-SHA image tag and matching OCI revision; db uses the pinned release tag"
 
-web_container=$(amigo_compose ps -q web)
 worker_container=$(amigo_compose ps -q worker)
-web_secret_destinations="$(docker inspect "${web_container}" | python3 -c '
-import json, sys
-mounts = json.load(sys.stdin)[0]["Mounts"]
-print(" ".join(sorted(m["Destination"] for m in mounts if m["Destination"].startswith("/run/secrets/"))))
-')"
-worker_secret_count="$(docker inspect "${worker_container}" | python3 -c '
-import json, sys
-mounts = json.load(sys.stdin)[0]["Mounts"]
-print(sum(m["Destination"].startswith("/run/secrets/") for m in mounts))
-')"
-[[ "${web_secret_destinations}" == "/run/secrets/postgres_password" ]] \
-    || amigo_die "public web container has unexpected integration secret mounts"
-[[ "${worker_secret_count}" -eq 8 ]] \
-    || amigo_die "worker does not have the expected eight secret mounts"
-amigo_log "PASS integration secrets are isolated from the public web process"
+ai_worker_container=$(amigo_compose ps -q ai-worker)
+gateway_container=$(amigo_compose ps -q ai-gateway)
+readonly POSTGRES_SECRET_DESTINATION="/run/secrets/postgres_password"
+readonly WORKER_SECRET_DESTINATIONS="/run/secrets/app_encryption_key /run/secrets/postgres_password /run/secrets/telegram_bot_token /run/secrets/telegram_chat_id /run/secrets/withings_access_token /run/secrets/withings_client_id /run/secrets/withings_client_secret /run/secrets/withings_refresh_token"
+for postgres_only_service in web ingest ai-worker; do
+    postgres_only_container=$(amigo_compose ps -q "${postgres_only_service}")
+    [[ "$(secret_destinations "${postgres_only_container}")" == "${POSTGRES_SECRET_DESTINATION}" ]] \
+        || amigo_die "${postgres_only_service} has unexpected secret mounts"
+done
+[[ "$(secret_destinations "${worker_container}")" == "${WORKER_SECRET_DESTINATIONS}" ]] \
+    || amigo_die "worker does not have exactly the expected eight secret mounts"
+[[ -z "$(secret_destinations "${gateway_container}")" ]] \
+    || amigo_die "AI gateway unexpectedly receives Docker secrets"
+amigo_log "PASS PostgreSQL-only, integration, and zero-secret container boundaries"
+
+ai_worker_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${ai_worker_container}")"
+grep --fixed-strings --line-regexp --quiet 'AMIGO_ENV=production' <<<"${ai_worker_environment}" \
+    || amigo_die "AI worker is not running with the production settings boundary"
+grep --fixed-strings --line-regexp --quiet 'AMIGO_AI_ENABLED=true' <<<"${ai_worker_environment}" \
+    || amigo_die "AI worker does not have generated analysis enabled"
+grep --fixed-strings --line-regexp --quiet \
+    'AMIGO_AI_GATEWAY_URL=http://ai-gateway:8090' <<<"${ai_worker_environment}" \
+    || amigo_die "AI worker can send snapshots outside the isolated gateway"
+amigo_log "PASS production AI worker is pinned to the isolated Compose gateway"
+
+worker_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${worker_container}")"
+grep --fixed-strings --line-regexp --quiet 'AMIGO_WEEKLY_DIGEST_DAY=mon' <<<"${worker_environment}" \
+    || amigo_die "worker weekly digest day differs from Monday"
+grep --fixed-strings --line-regexp --quiet 'AMIGO_WEEKLY_DIGEST_TIME=09:00' <<<"${worker_environment}" \
+    || amigo_die "worker weekly digest time differs from 09:00"
+grep --fixed-strings --line-regexp --quiet 'AMIGO_DAILY_DIGEST_TIME=09:00' <<<"${worker_environment}" \
+    || amigo_die "worker daily digest time differs from 09:00"
+amigo_log "PASS production Telegram daily/weekly schedule is pinned to 09:00 Europe/Moscow"
+
+readonly CODEX_RUNTIME_BINARY="/srv/amigo/data/codex-bin/codex"
+readonly CODEX_CONTAINER_BINARY="/opt/amigo/codex"
+readonly CODEX_EXPECTED_SHA256="ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074"
+[[ -f "${CODEX_RUNTIME_BINARY}" && ! -L "${CODEX_RUNTIME_BINARY}" ]] \
+    || amigo_die "pinned Codex runtime binary is missing or is a symlink"
+[[ "$(sha256sum "${CODEX_RUNTIME_BINARY}" | awk '{print $1}')" == "${CODEX_EXPECTED_SHA256}" ]] \
+    || amigo_die "host Codex runtime binary hash differs from the pinned 0.148.0 release"
+codex_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/opt/amigo/codex"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${gateway_container}")"
+[[ "${codex_mount}" == "${CODEX_RUNTIME_BINARY}|false" ]] \
+    || amigo_die "AI gateway Codex binary mount is missing, writable, or sourced unexpectedly"
+container_codex_hash="$(docker exec "${gateway_container}" sha256sum "${CODEX_CONTAINER_BINARY}" | awk '{print $1}')"
+[[ "${container_codex_hash}" == "${CODEX_EXPECTED_SHA256}" ]] \
+    || amigo_die "running AI gateway sees an unpinned Codex binary"
+amigo_log "PASS Codex 0.148.0 binary and read-only gateway mount match the pinned SHA-256"
 
 [[ -s "${AMIGO_LEGACY_WEIGHT_IMPORT}" && ! -L "${AMIGO_LEGACY_WEIGHT_IMPORT}" ]] \
     || amigo_die "root-only legacy weight import is missing"
@@ -115,16 +206,36 @@ readonly WEB_CONTAINER IMPORT_MOUNT_RW
     || amigo_die "web /imports mount is missing or is not read-only"
 amigo_log "PASS legacy import is root-only on host and read-only in the container"
 
-LISTENERS="$(ss -H -ltn 'sport = :18181')"
-readonly LISTENERS
-[[ -n "${LISTENERS}" ]] || amigo_die "nothing is listening on TCP port 18181"
-awk '$4 != "127.0.0.1:18181" { exit 1 }' <<<"${LISTENERS}" \
-    || amigo_die "port 18181 is not restricted to 127.0.0.1"
-amigo_log "PASS web port is bound only to 127.0.0.1:18181"
+check_loopback_listener() {
+    local port=$1
+    local service=$2
+    local listeners
+    listeners="$(ss -H -ltn "sport = :${port}")"
+    [[ -n "${listeners}" ]] || amigo_die "nothing is listening for ${service} on TCP port ${port}"
+    awk -v expected="127.0.0.1:${port}" '$4 != expected { exit 1 }' <<<"${listeners}" \
+        || amigo_die "${service} port ${port} is not restricted to 127.0.0.1"
+}
+
+check_loopback_listener 18181 web
+check_loopback_listener 18182 ingest
+amigo_log "PASS web and ingest ports are bound only to their loopback listeners"
+
+gateway_published_ports="$(docker inspect "${gateway_container}" | python3 -c '
+import json, sys
+ports = json.load(sys.stdin)[0]["NetworkSettings"].get("Ports") or {}
+print(sum(bool(bindings) for bindings in ports.values()))
+')"
+[[ "${gateway_published_ports}" -eq 0 ]] \
+    || amigo_die "AI gateway unexpectedly publishes a Docker port"
+[[ -z "$(ss -H -ltn 'sport = :8090')" ]] \
+    || amigo_die "AI gateway port 8090 is unexpectedly listening on the host"
+amigo_log "PASS AI gateway has no published Docker or host listener"
 
 curl --fail --silent --show-error --max-time 10 \
     --output /dev/null "${AMIGO_DIRECT_HEALTH_URL}"
-amigo_log "PASS direct health endpoint"
+curl --fail --silent --show-error --max-time 10 \
+    --output /dev/null "http://127.0.0.1:18182/healthz"
+amigo_log "PASS direct web and ingest health endpoints"
 
 nginx -t >/dev/null
 [[ "$(grep -Ec '^[[:space:]]*# BEGIN AMIGO V2 ROUTE[[:space:]]*$' "${AMIGO_NGINX_CONFIG}")" -eq 2 ]] \
@@ -204,17 +315,81 @@ require_header '^cache-control:[[:space:]]*public,[[:space:]]*max-age=31536000,[
     || amigo_die "hashed asset returned conflicting Cache-Control headers"
 amigo_log "PASS hashed frontend asset has one immutable cache policy"
 
-curl --fail --silent --show-error --max-time 20 \
-    --proto '=https' \
-    --tlsv1.2 \
-    --dump-header "${API_HEADERS}" \
-    --output "${API_BODY}" \
-    "${AMIGO_PUBLIC_URL}api/v1/overview"
-python3 -m json.tool "${API_BODY}" >/dev/null
-require_header '^cache-control:.*no-store' "${API_HEADERS}"
-amigo_log "PASS public overview API returns JSON"
+check_public_json_api() {
+    local path=$1
+    local contract=$2
+    local label=$3
+    curl --fail --silent --show-error --max-time 20 \
+        --proto '=https' \
+        --tlsv1.2 \
+        --dump-header "${API_HEADERS}" \
+        --output "${API_BODY}" \
+        "${AMIGO_PUBLIC_URL}${path}"
+    require_header '^cache-control:.*no-store' "${API_HEADERS}"
+    python3 - "${API_BODY}" "${contract}" <<'PY'
+from pathlib import Path
+import json
+import sys
 
-for hidden_path in healthz amigo/healthz amigo/internal/health; do
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+contract = sys.argv[2]
+if not isinstance(payload, dict):
+    raise SystemExit("API response is not an object")
+if contract == "overview":
+    if not isinstance(payload.get("weight"), dict) or not isinstance(payload.get("pressure"), dict):
+        raise SystemExit("overview contract is incomplete")
+elif contract in {"activity", "recovery"}:
+    if not isinstance(payload.get("daily"), list) or not isinstance(payload.get("weekly"), list):
+        raise SystemExit(f"{contract} series contract is incomplete")
+elif contract == "ai":
+    if payload.get("ai_generated") is not True:
+        raise SystemExit("AI payload is not marked as generated")
+    if payload.get("status") not in {"fresh", "stale", "pending", "unavailable"}:
+        raise SystemExit("AI payload has an invalid status")
+else:
+    raise SystemExit("unknown verification contract")
+PY
+    amigo_log "PASS public ${label} API returns the expected no-store JSON contract"
+}
+
+check_public_json_api "api/v1/overview" overview overview
+check_public_json_api "api/v1/series/activity?range=30d" activity activity
+check_public_json_api "api/v1/series/recovery?range=30d" recovery recovery
+check_public_json_api "api/v1/ai-analysis" ai AI-analysis
+
+INGEST_REJECTION_STATUS="$(
+    curl --disable --silent --show-error --max-time 20 \
+        --proto '=https' \
+        --tlsv1.2 \
+        --request POST \
+        --header 'Content-Type: application/json' \
+        --data '{}' \
+        --dump-header "${INGEST_HEADERS}" \
+        --output "${INGEST_BODY}" \
+        --write-out '%{http_code}' \
+        'https://amigo.tolstik.ru/amigo-ingest/v1/health-connect/batches'
+)"
+readonly INGEST_REJECTION_STATUS
+[[ "${INGEST_REJECTION_STATUS}" == "400" ]] \
+    || amigo_die "unsigned exact ingest route returned ${INGEST_REJECTION_STATUS}, expected 400"
+require_header '^cache-control:.*no-store' "${INGEST_HEADERS}"
+python3 - "${INGEST_BODY}" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if payload != {"detail": {"code": "missing_signature_header"}}:
+    raise SystemExit("unsigned ingest rejection contract changed")
+PY
+amigo_log "PASS exact ingest route rejects an unsigned empty request before any health record can be created"
+
+for hidden_path in \
+    healthz \
+    amigo/healthz \
+    amigo/internal/health \
+    amigo-ingest/healthz \
+    amigo-ai/healthz; do
     external_health_status=$(
         curl --silent --show-error --location --max-time 15 \
             --proto '=https' \

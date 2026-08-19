@@ -1,5 +1,11 @@
 import type {
+  ActivityPoint,
+  ActivitySeriesResponse,
+  AiAnalysis,
+  AiAnalysisStatus,
+  AiNarrativeItem,
   CompositionPoint,
+  HealthCorrelation,
   Insight,
   InsightTone,
   Overview,
@@ -7,6 +13,8 @@ import type {
   PressurePoint,
   PressureSeriesResponse,
   PressureStats,
+  RecoveryPoint,
+  RecoverySeriesResponse,
   SeriesMeta,
   SeriesResponse,
   SyncStatus,
@@ -14,6 +22,7 @@ import type {
   WeightProjectionPoint,
   WeightPoint,
   WeightSeriesResponse,
+  WeeklyActivityPoint,
   WeeklyWeightPoint,
 } from "./types";
 
@@ -401,6 +410,160 @@ export function normalizeCompositionSeries(payload: unknown, range: Period): Ser
   return { points, meta: metaWithBounds(payload, range, points) };
 }
 
+export function normalizeActivitySeries(payload: unknown, range: Period): ActivitySeriesResponse {
+  const body = unbox(payload);
+  const source = list(body, "points", "daily", "items");
+  const points = source
+    .map((value): ActivityPoint | null => {
+      const measuredAt = string(value, "measured_at", "measuredAt", "date");
+      if (!measuredAt) return null;
+      return {
+        measuredAt,
+        steps: number(value, "steps"),
+        distanceKm: number(value, "distance_km", "distanceKm"),
+        activeCaloriesKcal: number(value, "active_calories_kcal", "activeCaloriesKcal"),
+        totalCaloriesKcal: number(value, "total_calories_kcal", "totalCaloriesKcal"),
+        activeMinutes: number(value, "active_minutes", "activeMinutes"),
+        workoutMinutes: number(value, "workout_minutes", "workoutMinutes"),
+        workouts: number(value, "workouts", "workout_count", "workoutCount") ?? 0,
+      };
+    })
+    .filter((point): point is ActivityPoint => point !== null)
+    .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
+  const weekly = list(body, "weekly", "weeks")
+    .map((value): WeeklyActivityPoint | null => {
+      const startDate = string(value, "start_date", "startDate");
+      const endDate = string(value, "end_date", "endDate");
+      if (!startDate || !endDate) return null;
+      return {
+        startDate,
+        endDate,
+        actualSteps: number(value, "actual_steps", "actualSteps", "steps"),
+        baselineSteps: number(value, "baseline_steps", "baselineSteps", "expected_steps"),
+        actualActiveMinutes: number(value, "actual_active_minutes", "actualActiveMinutes", "active_minutes"),
+        baselineActiveMinutes: number(value, "baseline_active_minutes", "baselineActiveMinutes"),
+        actualWorkoutMinutes: number(value, "actual_workout_minutes", "actualWorkoutMinutes", "workout_minutes"),
+        workouts: number(value, "workouts", "workout_count", "workoutCount") ?? 0,
+        coverageDays: number(value, "coverage_days.steps", "coverageDays.steps", "coverage_days", "coverageDays") ?? 0,
+        isPartial: boolean(value, "is_partial", "isPartial"),
+      };
+    })
+    .filter((point): point is WeeklyActivityPoint => point !== null)
+    .sort((left, right) => left.startDate.localeCompare(right.startDate));
+  const summary = record(record(body).summary);
+  const latest = points.at(-1);
+  const correlations = normalizeHealthCorrelations(body);
+  return {
+    points,
+    weekly,
+    summary: {
+      latestDate: string(summary, "latest_date", "latestDate") ?? latest?.measuredAt ?? null,
+      steps: number(summary, "steps", "latest_steps") ?? latest?.steps ?? null,
+      baselineSteps: number(summary, "baseline_steps", "baselineSteps"),
+      distanceKm: number(summary, "distance_km", "distanceKm") ?? latest?.distanceKm ?? null,
+      activeCaloriesKcal: number(summary, "active_calories_kcal", "activeCaloriesKcal") ?? latest?.activeCaloriesKcal ?? null,
+      activeMinutes: number(summary, "active_minutes", "activeMinutes") ?? latest?.activeMinutes ?? null,
+      workouts7d: number(summary, "workouts_7d", "workouts7d") ?? points.slice(-7).reduce((total, point) => total + point.workouts, 0),
+      dataAsOf: string(summary, "data_as_of", "dataAsOf") ?? string(body, "data_as_of", "dataAsOf"),
+    },
+    correlations,
+    meta: metaWithBounds(payload, range, points),
+  };
+}
+
+function normalizeHealthCorrelations(body: unknown): HealthCorrelation[] {
+  const defaultDisclaimer = string(body, "correlation_policy.disclaimer", "correlationPolicy.disclaimer")
+    ?? "Корреляция не доказывает причинность.";
+  return list(body, "correlations")
+    .map((value): HealthCorrelation | null => {
+      const metric = string(value, "metric", "source_metric", "sourceMetric");
+      const target = string(value, "target", "target_metric", "targetMetric");
+      const coefficient = number(value, "coefficient");
+      const fullOverlappingWeeks = number(value, "full_overlapping_weeks", "fullOverlappingWeeks");
+      if (!metric || !target || coefficient === null || fullOverlappingWeeks === null) return null;
+      return {
+        metric,
+        target,
+        coefficient,
+        fullOverlappingWeeks,
+        disclaimer: string(value, "disclaimer") ?? defaultDisclaimer,
+      };
+    })
+    .filter((value): value is HealthCorrelation => value !== null);
+}
+
+export function normalizeRecoverySeries(payload: unknown, range: Period): RecoverySeriesResponse {
+  const body = unbox(payload);
+  const points = list(body, "points", "daily", "items")
+    .map((value): RecoveryPoint | null => {
+      const measuredAt = string(value, "measured_at", "measuredAt", "date");
+      if (!measuredAt) return null;
+      return {
+        measuredAt,
+        sleepMinutes: number(value, "sleep_minutes", "sleepMinutes"),
+        deepSleepMinutes: number(value, "deep_sleep_minutes", "deepSleepMinutes"),
+        remSleepMinutes: number(value, "rem_sleep_minutes", "remSleepMinutes"),
+        awakeMinutes: number(value, "awake_minutes", "awakeMinutes"),
+        restingHeartRateBpm: number(value, "resting_heart_rate_bpm", "restingHeartRateBpm"),
+        averageHeartRateBpm: number(value, "average_heart_rate_bpm", "averageHeartRateBpm"),
+        hrvRmssdMs: number(value, "hrv_rmssd_ms", "hrvRmssdMs", "hrv_ms"),
+        spo2Pct: number(value, "oxygen_saturation_pct", "spo2_pct", "spo2Pct"),
+        vo2Max: number(value, "vo2_max_ml_kg_min", "vo2_max", "vo2Max"),
+      };
+    })
+    .filter((point): point is RecoveryPoint => point !== null)
+    .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
+  const summary = record(record(body).summary);
+  const latest = points.at(-1);
+  return {
+    points,
+    summary: {
+      latestDate: string(summary, "latest_date", "latestDate") ?? latest?.measuredAt ?? null,
+      sleepMinutes: number(summary, "sleep_minutes", "sleepMinutes") ?? latest?.sleepMinutes ?? null,
+      baselineSleepMinutes: number(summary, "baseline_sleep_minutes", "baselineSleepMinutes"),
+      restingHeartRateBpm: number(summary, "resting_heart_rate_bpm", "restingHeartRateBpm") ?? latest?.restingHeartRateBpm ?? null,
+      baselineRestingHeartRateBpm: number(summary, "baseline_resting_heart_rate_bpm", "baselineRestingHeartRateBpm"),
+      hrvRmssdMs: number(summary, "hrv_rmssd_ms", "hrvRmssdMs") ?? latest?.hrvRmssdMs ?? null,
+      baselineHrvRmssdMs: number(summary, "baseline_hrv_rmssd_ms", "baselineHrvRmssdMs"),
+      spo2Pct: number(summary, "oxygen_saturation_pct", "spo2_pct", "spo2Pct") ?? latest?.spo2Pct ?? null,
+      dataAsOf: string(summary, "data_as_of", "dataAsOf") ?? string(body, "data_as_of", "dataAsOf"),
+    },
+    availableMetrics: list(body, "available_metrics", "availableMetrics").filter((value): value is string => typeof value === "string"),
+    correlations: normalizeHealthCorrelations(body),
+    meta: metaWithBounds(payload, range, points),
+  };
+}
+
+function normalizeAiItem(value: unknown, index: number, prefix: string): AiNarrativeItem | null {
+  const textValue = string(value, "text", "message", "description");
+  if (!textValue) return null;
+  return {
+    id: string(value, "id") ?? `${prefix}-${index}`,
+    title: string(value, "title") ?? (prefix === "recommendation" ? "Рекомендация" : "Наблюдение"),
+    text: textValue,
+    evidenceIds: list(value, "evidence_ids", "evidenceIds").filter((item): item is string => typeof item === "string"),
+  };
+}
+
+export function normalizeAiAnalysis(payload: unknown): AiAnalysis {
+  const body = unbox(payload);
+  const statusValue = string(body, "status") as AiAnalysisStatus | null;
+  const status: AiAnalysisStatus = statusValue && ["fresh", "stale", "unavailable", "pending"].includes(statusValue)
+    ? statusValue
+    : string(body, "generated_at", "generatedAt") ? "fresh" : "unavailable";
+  return {
+    status,
+    headline: string(body, "headline"),
+    summary: string(body, "summary"),
+    insights: list(body, "insights").map((value, index) => normalizeAiItem(value, index, "insight")).filter((value): value is AiNarrativeItem => value !== null),
+    recommendations: list(body, "recommendations").map((value, index) => normalizeAiItem(value, index, "recommendation")).filter((value): value is AiNarrativeItem => value !== null),
+    limitations: list(body, "limitations").filter((value): value is string => typeof value === "string"),
+    generatedAt: string(body, "generated_at", "generatedAt"),
+    dataAsOf: string(body, "data_as_of", "dataAsOf"),
+    model: string(body, "model"),
+  };
+}
+
 async function fetchJson(path: string, signal?: AbortSignal): Promise<unknown> {
   const response = await fetch(`${API_ROOT}${path}`, {
     signal,
@@ -433,6 +596,11 @@ export const api = {
     normalizePressureSeries(await fetchJson(`/series/pressure${queryRange(range)}`, signal), range),
   composition: async (range: Period, signal?: AbortSignal) =>
     normalizeCompositionSeries(await fetchJson(`/series/composition${queryRange(range)}`, signal), range),
+  activity: async (range: Period, signal?: AbortSignal) =>
+    normalizeActivitySeries(await fetchJson(`/series/activity${queryRange(range)}`, signal), range),
+  recovery: async (range: Period, signal?: AbortSignal) =>
+    normalizeRecoverySeries(await fetchJson(`/series/recovery${queryRange(range)}`, signal), range),
+  aiAnalysis: async (signal?: AbortSignal) => normalizeAiAnalysis(await fetchJson("/ai-analysis", signal)),
   insights: async (signal?: AbortSignal): Promise<Insight[]> => {
     const payload = unbox(await fetchJson("/insights", signal));
     return list(payload, "items", "insights")
@@ -441,6 +609,6 @@ export const api = {
   },
 };
 
-export function csvUrl(kind: "weight" | "pressure" | "composition", range: Period): string {
+export function csvUrl(kind: "weight" | "pressure" | "composition" | "activity" | "recovery", range: Period): string {
   return `${API_ROOT}/export/${kind}.csv?${new URLSearchParams({ range }).toString()}`;
 }

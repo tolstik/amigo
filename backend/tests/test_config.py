@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
 from sqlalchemy.engine import make_url
 
 from app.config import Settings
@@ -29,3 +31,29 @@ def test_docker_secret_files_and_database_password_are_loaded(monkeypatch, tmp_p
     assert settings.telegram_bot_token == "bot-token"
     assert settings.telegram_chat_id == "chat-id"
     assert make_url(settings.database_url).password == "p@ss word"
+
+
+def test_production_requires_the_isolated_ai_gateway():
+    settings = Settings(
+        env="production",
+        ai_enabled=True,
+        ai_gateway_url="http://ai-gateway:8090/",
+    )
+    assert settings.ai_gateway_url == "http://ai-gateway:8090"
+
+    with pytest.raises(ValidationError, match="must be enabled"):
+        Settings(env="production", ai_enabled=False)
+
+    with pytest.raises(ValidationError, match="isolated Compose service"):
+        Settings(
+            env="production",
+            ai_enabled=True,
+            ai_gateway_url="https://example.invalid/analyze",
+        )
+
+    with pytest.raises(ValidationError, match="09:00 Monday contract"):
+        Settings(
+            env="production",
+            ai_enabled=True,
+            weekly_digest_time="08:00",
+        )

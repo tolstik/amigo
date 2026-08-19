@@ -159,3 +159,104 @@ export interface PressureSeriesResponse extends SeriesResponse<PressurePoint> {
   stats7d: PressureStats;
   stats30d: PressureStats;
 }
+
+export interface ActivityPoint {
+  measuredAt: string;
+  steps: number | null;
+  distanceKm: number | null;
+  activeCaloriesKcal: number | null;
+  totalCaloriesKcal: number | null;
+  activeMinutes: number | null;
+  workoutMinutes: number | null;
+  workouts: number;
+}
+
+export interface WeeklyActivityPoint {
+  startDate: string;
+  endDate: string;
+  actualSteps: number | null;
+  baselineSteps: number | null;
+  actualActiveMinutes: number | null;
+  baselineActiveMinutes: number | null;
+  actualWorkoutMinutes: number | null;
+  workouts: number;
+  coverageDays: number;
+  isPartial: boolean;
+}
+
+export interface ActivitySummary {
+  latestDate: string | null;
+  steps: number | null;
+  baselineSteps: number | null;
+  distanceKm: number | null;
+  activeCaloriesKcal: number | null;
+  activeMinutes: number | null;
+  workouts7d: number;
+  dataAsOf: string | null;
+}
+
+export interface HealthCorrelation {
+  metric: string;
+  target: string;
+  coefficient: number;
+  fullOverlappingWeeks: number;
+  disclaimer: string;
+}
+
+export interface ActivitySeriesResponse extends SeriesResponse<ActivityPoint> {
+  weekly: WeeklyActivityPoint[];
+  summary: ActivitySummary;
+  correlations: HealthCorrelation[];
+}
+
+export interface RecoveryPoint {
+  measuredAt: string;
+  sleepMinutes: number | null;
+  deepSleepMinutes: number | null;
+  remSleepMinutes: number | null;
+  awakeMinutes: number | null;
+  restingHeartRateBpm: number | null;
+  averageHeartRateBpm: number | null;
+  hrvRmssdMs: number | null;
+  spo2Pct: number | null;
+  vo2Max: number | null;
+}
+
+export interface RecoverySummary {
+  latestDate: string | null;
+  sleepMinutes: number | null;
+  baselineSleepMinutes: number | null;
+  restingHeartRateBpm: number | null;
+  baselineRestingHeartRateBpm: number | null;
+  hrvRmssdMs: number | null;
+  baselineHrvRmssdMs: number | null;
+  spo2Pct: number | null;
+  dataAsOf: string | null;
+}
+
+export interface RecoverySeriesResponse extends SeriesResponse<RecoveryPoint> {
+  summary: RecoverySummary;
+  availableMetrics: string[];
+  correlations: HealthCorrelation[];
+}
+
+export interface AiNarrativeItem {
+  id: string;
+  title: string;
+  text: string;
+  evidenceIds: string[];
+}
+
+export type AiAnalysisStatus = "fresh" | "stale" | "unavailable" | "pending";
+
+export interface AiAnalysis {
+  status: AiAnalysisStatus;
+  headline: string | null;
+  summary: string | null;
+  insights: AiNarrativeItem[];
+  recommendations: AiNarrativeItem[];
+  limitations: string[];
+  generatedAt: string | null;
+  dataAsOf: string | null;
+  model: string | null;
+}

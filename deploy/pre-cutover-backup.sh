@@ -10,7 +10,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 amigo_require_root
 amigo_require_commands \
-    awk chmod cp crontab date find flock gzip hostname install mv nginx realpath \
+    awk chmod cp crontab date docker find flock gzip hostname install mv nginx realpath \
     sha256sum sort tar xargs
 amigo_acquire_deploy_lock
 
@@ -71,6 +71,25 @@ amigo_log "dumping legacy MariaDB database"
     --databases "${AMIGO_LEGACY_DB}" \
     | gzip -9 >"${STAGING_DIR}/legacy-mariadb-amigo.sql.gz"
 
+POSTGRES_DUMP_CREATED=0
+postgres_container="$(amigo_compose ps -q db 2>/dev/null || true)"
+if [[ -n "${postgres_container}" ]] \
+    && [[ "$(docker inspect --format '{{.State.Status}}' "${postgres_container}")" == "running" ]]; then
+    amigo_log "dumping the current Amigo PostgreSQL database"
+    amigo_compose exec -T db pg_dump \
+        --username amigo \
+        --dbname amigo \
+        --format=custom \
+        --no-owner \
+        --no-privileges \
+        >"${STAGING_DIR}/postgres-amigo.dump"
+    [[ -s "${STAGING_DIR}/postgres-amigo.dump" ]] \
+        || amigo_die "PostgreSQL dump is empty"
+    amigo_compose exec -T db pg_restore --list \
+        <"${STAGING_DIR}/postgres-amigo.dump" >/dev/null
+    POSTGRES_DUMP_CREATED=1
+fi
+
 amigo_log "capturing crontabs"
 crontab -u "${AMIGO_LEGACY_CRON_USER}" -l \
     >"${STAGING_DIR}/crontab/${AMIGO_LEGACY_CRON_USER}.crontab" \
@@ -116,6 +135,7 @@ nginx -T >"${STAGING_DIR}/nginx/nginx-T.txt" 2>&1
     if git -C "${AMIGO_APP_DIR}" rev-parse HEAD >/dev/null 2>&1; then
         printf 'candidate_git_sha=%s\n' "$(git -C "${AMIGO_APP_DIR}" rev-parse HEAD)"
     fi
+    printf 'postgres_dump_created=%s\n' "${POSTGRES_DUMP_CREATED}"
 } >"${STAGING_DIR}/metadata.txt"
 
 amigo_log "verifying archives and database dump"

@@ -9,6 +9,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
+from .ai_snapshot import enqueue_current_analysis
 from .db import SessionLocal
 from .models import JobRun, Outbox, utcnow
 from .telegram import TelegramNotifier
@@ -35,7 +36,34 @@ def schedule_weekly_digest(db: Session, settings: Settings, now: datetime | None
         Outbox(
             event_key=event_key,
             event_type="weekly.digest",
-            payload={"week_ending": local.date().isoformat()},
+            # The Monday report summarizes the ISO week that ended on Sunday,
+            # never the just-started current week.
+            payload={"week_ending": (local.date() - timedelta(days=1)).isoformat()},
+            available_at=current,
+        )
+    )
+    db.commit()
+    return True
+
+
+def schedule_daily_digest(db: Session, settings: Settings, now: datetime | None = None) -> bool:
+    current = now or datetime.now(timezone.utc)
+    local = current.astimezone(settings.tz)
+    digest_time = settings.daily_digest_time
+    # Monday's expanded weekly digest replaces the daily message.
+    if local.weekday() == WEEKDAYS[settings.weekly_digest_day] or (
+        local.hour,
+        local.minute,
+    ) < (digest_time.hour, digest_time.minute):
+        return False
+    event_key = f"daily-digest:{local.date().isoformat()}"
+    if db.scalar(select(Outbox.id).where(Outbox.event_key == event_key)) is not None:
+        return False
+    db.add(
+        Outbox(
+            event_key=event_key,
+            event_type="daily.digest",
+            payload={"day": local.date().isoformat()},
             available_at=current,
         )
     )
@@ -157,6 +185,13 @@ class Worker:
                 def incremental():
                     with WithingsClient(db, self.settings) as client:
                         result = client.sync()
+                    if result.created or result.updated:
+                        enqueue_current_analysis(
+                            db,
+                            self.settings,
+                            trigger="measurement",
+                            now=now,
+                        )
                     return result.__dict__
 
                 self._recorded_job(db, "withings-incremental", run_key, incremental)
@@ -167,10 +202,33 @@ class Worker:
                 def reconcile():
                     with WithingsClient(db, self.settings) as client:
                         result = client.sync(reconcile_days=90, suppress_notifications=True)
+                    if result.created or result.updated:
+                        enqueue_current_analysis(
+                            db,
+                            self.settings,
+                            trigger="measurement",
+                            now=now,
+                        )
                     return result.__dict__
 
                 self._recorded_job(db, "withings-reconcile", run_key, reconcile)
+            digest_at = datetime.combine(local.date(), self.settings.daily_digest_time, self.settings.tz)
+            prepare_at = digest_at - timedelta(minutes=15)
+            if local >= prepare_at:
+                run_key = f"ai-digest-prepare:{local.date().isoformat()}"
+
+                def prepare_ai_digest():
+                    job = enqueue_current_analysis(
+                        db,
+                        self.settings,
+                        trigger="scheduled",
+                        now=now,
+                    )
+                    return {"job_id": job.id if job is not None else None}
+
+                self._recorded_job(db, "ai-digest-prepare", run_key, prepare_ai_digest)
             schedule_weekly_digest(db, self.settings, now)
+            schedule_daily_digest(db, self.settings, now)
             processor.drain()
             heartbeat_key = f"worker-heartbeat:{now.strftime('%Y%m%dT%H%M')}"
             if db.scalar(select(JobRun.id).where(JobRun.run_key == heartbeat_key)) is None:

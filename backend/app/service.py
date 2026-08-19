@@ -15,7 +15,6 @@ from .analytics import (
     PlanSpec,
     PressureReading,
     ValuePoint,
-    build_insights,
     daily_medians,
     local_range_start,
     plan_weight,
@@ -78,16 +77,6 @@ def flat_pressure_stats(payload: dict[str, Any]) -> dict[str, Any]:
         "variability_diastolic": diastolic.get("variability"),
         "sessions": payload.get("sessions", 0),
     }
-
-
-def insight_tone(rule: str, priority: int) -> str:
-    if rule.startswith("milestone"):
-        return "achievement"
-    if rule == "on_plan":
-        return "positive"
-    if priority >= 70:
-        return "attention"
-    return "neutral"
 
 
 def active_plan(db: Session) -> PlanSpec:
@@ -457,7 +446,6 @@ def overview(db: Session, tz: ZoneInfo, now: datetime | None = None) -> dict[str
     pressure_30d = pressure_payload["stats_30d"]
     composition_payload = composition_series(db, tz, "all", current)
     latest_composition = composition_payload["points"][-1] if composition_payload["points"] else None
-    generated_insights = build_insights(daily, plan, today)
     sync_status = "unknown"
     if state and state.last_error:
         sync_status = "error"
@@ -566,25 +554,17 @@ def overview(db: Session, tz: ZoneInfo, now: datetime | None = None) -> dict[str
             "initial_import_done": state.initial_import_done if state else False,
             "has_error": bool(state and state.last_error),
         },
-        "insights": [
-            {
-                "id": item["id"],
-                "title": item["title"],
-                "text": item["message"],
-                "tone": insight_tone(str(item["rule"]), int(item["priority"])),
-                "created_at": _iso(current),
-            }
-            for item in generated_insights
-        ],
+        # Narrative content is served from the asynchronous, schema-validated
+        # AI result endpoint. Never substitute the legacy rule templates here.
+        "insights": [],
     }
 
 
 def insights(db: Session, tz: ZoneInfo, now: datetime | None = None) -> dict[str, Any]:
     current = _aware(now or datetime.now(timezone.utc))
-    plan = active_plan(db)
-    daily = weight_daily(db, tz, plan.start_date)
     return {
         "generated_at": _iso(current),
-        "items": build_insights(daily, plan, current.astimezone(tz).date()),
-        "rules_based": True,
+        "items": [],
+        "ai_generated": True,
+        "status": "pending",
     }

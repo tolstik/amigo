@@ -276,6 +276,8 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 .today-row__icon svg { width: 20px; }
 .today-row__icon--coral { background: var(--coral-soft); color: var(--coral); }
 .today-row__icon--violet { background: var(--violet-soft); color: var(--violet); }
+.today-row__icon--green { background: var(--green-soft); color: var(--green-deep); }
+.today-row__icon--blue { background: var(--blue-soft); color: var(--blue); }
 .today-row > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; }
 .today-row small { color: var(--text-faint); font-size: 10px; }
 .today-row strong { margin: 3px 0; font-size: 18px; letter-spacing: -.02em; }
@@ -287,14 +289,30 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 .section-heading { display: flex; margin-bottom: 14px; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .rules-badge { display: inline-flex; padding: 7px 10px; align-items: center; gap: 6px; border-radius: 99px; background: var(--surface-soft); color: var(--text-soft); font-size: 10px; }
 .rules-badge svg { width: 14px; color: var(--violet); }
+.rules-badge--stale { background: var(--amber-soft); color: var(--amber); }
+.rules-badge--unavailable { background: var(--coral-soft); color: var(--coral); }
 .insight-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .insight { display: flex; min-height: 126px; padding: 17px; gap: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
 .insight__icon { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 11px; background: var(--surface-soft); color: var(--green-deep); }
 .insight__icon svg { width: 17px; }
 .insight--attention .insight__icon { background: var(--amber-soft); color: var(--amber); }
 .insight--achievement .insight__icon { background: var(--violet-soft); color: var(--violet); }
+.insight--recommendation .insight__icon { background: var(--blue-soft); color: var(--blue); }
 .insight strong { display: block; margin-top: 3px; font-size: 13px; }
 .insight p { margin: 7px 0 0; color: var(--text-soft); font-size: 11px; line-height: 1.5; }
+.insight small { display: block; margin-top: 9px; color: var(--text-faint); font-size: 9px; line-height: 1.45; }
+.ai-analysis { padding: 22px; }
+.ai-analysis__intro { display: flex; margin-bottom: 18px; align-items: flex-start; gap: 14px; }
+.ai-analysis__intro h3 { margin: 1px 0 0; font-size: 18px; letter-spacing: -.02em; }
+.ai-analysis__intro p { max-width: 850px; margin: 8px 0 7px; color: var(--text-soft); font-size: 12px; line-height: 1.6; }
+.ai-analysis__intro small { color: var(--text-faint); font-size: 9px; }
+.ai-orbit { display: grid; width: 40px; height: 40px; flex: 0 0 auto; place-items: center; border-radius: 13px; background: linear-gradient(145deg, var(--violet-soft), var(--blue-soft)); color: var(--violet); }
+.ai-orbit svg { width: 20px; }
+.ai-analysis__limitations { margin: 16px 3px 0; color: var(--text-faint); font-size: 10px; line-height: 1.5; }
+.ai-unavailable { min-height: 104px; padding: 23px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); background: var(--surface); }
+.ai-unavailable strong { font-size: 13px; }
+.ai-unavailable p { margin: 7px 0 0; color: var(--text-soft); font-size: 11px; }
+.recovery-table { margin: 0 0 22px; padding: 0 20px 15px; }
 
 .chart-card { margin-bottom: 22px; padding: 23px 24px 16px; }
 .chart-card .panel__head { margin-bottom: 8px; }
@@ -339,6 +357,13 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 .bia-note { margin-top: -6px; background: var(--violet-soft); }
 .bia-note > span { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: color-mix(in srgb, var(--violet) 13%, transparent); color: var(--violet); }
 .bia-note svg { width: 16px; }
+
+.correlation-panel { margin-top: 20px; }
+.correlation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.correlation-grid article { display: grid; gap: 5px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-soft); }
+.correlation-grid span { color: var(--green-deep); font-size: 1.35rem; font-weight: 800; }
+.correlation-grid small, .panel-note { color: var(--text-soft); }
+.panel-note { margin: 14px 0 0; font-size: .86rem; }
 
 .loading-state { display: flex; min-height: 360px; align-items: center; justify-content: center; gap: 11px; color: var(--text-soft); font-size: 13px; }
 .loading-state--compact { min-height: 150px; }

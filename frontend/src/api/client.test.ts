@@ -1,4 +1,12 @@
-import { normalizeCompositionSeries, normalizeOverview, normalizePressureSeries, normalizeWeightSeries } from "./client";
+import {
+  normalizeActivitySeries,
+  normalizeAiAnalysis,
+  normalizeCompositionSeries,
+  normalizeOverview,
+  normalizePressureSeries,
+  normalizeRecoverySeries,
+  normalizeWeightSeries,
+} from "./client";
 
 describe("API normalization", () => {
   it("normalizes the canonical overview contract", () => {
@@ -121,5 +129,45 @@ describe("API normalization", () => {
       },
     }, "all");
     expect(result.points[0]).toMatchObject({ fatPct: 31.2, fatMassKg: 39.4, leanMassKg: 86.8 });
+  });
+
+  it("normalizes activity days, weekly baseline and freshness", () => {
+    const result = normalizeActivitySeries({
+      points: [{ date: "2026-08-18", steps: 8432, distance_km: 6.2, active_minutes: 47 }],
+      weekly: [{ start_date: "2026-08-17", end_date: "2026-08-23", actual_steps: 42000, baseline_steps: 39000, coverage_days: 4, is_partial: true }],
+      summary: { data_as_of: "2026-08-18T20:00:00Z", baseline_steps: 7900 },
+      correlations: [{ metric: "steps", target: "weight_kg", coefficient: -0.42, full_overlapping_weeks: 9, disclaimer: "Корреляция не доказывает причинность." }],
+    }, "30d");
+    expect(result.points[0]).toMatchObject({ steps: 8432, distanceKm: 6.2, activeMinutes: 47 });
+    expect(result.weekly[0]).toMatchObject({ actualSteps: 42000, baselineSteps: 39000, isPartial: true });
+    expect(result.summary.dataAsOf).toBe("2026-08-18T20:00:00Z");
+    expect(result.correlations[0]).toMatchObject({ metric: "steps", coefficient: -0.42, fullOverlappingWeeks: 9 });
+  });
+
+  it("keeps recovery metrics optional", () => {
+    const result = normalizeRecoverySeries({
+      points: [{ date: "2026-08-18", sleep_minutes: 438, resting_heart_rate_bpm: 62 }],
+      available_metrics: ["sleep", "resting_heart_rate"],
+      correlations: [{ metric: "sleep_minutes", target: "weight_kg", coefficient: 0.31, full_overlapping_weeks: 8 }],
+    }, "90d");
+    expect(result.points[0]).toMatchObject({ sleepMinutes: 438, restingHeartRateBpm: 62, hrvRmssdMs: null });
+    expect(result.availableMetrics).toEqual(["sleep", "resting_heart_rate"]);
+    expect(result.correlations[0].disclaimer).toBe("Корреляция не доказывает причинность.");
+  });
+
+  it("normalizes schema-validated AI analysis without template fields", () => {
+    const result = normalizeAiAnalysis({
+      status: "fresh",
+      headline: "Темп устойчив",
+      summary: "Активность выросла относительно личной базы.",
+      insights: [{ id: "i1", title: "Активность", text: "Неделя активнее обычного.", evidence_ids: ["activity.week"] }],
+      recommendations: [{ id: "r1", title: "Следующий шаг", text: "Сохраните текущий ритм.", evidence_ids: ["activity.week"] }],
+      limitations: ["Неполная неделя"],
+      generated_at: "2026-08-19T06:00:00Z",
+      model: "gpt-5.6-terra",
+    });
+    expect(result.status).toBe("fresh");
+    expect(result.insights[0].evidenceIds).toEqual(["activity.week"]);
+    expect(result.recommendations[0].title).toBe("Следующий шаг");
   });
 });

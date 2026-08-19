@@ -93,6 +93,10 @@ CUTOVER_COMMITTED=0
 REHEARSAL_ROUTE_DISABLED=0
 EXISTING_WORKER_STOPPED=0
 EXISTING_WORKER_WAS_RUNNING=0
+EXISTING_AI_WORKER_STOPPED=0
+EXISTING_AI_WORKER_WAS_RUNNING=0
+EXISTING_INGEST_STOPPED=0
+EXISTING_INGEST_WAS_RUNNING=0
 
 deploy_error() {
     local status=$1
@@ -118,12 +122,25 @@ deploy_error() {
         if [[ ${rollback_status} -ne 0 ]]; then
             amigo_log "AUTOMATIC ROLLBACK FAILED; use: sudo ${SCRIPT_DIR}/rollback.sh ${SNAPSHOT}"
         fi
-    elif [[ ${EXISTING_WORKER_STOPPED} -eq 1 && ${EXISTING_WORKER_WAS_RUNNING} -eq 1 ]]; then
-        amigo_log "restarting the previous v2 worker after the failed pre-cutover deployment"
-        amigo_compose start worker \
-            || amigo_log "WARNING: could not restart the previous v2 worker"
-    elif [[ -n "${SNAPSHOT}" ]]; then
-        amigo_log "legacy production route was not changed; snapshot is ${SNAPSHOT}"
+    else
+        if [[ ${EXISTING_WORKER_STOPPED} -eq 1 && ${EXISTING_WORKER_WAS_RUNNING} -eq 1 ]]; then
+            amigo_log "restarting the previous data worker after the failed pre-cutover deployment"
+            amigo_compose start worker \
+                || amigo_log "WARNING: could not restart the previous data worker"
+        fi
+        if [[ ${EXISTING_AI_WORKER_STOPPED} -eq 1 && ${EXISTING_AI_WORKER_WAS_RUNNING} -eq 1 ]]; then
+            amigo_log "restarting the previous AI worker after the failed pre-cutover deployment"
+            amigo_compose start ai-worker \
+                || amigo_log "WARNING: could not restart the previous AI worker"
+        fi
+        if [[ ${EXISTING_INGEST_STOPPED} -eq 1 && ${EXISTING_INGEST_WAS_RUNNING} -eq 1 ]]; then
+            amigo_log "restarting the previous ingest service after the failed pre-cutover deployment"
+            amigo_compose start ingest \
+                || amigo_log "WARNING: could not restart the previous ingest service"
+        fi
+        if [[ -n "${SNAPSHOT}" ]]; then
+            amigo_log "production route was not changed; snapshot is ${SNAPSHOT}"
+        fi
     fi
     exit "${status}"
 }
@@ -134,6 +151,7 @@ trap 'deploy_error 143 "${LINENO}"' TERM
 
 SNAPSHOT="$(AMIGO_DEPLOY_LOCK_HELD=1 bash "${SCRIPT_DIR}/pre-cutover-backup.sh")"
 amigo_assert_snapshot "${SNAPSHOT}"
+bash "${SCRIPT_DIR}/prepare-ai-runtime.sh"
 
 amigo_log "pulling PostgreSQL and building immutable application images"
 amigo_compose pull db
@@ -146,6 +164,22 @@ if [[ -n "${existing_worker_container}" ]] \
     amigo_log "stopping the existing v2 worker before migration and one-shot synchronization"
     EXISTING_WORKER_STOPPED=1
     amigo_compose stop worker
+fi
+existing_ai_worker_container=$(amigo_compose ps -q ai-worker)
+if [[ -n "${existing_ai_worker_container}" ]] \
+    && [[ "$(docker inspect --format '{{.State.Status}}' "${existing_ai_worker_container}")" == "running" ]]; then
+    EXISTING_AI_WORKER_WAS_RUNNING=1
+    EXISTING_AI_WORKER_STOPPED=1
+    amigo_log "stopping the existing AI worker before migration"
+    amigo_compose stop ai-worker
+fi
+existing_ingest_container=$(amigo_compose ps -q ingest)
+if [[ -n "${existing_ingest_container}" ]] \
+    && [[ "$(docker inspect --format '{{.State.Status}}' "${existing_ingest_container}")" == "running" ]]; then
+    EXISTING_INGEST_WAS_RUNNING=1
+    EXISTING_INGEST_STOPPED=1
+    amigo_log "stopping the existing ingest service before migration"
+    amigo_compose stop ingest
 fi
 
 amigo_log "starting PostgreSQL"
@@ -211,15 +245,30 @@ amigo_compose up -d web
 amigo_wait_for_http "${AMIGO_DIRECT_HEALTH_URL}" 60 \
     || amigo_die "web health endpoint did not become ready"
 
+amigo_log "starting isolated Codex gateway and validating structured output"
+amigo_compose up -d --wait --wait-timeout 180 ai-gateway
+amigo_compose run --rm --no-deps ai-worker python -m app.ai_smoke
+
+amigo_log "preparing the first cached AI analysis from minimized production aggregates"
+amigo_compose run --rm --no-deps ai-worker python -m app.cli ai-enqueue
+amigo_compose run --rm --no-deps \
+    --env AMIGO_WORKER_ONCE=true \
+    ai-worker python -m app.ai_worker
+
+amigo_log "starting the signed Health Connect ingestion endpoint"
+amigo_compose up -d --wait --wait-timeout 180 ingest
+EXISTING_INGEST_STOPPED=0
+
 bash "${SCRIPT_DIR}/nginx-control.sh" enable "${SNAPSHOT}"
 curl --fail --silent --show-error --max-time 15 \
     --header 'Host: amigo.tolstik.ru' \
     --output /dev/null \
     http://127.0.0.1/amigo/
 
-amigo_log "starting the v2 worker after legacy collection is disabled"
-amigo_compose up -d --wait --wait-timeout 180 worker
+amigo_log "starting the data and AI workers after legacy collection is disabled"
+amigo_compose up -d --wait --wait-timeout 180 worker ai-worker
 EXISTING_WORKER_STOPPED=0
+EXISTING_AI_WORKER_STOPPED=0
 bash "${SCRIPT_DIR}/verify-production.sh"
 
 amigo_log "rehearsing the route-only rollback while keeping all data intact"

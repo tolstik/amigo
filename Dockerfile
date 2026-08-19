@@ -13,7 +13,7 @@ RUN npm run build
 FROM python:3.12-slim-bookworm AS runtime
 
 ARG AMIGO_BUILD_SHA=unknown
-LABEL org.opencontainers.image.title="Amigo v2" \
+LABEL org.opencontainers.image.title="Amigo v3" \
       org.opencontainers.image.revision="${AMIGO_BUILD_SHA}" \
       org.opencontainers.image.source="/srv/amigo"
 

@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from . import __version__
 from .api import router
+from .health_api import public_router as health_public_router
 from .config import get_settings
 from .db import SessionLocal
 
@@ -21,6 +22,7 @@ app = FastAPI(
     openapi_url=None,
 )
 app.include_router(router)
+app.include_router(health_public_router)
 
 
 @app.middleware("http")

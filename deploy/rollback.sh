@@ -25,6 +25,7 @@ amigo_acquire_deploy_lock
 
 WORKER_STOPPED=0
 WORKER_WAS_RUNNING=0
+AUX_SERVICES_WERE_RUNNING=()
 ROUTE_DISABLED=0
 ROUTE_WAS_ACTIVE=0
 ROLLBACK_COMMITTED=0
@@ -35,6 +36,13 @@ if [[ -n "${worker_container}" ]] \
     && [[ "$(docker inspect --format '{{.State.Status}}' "${worker_container}")" == "running" ]]; then
     WORKER_WAS_RUNNING=1
 fi
+for auxiliary_service in ai-worker ingest ai-gateway; do
+    auxiliary_container=$(amigo_compose ps -q "${auxiliary_service}")
+    if [[ -n "${auxiliary_container}" ]] \
+        && [[ "$(docker inspect --format '{{.State.Status}}' "${auxiliary_container}")" == "running" ]]; then
+        AUX_SERVICES_WERE_RUNNING+=("${auxiliary_service}")
+    fi
+done
 if [[ "$(grep -Ec '^[[:space:]]*# BEGIN AMIGO V2 ROUTE[[:space:]]*$' "${AMIGO_NGINX_CONFIG}")" -eq 2 ]]; then
     ROUTE_WAS_ACTIVE=1
 fi
@@ -72,6 +80,10 @@ rollback_error() {
             amigo_log "restarting the v2 worker after the failed rollback"
             amigo_compose start worker
         fi
+        if [[ ${WORKER_STOPPED} -eq 1 && ${#AUX_SERVICES_WERE_RUNNING[@]} -gt 0 ]]; then
+            amigo_log "restarting auxiliary v3 services after the failed rollback"
+            amigo_compose start "${AUX_SERVICES_WERE_RUNNING[@]}"
+        fi
     else
         amigo_log "legacy route and collector are committed; keep the v2 worker stopped"
     fi
@@ -82,9 +94,9 @@ trap 'rollback_error 129 "${LINENO}"' HUP
 trap 'rollback_error 130 "${LINENO}"' INT
 trap 'rollback_error 143 "${LINENO}"' TERM
 
-amigo_log "stopping the v2 worker before changing collection ownership"
+amigo_log "stopping data collection, Health Connect ingestion, and cloud AI before rollback"
 WORKER_STOPPED=1
-amigo_compose stop worker
+amigo_compose stop worker ai-worker ingest ai-gateway
 
 amigo_log "switching nginx back to the preserved legacy application"
 ROUTE_DISABLED=1
@@ -109,7 +121,7 @@ ROLLBACK_CRON_ENABLE_STARTED=1
 bash "${SCRIPT_DIR}/cron-control.sh" enable
 ROLLBACK_COMMITTED=1
 
-amigo_log "stopping the remaining v2 services without removing containers, images, or volumes"
+amigo_log "stopping the remaining Amigo services without removing containers, images, or volumes"
 amigo_compose stop web db
 
 install -d -o root -g root -m 0700 \

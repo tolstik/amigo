@@ -16,6 +16,7 @@ from app.analytics import (
     pressure_sessions,
     pressure_statistics,
     theil_sen_forecast,
+    weekly_weight_points,
 )
 
 
@@ -39,6 +40,62 @@ def test_daily_median_uses_moscow_day_and_marks_extreme_outlier():
     assert daily[0].value == pytest.approx(126.0)
     assert any(point.is_outlier and point.value == 180.0 for point in daily)
     assert daily[-1].rolling_7d is not None
+
+
+def test_weekly_weight_points_use_iso_weeks_and_preserve_empty_buckets():
+    daily = [
+        DailyPoint(date(2026, 8, 15), 127.0, 2),
+        DailyPoint(date(2026, 8, 16), 160.0, 1, is_outlier=True),
+        DailyPoint(date(2026, 8, 17), 126.5, 1),
+        DailyPoint(date(2026, 8, 20), 126.0, 2),
+        DailyPoint(date(2026, 8, 31), 125.5, 1),
+        DailyPoint(date(2026, 9, 3), 100.0, 1),
+    ]
+
+    weekly = weekly_weight_points(daily, as_of=date(2026, 9, 2))
+
+    assert len(weekly) == 4
+    assert weekly[0] == {
+        "start_date": "2026-08-15",
+        "end_date": "2026-08-16",
+        "actual_avg_kg": 127.0,
+        "actual_min_kg": 127.0,
+        "planned_avg_kg": 126.965,
+        "actual_change_kg": None,
+        "planned_change_kg": None,
+        "deviation_from_plan_kg": pytest.approx(
+            127.0 - (plan_weight(date(2026, 8, 15)) + plan_weight(date(2026, 8, 16))) / 2,
+            abs=0.001,
+        ),
+        "measurement_days": 2,
+        "sample_count": 3,
+        "outlier_days": 1,
+        "is_partial": True,
+    }
+    assert weekly[1]["start_date"] == "2026-08-17"
+    assert weekly[1]["end_date"] == "2026-08-23"
+    assert weekly[1]["actual_avg_kg"] == 126.25
+    assert weekly[1]["actual_min_kg"] == 126.0
+    assert weekly[1]["actual_change_kg"] == -0.75
+    assert weekly[1]["planned_change_kg"] < 0
+    assert weekly[1]["is_partial"] is False
+    assert weekly[2]["start_date"] == "2026-08-24"
+    assert weekly[2]["actual_avg_kg"] is None
+    assert weekly[2]["actual_change_kg"] is None
+    assert weekly[2]["measurement_days"] == 0
+    assert weekly[3]["start_date"] == "2026-08-31"
+    assert weekly[3]["end_date"] == "2026-09-02"
+    assert weekly[3]["actual_avg_kg"] == 125.5
+    assert weekly[3]["actual_change_kg"] is None
+    assert weekly[3]["is_partial"] is True
+
+
+def test_weekly_weight_points_are_empty_before_program_start():
+    assert weekly_weight_points([], as_of=date(2026, 8, 14)) == []
+
+
+def test_weekly_weight_points_mark_current_week_partial_even_on_sunday():
+    assert weekly_weight_points([], as_of=date(2026, 8, 30))[-1]["is_partial"] is True
 
 
 def test_theil_sen_forecast_is_gated_and_projects_declining_trend():

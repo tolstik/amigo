@@ -1,5 +1,5 @@
-import type { CompositionPoint, PressurePoint, WeightPoint } from "../api/types";
-import { formatDate, formatDateTime, formatKg, formatNumber } from "../lib/format";
+import type { CompositionPoint, PressurePoint, WeeklyWeightPoint, WeightPoint } from "../api/types";
+import { formatDate, formatDateTime, formatDelta, formatKg, formatNumber } from "../lib/format";
 
 function TableFrame({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -25,6 +25,53 @@ export function WeightTable({ points }: { points: WeightPoint[] }) {
               <td>{formatKg(point.smoothed7dKg)}</td>
               <td>{formatKg(point.plannedKg)}</td>
               <td>{point.isOutlier ? "Не участвует в тренде" : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableFrame>
+  );
+}
+
+function weeklyNote(point: WeeklyWeightPoint): string {
+  const notes: string[] = [];
+  if (point.measurementDays === 0) notes.push("Нет замеров");
+  if (point.isPartial) notes.push("Неполная неделя");
+  if (point.outlierDays > 0) notes.push(`Дней-выбросов: ${point.outlierDays}`);
+  return notes.join(" · ") || "—";
+}
+
+export function WeeklyWeightTable({ points }: { points: WeeklyWeightPoint[] }) {
+  const rows = [...points].reverse();
+  return (
+    <TableFrame title={`Показать недельную таблицу (${points.length})`}>
+      <table className="data-table">
+        <caption className="sr-only">Недельные показатели веса относительно плана</caption>
+        <thead>
+          <tr>
+            <th scope="col">Неделя</th>
+            <th scope="col">Факт, средний</th>
+            <th scope="col">План, средний</th>
+            <th scope="col">Минимум</th>
+            <th scope="col">Изменение, факт</th>
+            <th scope="col">Изменение, план</th>
+            <th scope="col">Факт − план</th>
+            <th scope="col">Дни / замеры</th>
+            <th scope="col">Примечание</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((point) => (
+            <tr key={point.startDate}>
+              <th scope="row">{formatDate(point.startDate)} — {formatDate(point.endDate)}</th>
+              <td>{formatKg(point.actualAvgKg)}</td>
+              <td>{formatKg(point.plannedAvgKg)}</td>
+              <td>{formatKg(point.actualMinKg)}</td>
+              <td>{formatDelta(point.actualChangeKg)}</td>
+              <td>{formatDelta(point.plannedChangeKg)}</td>
+              <td>{formatDelta(point.deviationFromPlanKg)}</td>
+              <td>{point.measurementDays} / {point.sampleCount}</td>
+              <td>{weeklyNote(point)}</td>
             </tr>
           ))}
         </tbody>

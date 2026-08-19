@@ -116,10 +116,17 @@ sudo sha256sum --check --strict SHA256SUMS
 
 ## Развёртывание и cutover
 
-Команда требует явного разрешения на одно помеченное тестовое Telegram-сообщение:
+Команда требует явного выбора режима уведомления. Для релиза с одним помеченным
+тестовым Telegram-сообщением:
 
 ```bash
 sudo bash /srv/amigo/deploy/deploy.sh --send-telegram-test
+```
+
+Если отдельного разрешения на тестовое сообщение нет, релиз выполняется без него:
+
+```bash
+sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
 ```
 
 Фиксированная последовательность:
@@ -127,10 +134,12 @@ sudo bash /srv/amigo/deploy/deploy.sh --send-telegram-test
 1. Проверка layout, прав secret files, чистого Git SHA, Compose и nginx.
 2. Проверенный legacy snapshot.
 3. Pull PostgreSQL image и сборка одного Git-SHA image для `web`/`worker`.
-4. Запуск `db`, затем `migrate`, `bootstrap` и явно разрешённый Telegram smoke
-   через одноразовые worker jobs. Непосредственно перед первым запросом к
-   Withings отключается только точная legacy cron-строка; это исключает
-   параллельную ротацию OAuth. Выполняется полный import с
+4. Запуск `db`, остановка уже работающего v2 worker при повторном релизе, затем
+   `migrate`, `bootstrap` и, только в выбранном режиме, Telegram smoke через
+   одноразовые worker jobs. При ранней ошибке ранее работавший worker запускается
+   снова. Непосредственно перед первым запросом к Withings отключается только
+   точная legacy cron-строка; это исключает параллельную ротацию OAuth.
+   Выполняется полный import с
    `--suppress-notifications`, после чего текущая пара OAuth сразу возвращается
    в единственную строку legacy MariaDB через root-only handoff без stdout.
    Затем legacy-веса

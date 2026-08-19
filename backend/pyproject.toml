@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "amigo-backend"
-version = "2.0.0"
+version = "2.1.0"
 description = "Amigo weight and blood-pressure analytics service"
 requires-python = ">=3.12"
 dependencies = [

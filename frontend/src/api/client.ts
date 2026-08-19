@@ -14,6 +14,7 @@ import type {
   WeightProjectionPoint,
   WeightPoint,
   WeightSeriesResponse,
+  WeeklyWeightPoint,
 } from "./types";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -269,7 +270,29 @@ export function normalizeWeightSeries(payload: unknown, range: Period): WeightSe
     })
     .filter((point): point is WeightPlanPoint => point !== null)
     .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
-  return { points, projection, planProjection, meta: metaWithBounds(payload, range, points) };
+  const weekly = list(body, "weekly", "weeks")
+    .map((value): WeeklyWeightPoint | null => {
+      const startDate = string(value, "start_date", "startDate");
+      const endDate = string(value, "end_date", "endDate");
+      if (!startDate || !endDate) return null;
+      return {
+        startDate,
+        endDate,
+        actualAvgKg: number(value, "actual_avg_kg", "actualAvgKg"),
+        actualMinKg: number(value, "actual_min_kg", "actualMinKg"),
+        plannedAvgKg: number(value, "planned_avg_kg", "plannedAvgKg"),
+        actualChangeKg: number(value, "actual_change_kg", "actualChangeKg"),
+        plannedChangeKg: number(value, "planned_change_kg", "plannedChangeKg"),
+        deviationFromPlanKg: number(value, "deviation_from_plan_kg", "deviationFromPlanKg"),
+        measurementDays: number(value, "measurement_days", "measurementDays") ?? 0,
+        sampleCount: number(value, "sample_count", "sampleCount") ?? 0,
+        outlierDays: number(value, "outlier_days", "outlierDays") ?? 0,
+        isPartial: boolean(value, "is_partial", "isPartial"),
+      };
+    })
+    .filter((point): point is WeeklyWeightPoint => point !== null)
+    .sort((left, right) => left.startDate.localeCompare(right.startDate));
+  return { points, projection, planProjection, weekly, meta: metaWithBounds(payload, range, points) };
 }
 
 function emptyStats(): PressureStats {

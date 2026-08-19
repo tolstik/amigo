@@ -49,6 +49,13 @@ def test_service_payloads_match_frontend_contract(db, add_group):
     weights = weight_series(db, settings.tz, "program", start + timedelta(days=4))
     assert weights["meta"]["count"] == 5
     assert weights["points"][0]["weight_kg"] == 127.03
+    assert len(weights["weekly"]) == 2
+    assert weights["weekly"][0]["start_date"] == "2026-08-15"
+    assert weights["weekly"][0]["end_date"] == "2026-08-16"
+    assert weights["weekly"][0]["actual_avg_kg"] == 126.88
+    assert weights["weekly"][0]["is_partial"] is True
+    assert weights["weekly"][1]["actual_change_kg"] == -0.75
+    assert weights["weekly"][1]["measurement_days"] == 3
     pressures = pressure_series(db, settings.tz, "all", start + timedelta(days=4, hours=3))
     assert pressures["points"][0]["session_size"] == 1
     assert pressures["stats_7d"]["avg_systolic"] == 128
@@ -71,7 +78,7 @@ def test_fastapi_is_read_only_and_returns_csv(db, add_group):
             assert response.headers["cache-control"] == "no-store"
             series = client.get("/api/v1/series/weight?range=program")
             assert series.status_code == 200
-            assert {"points", "meta"} <= series.json().keys()
+            assert {"points", "weekly", "meta"} <= series.json().keys()
             csv_response = client.get("/api/v1/export/weight.csv?range=all")
             assert csv_response.status_code == 200
             assert csv_response.text.startswith("measured_at,value,unit")

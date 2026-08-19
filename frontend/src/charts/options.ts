@@ -1,12 +1,13 @@
-import type { EChartsOption, LineSeriesOption } from "echarts";
+import type { BarSeriesOption, EChartsOption, LineSeriesOption } from "echarts";
 import type {
   CompositionPoint,
   PressurePoint,
+  WeeklyWeightPoint,
   WeightPlanPoint,
   WeightPoint,
   WeightProjectionPoint,
 } from "../api/types";
-import { formatNumber, formatShortDate } from "../lib/format";
+import { formatDate, formatDelta, formatKg, formatNumber, formatShortDate } from "../lib/format";
 
 const colors = {
   green: "#2d9365",
@@ -82,6 +83,168 @@ function withGapBreaks(points: WeightPoint[], selector: (point: WeightPoint) => 
     result.push([point.measuredAt, selector(point)]);
   });
   return result;
+}
+
+function weeklyTooltipFormatter(
+  points: WeeklyWeightPoint[],
+  valueFormatter: (value: number) => string,
+  comparison: {
+    label: string;
+    value: (point: WeeklyWeightPoint) => number | null;
+  },
+) {
+  const byStartDate = new Map(points.map((point) => [point.startDate, point]));
+  return (params: any): string => {
+    const entries = Array.isArray(params) ? params : [params];
+    const point = byStartDate.get(String(entries[0]?.axisValue ?? ""));
+    if (!point) return "";
+    const rows = entries
+      .filter((entry: any) => {
+        const value = Array.isArray(entry.value) ? entry.value.at(-1) : entry.value;
+        return typeof value === "number" && Number.isFinite(value);
+      })
+      .map((entry: any) => {
+        const value = Array.isArray(entry.value) ? entry.value.at(-1) : entry.value;
+        return `<div class="chart-tooltip-row"><span>${entry.marker}${entry.seriesName}</span><b>${valueFormatter(Number(value))}</b></div>`;
+      })
+      .join("");
+    const comparisonValue = comparison.value(point);
+    const comparisonRow = comparisonValue === null
+      ? ""
+      : `<div class="chart-tooltip-row"><span>${comparison.label}</span><b>${formatDelta(comparisonValue)}</b></div>`;
+    const coverage = `<div class="chart-tooltip-row"><span>Дней с замерами</span><b>${point.measurementDays}</b></div><div class="chart-tooltip-row"><span>Всего замеров</span><b>${point.sampleCount}</b></div>`;
+    const outliers = point.outlierDays
+      ? `<div class="chart-tooltip-row"><span>Дней-выбросов</span><b>${point.outlierDays}</b></div>`
+      : "";
+    const partial = point.isPartial ? " · неполная неделя" : "";
+    return `<div class="chart-tooltip"><strong>${formatDate(point.startDate)} — ${formatDate(point.endDate)}${partial}</strong>${rows}${comparisonRow}${coverage}${outliers}</div>`;
+  };
+}
+
+function weeklyDataZoom(points: WeeklyWeightPoint[]): EChartsOption["dataZoom"] {
+  const longHistory = points.length > 12;
+  const common = longHistory
+    ? { startValue: Math.max(0, points.length - 12), endValue: points.length - 1 }
+    : {};
+  return [
+    { type: "inside", xAxisIndex: 0, filterMode: "none", ...common },
+    ...(longHistory
+      ? [{ type: "slider" as const, xAxisIndex: 0, filterMode: "none" as const, height: 18, bottom: 8, showDetail: false, ...common }]
+      : []),
+  ];
+}
+
+function weeklyCategoryAxis(points: WeeklyWeightPoint[]) {
+  return {
+    ...sharedAxis,
+    type: "category" as const,
+    data: points.map((point) => point.startDate),
+    boundaryGap: true,
+    splitLine: { show: false },
+    axisLabel: {
+      ...sharedAxis.axisLabel,
+      formatter: (value: string) => formatDate(value, false),
+    },
+  };
+}
+
+function weeklyBar(name: string, data: Array<number | null>, color: string): BarSeriesOption {
+  return {
+    name,
+    type: "bar",
+    data,
+    barMaxWidth: 30,
+    itemStyle: { color, borderRadius: [5, 5, 1, 1] },
+    emphasis: { focus: "series" },
+  };
+}
+
+export function weeklyWeightChartOption(points: WeeklyWeightPoint[]): EChartsOption {
+  const longHistory = points.length > 12;
+  return {
+    animationDuration: 500,
+    color: [colors.green, colors.blue, colors.amber],
+    grid: { ...sharedGrid, bottom: longHistory ? 76 : sharedGrid.bottom },
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      confine: true,
+      formatter: weeklyTooltipFormatter(points, formatKg, {
+        label: "Отклонение факт − план",
+        value: (point) => point.deviationFromPlanKg,
+      }),
+      backgroundColor: "rgba(22,31,25,.95)",
+      borderWidth: 0,
+      textStyle: { color: "#fff" },
+    },
+    xAxis: weeklyCategoryAxis(points),
+    yAxis: { ...sharedAxis, type: "value", scale: true, name: "кг", nameTextStyle: { color: colors.muted } },
+    dataZoom: weeklyDataZoom(points),
+    series: [
+      weeklyBar("Факт", points.map((point) => point.actualAvgKg), colors.green),
+      { ...weeklyBar("План", points.map((point) => point.plannedAvgKg), colors.blue), itemStyle: { color: colors.blue, opacity: 0.72, borderRadius: [5, 5, 1, 1] } },
+      {
+        name: "Минимум",
+        type: "line",
+        data: points.map((point) => point.actualMinKg),
+        connectNulls: false,
+        showSymbol: true,
+        symbolSize: 7,
+        lineStyle: { width: 2.5, color: colors.amber },
+        itemStyle: { color: colors.amber, borderColor: "#fff", borderWidth: 1 },
+        emphasis: { focus: "series" },
+        z: 5,
+      },
+    ],
+  };
+}
+
+export function weeklyChangeChartOption(points: WeeklyWeightPoint[]): EChartsOption {
+  const longHistory = points.length > 12;
+  const fact = weeklyBar("Факт", points.map((point) => point.actualChangeKg), colors.green);
+  fact.itemStyle = {
+    borderRadius: [4, 4, 4, 4],
+    color: (params: any) => {
+      const value = Number(params.value);
+      const planned = points[Number(params.dataIndex)]?.plannedChangeKg;
+      if (planned !== null && planned !== undefined && value <= planned) return colors.green;
+      return value < 0 ? colors.amber : colors.coral;
+    },
+  };
+  return {
+    animationDuration: 500,
+    color: [colors.green, colors.blue],
+    grid: { ...sharedGrid, bottom: longHistory ? 76 : sharedGrid.bottom },
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      confine: true,
+      formatter: weeklyTooltipFormatter(points, formatDelta, {
+        label: "Разница темпа факт − план",
+        value: (point) => point.actualChangeKg !== null && point.plannedChangeKg !== null
+          ? point.actualChangeKg - point.plannedChangeKg
+          : null,
+      }),
+      backgroundColor: "rgba(22,31,25,.95)",
+      borderWidth: 0,
+      textStyle: { color: "#fff" },
+    },
+    xAxis: weeklyCategoryAxis(points),
+    yAxis: {
+      ...sharedAxis,
+      type: "value",
+      name: "кг · снижение ниже 0",
+      nameTextStyle: { color: colors.muted },
+      axisLabel: { ...sharedAxis.axisLabel, formatter: (value: number) => formatNumber(value) },
+    },
+    dataZoom: weeklyDataZoom(points),
+    series: [
+      fact,
+      { ...weeklyBar("План", points.map((point) => point.plannedChangeKg), colors.blue), itemStyle: { color: colors.blue, opacity: 0.72, borderRadius: [4, 4, 4, 4] } },
+    ],
+  };
 }
 
 export function weightChartOption(

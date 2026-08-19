@@ -33,6 +33,7 @@ describe("API normalization", () => {
     expect(result.meta.range).toBe("program");
     expect(result.projection).toEqual([]);
     expect(result.planProjection).toEqual([]);
+    expect(result.weekly).toEqual([]);
   });
 
   it("normalizes independent forecast and plan projections", () => {
@@ -43,6 +44,60 @@ describe("API normalization", () => {
     }, "program");
     expect(result.projection[0].forecastKg).toBe(76.5);
     expect(result.planProjection[0].plannedKg).toBe(124.84);
+  });
+
+  it("normalizes continuous weekly plan and fact buckets including gaps", () => {
+    const result = normalizeWeightSeries({
+      points: [{ measured_at: "2026-08-31", weight_kg: 125.5 }],
+      weekly: [
+        {
+          start_date: "2026-08-24",
+          end_date: "2026-08-30",
+          actual_avg_kg: null,
+          actual_min_kg: null,
+          planned_avg_kg: 125.7,
+          actual_change_kg: null,
+          planned_change_kg: -0.9,
+          deviation_from_plan_kg: null,
+          measurement_days: 0,
+          sample_count: 0,
+          outlier_days: 0,
+          is_partial: false,
+        },
+        {
+          start_date: "2026-08-17",
+          end_date: "2026-08-23",
+          actual_avg_kg: "126,25",
+          actual_min_kg: 126,
+          planned_avg_kg: 126.6,
+          actual_change_kg: -0.75,
+          planned_change_kg: -0.43,
+          deviation_from_plan_kg: -0.35,
+          measurement_days: 3,
+          sample_count: 4,
+          outlier_days: 1,
+          is_partial: false,
+        },
+      ],
+    }, "program");
+
+    expect(result.weekly).toHaveLength(2);
+    expect(result.weekly[0]).toMatchObject({
+      startDate: "2026-08-17",
+      actualAvgKg: 126.25,
+      actualChangeKg: -0.75,
+      measurementDays: 3,
+      sampleCount: 4,
+      outlierDays: 1,
+      isPartial: false,
+    });
+    expect(result.weekly[1]).toMatchObject({
+      startDate: "2026-08-24",
+      actualAvgKg: null,
+      actualChangeKg: null,
+      plannedChangeKg: -0.9,
+      measurementDays: 0,
+    });
   });
 
   it("supports sessions and nested pressure statistics", () => {

@@ -24,6 +24,7 @@ from .analytics import (
     pressure_statistics,
     theil_sen_forecast,
     trend_change,
+    weekly_weight_points,
     weekly_weight_pressure_correlation,
 )
 from .models import Measurement, MeasurementGroup, Plan, SyncState
@@ -299,6 +300,7 @@ def weight_series(db: Session, tz: ZoneInfo, range_name: RangeName, now: datetim
         "range": range_name,
         "unit": "kg",
         "points": points,
+        "weekly": weekly_weight_points(program_daily, plan, today),
         "projection": projection,
         "plan_projection": plan_projection,
         "meta": series_meta(range_name, points, tz),

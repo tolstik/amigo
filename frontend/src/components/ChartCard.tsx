@@ -1,6 +1,6 @@
 import type { EChartsOption } from "echarts";
 import * as echarts from "echarts/core";
-import { LineChart, ScatterChart } from "echarts/charts";
+import { BarChart, LineChart, ScatterChart } from "echarts/charts";
 import { AriaComponent, DataZoomComponent, GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import ReactEChartsCore from "echarts-for-react/lib/core";
@@ -9,6 +9,7 @@ import { useColorScheme } from "../hooks/useColorScheme";
 
 echarts.use([
   LineChart,
+  BarChart,
   ScatterChart,
   AriaComponent,
   DataZoomComponent,

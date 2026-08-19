@@ -10,15 +10,27 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 usage() {
     cat >&2 <<'USAGE'
-Usage: deploy.sh --send-telegram-test
+Usage: deploy.sh --send-telegram-test|--skip-telegram-test
 
-The mandatory flag is explicit authorization to send one clearly labelled
-pre-cutover Telegram smoke message. No notification is sent without it.
+Choose exactly one notification mode. --send-telegram-test explicitly
+authorizes one clearly labelled pre-cutover Telegram smoke message;
+--skip-telegram-test performs the deployment without sending that message.
 USAGE
     exit 2
 }
 
-[[ $# -eq 1 && $1 == "--send-telegram-test" ]] || usage
+[[ $# -eq 1 ]] || usage
+case $1 in
+    --send-telegram-test)
+        readonly SEND_TELEGRAM_TEST=1
+        ;;
+    --skip-telegram-test)
+        readonly SEND_TELEGRAM_TEST=0
+        ;;
+    *)
+        usage
+        ;;
+esac
 
 amigo_require_root
 amigo_require_commands \
@@ -79,6 +91,8 @@ SNAPSHOT=""
 CUTOVER_STARTED=0
 CUTOVER_COMMITTED=0
 REHEARSAL_ROUTE_DISABLED=0
+EXISTING_WORKER_STOPPED=0
+EXISTING_WORKER_WAS_RUNNING=0
 
 deploy_error() {
     local status=$1
@@ -104,6 +118,10 @@ deploy_error() {
         if [[ ${rollback_status} -ne 0 ]]; then
             amigo_log "AUTOMATIC ROLLBACK FAILED; use: sudo ${SCRIPT_DIR}/rollback.sh ${SNAPSHOT}"
         fi
+    elif [[ ${EXISTING_WORKER_STOPPED} -eq 1 && ${EXISTING_WORKER_WAS_RUNNING} -eq 1 ]]; then
+        amigo_log "restarting the previous v2 worker after the failed pre-cutover deployment"
+        amigo_compose start worker \
+            || amigo_log "WARNING: could not restart the previous v2 worker"
     elif [[ -n "${SNAPSHOT}" ]]; then
         amigo_log "legacy production route was not changed; snapshot is ${SNAPSHOT}"
     fi
@@ -121,6 +139,15 @@ amigo_log "pulling PostgreSQL and building immutable application images"
 amigo_compose pull db
 amigo_compose build --pull web
 
+existing_worker_container=$(amigo_compose ps -q worker)
+if [[ -n "${existing_worker_container}" ]] \
+    && [[ "$(docker inspect --format '{{.State.Status}}' "${existing_worker_container}")" == "running" ]]; then
+    EXISTING_WORKER_WAS_RUNNING=1
+    amigo_log "stopping the existing v2 worker before migration and one-shot synchronization"
+    EXISTING_WORKER_STOPPED=1
+    amigo_compose stop worker
+fi
+
 amigo_log "starting PostgreSQL"
 amigo_compose up -d db
 for attempt in {1..60}; do
@@ -135,8 +162,12 @@ amigo_log "running schema migration and idempotent bootstrap"
 amigo_compose run --rm --no-deps worker python -m app.cli migrate
 amigo_compose run --rm --no-deps worker python -m app.cli bootstrap
 
-amigo_log "sending the explicitly authorized, labelled Telegram smoke message"
-amigo_compose run --rm --no-deps worker python -m app.cli telegram-test
+if [[ ${SEND_TELEGRAM_TEST} -eq 1 ]]; then
+    amigo_log "sending the explicitly authorized, labelled Telegram smoke message"
+    amigo_compose run --rm --no-deps worker python -m app.cli telegram-test
+else
+    amigo_log "skipping the Telegram smoke message as explicitly selected"
+fi
 
 amigo_log "transferring Withings collection ownership away from the legacy cron"
 CUTOVER_STARTED=1
@@ -188,6 +219,7 @@ curl --fail --silent --show-error --max-time 15 \
 
 amigo_log "starting the v2 worker after legacy collection is disabled"
 amigo_compose up -d --wait --wait-timeout 180 worker
+EXISTING_WORKER_STOPPED=0
 bash "${SCRIPT_DIR}/verify-production.sh"
 
 amigo_log "rehearsing the route-only rollback while keeping all data intact"

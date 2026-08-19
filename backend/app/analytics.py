@@ -126,6 +126,85 @@ def planned_target_date(plan: PlanSpec = PlanSpec()) -> date:
         cursor += timedelta(days=1)
 
 
+def weekly_weight_points(
+    daily: Sequence[DailyPoint],
+    plan: PlanSpec = PlanSpec(),
+    as_of: date | None = None,
+) -> list[dict[str, object]]:
+    """Aggregate program daily medians into continuous ISO-week buckets.
+
+    The first program week and the current week are clipped to the program and
+    reporting boundaries. Empty weeks remain in the result so an actual change
+    is never calculated across a gap in measurements.
+    """
+    today = as_of or date.today()
+    if today < plan.start_date:
+        return []
+
+    program = [point for point in daily if plan.start_date <= point.day <= today]
+    by_week: dict[date, list[DailyPoint]] = defaultdict(list)
+    for point in program:
+        monday = point.day - timedelta(days=point.day.weekday())
+        by_week[monday].append(point)
+
+    first_monday = plan.start_date - timedelta(days=plan.start_date.weekday())
+    last_monday = today - timedelta(days=today.weekday())
+    result: list[dict[str, object]] = []
+    previous_actual_average: float | None = None
+    previous_planned_average: float | None = None
+    monday = first_monday
+    while monday <= last_monday:
+        sunday = monday + timedelta(days=6)
+        period_start = max(monday, plan.start_date)
+        period_end = min(sunday, today)
+        measured = sorted(by_week.get(monday, []), key=lambda point: point.day)
+        clean = [point for point in measured if not point.is_outlier]
+        planned: list[float] = []
+        cursor = period_start
+        while cursor <= period_end:
+            value = plan_weight(cursor, plan)
+            if value is not None:
+                planned.append(value)
+            cursor += timedelta(days=1)
+
+        actual_average = statistics.fmean(point.value for point in clean) if clean else None
+        actual_minimum = min((point.value for point in clean), default=None)
+        planned_average = statistics.fmean(planned) if planned else None
+
+        result.append(
+            {
+                "start_date": period_start.isoformat(),
+                "end_date": period_end.isoformat(),
+                "actual_avg_kg": round(actual_average, 3) if actual_average is not None else None,
+                "actual_min_kg": round(actual_minimum, 3) if actual_minimum is not None else None,
+                "planned_avg_kg": round(planned_average, 3) if planned_average is not None else None,
+                "actual_change_kg": (
+                    round(actual_average - previous_actual_average, 3)
+                    if actual_average is not None and previous_actual_average is not None
+                    else None
+                ),
+                "planned_change_kg": (
+                    round(planned_average - previous_planned_average, 3)
+                    if planned_average is not None and previous_planned_average is not None
+                    else None
+                ),
+                "deviation_from_plan_kg": (
+                    round(actual_average - planned_average, 3)
+                    if actual_average is not None and planned_average is not None
+                    else None
+                ),
+                "measurement_days": len(measured),
+                "sample_count": sum(point.sample_count for point in measured),
+                "outlier_days": sum(point.is_outlier for point in measured),
+                "is_partial": period_start != monday or monday == last_monday,
+            }
+        )
+        previous_actual_average = actual_average
+        previous_planned_average = planned_average
+        monday += timedelta(days=7)
+    return result
+
+
 def daily_medians(
     points: Iterable[ValuePoint],
     tz: ZoneInfo,

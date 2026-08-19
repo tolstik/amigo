@@ -8,6 +8,10 @@
 - The legacy application in `/srv/www/amigo` and the legacy MariaDB database `amigo` must remain intact until a documented rollback no longer requires them.
 - Never commit or document passwords, OAuth credentials, Telegram tokens, chat IDs, cookies, or authorization headers.
 - Before every production cutover, create and verify the backup described in `docs/runbook.md`.
+- Repeat deployments must use `deploy/deploy.sh` with exactly one notification
+  mode (`--send-telegram-test` or `--skip-telegram-test`); the script stops an
+  existing v2 worker before migrations and one-shot synchronization and restarts
+  it automatically after an early pre-cutover failure.
 - Before re-enabling the legacy Withings cron, stop the v2 worker and complete the secret-free OAuth token handback from PostgreSQL to the single legacy MariaDB token row.
 - The deployed application SHA is recorded in `/var/lib/amigo/current-release`; verification must use it rather than assuming the documentation checkout HEAD equals the running image.
 - After every production deployment, update this file and the runbook checkpoint with the deployed Git SHA/image IDs, verification results, production URL, and latest rollback location before reporting completion.

@@ -17,6 +17,34 @@ The production stack uses Docker Compose with `web`, `worker`, and `db` services
 Only the web service is published, on `127.0.0.1:18181`; host nginx exposes it at
 `https://amigo.tolstik.ru/amigo/`.
 
+## Weekly plan/fact analytics
+
+The program progress view includes two weekly charts backed by the `weekly`
+array in `GET /api/v1/series/weight?range=program`:
+
+- **Weight by week** — paired actual/plan average bars plus the actual weekly
+  minimum line.
+- **Change by week** — paired actual/plan change bars. A negative change means
+  weight loss; a positive change means weight gain.
+
+Buckets follow ISO weeks (Monday through Sunday) in `Europe/Moscow`. The first
+bucket is clipped to the program start on 2026-08-15. The current bucket ends at
+the local `as_of` date and remains `is_partial` until the next ISO week begins;
+the clipped first bucket is partial as well. Multiple readings on one local day
+are reduced to a daily median.
+Weekly actual average and minimum values use the available non-outlier daily
+medians without interpolation. Measurement-day and raw-sample counts still
+describe all observed data, while `outlier_days` is reported separately.
+
+The weekly plan average uses the planned weight for every elapsed calendar day
+in that bucket, including days without measurements. Every calendar bucket from
+program start through `as_of` is preserved: a week without usable measurements
+has null actual values instead of disappearing. Changes compare a bucket with
+the immediately preceding calendar bucket, so actual change stays null after an
+empty week while planned change continues. The accessible weekly table exposes
+the same bucket bounds, values, deviation, counts, and partial-week marker as
+the charts.
+
 ## Local development
 
 Install the backend from `backend/pyproject.toml` and run FastAPI at port 8000;

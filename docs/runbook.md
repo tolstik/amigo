@@ -413,19 +413,19 @@ image refs/IDs всех шести services, SHA-256 Compose/nginx/Codex, рез
 <!-- BEGIN AMIGO PRODUCTION CHECKPOINT -->
 - Status: **deployed and verified**
 - Production URL: `https://amigo.tolstik.ru/amigo/`
-- Verified at: `2026-08-19T20:38:42Z` (`2026-08-19 23:38:42 MSK`)
-- Git SHA: `15b73450679bdd4cb4023d3dd1b1df26a0564063`
-- Latest rollback snapshot: `/srv/amigo-rollbacks/20260819T203256Z`
-- Installed config SHA-256: Compose `25372a82af6c15051bb241dcc63e94fd39d5b972bc37f663b6d600a08d621be5`; nginx locations `a1b07803174a6143014c32da55c166422253b8fdd9db8df5ed3b3afb61de4728`; nginx rate limit `1a1a7d7b3124592c960e600c9fa6ccc7a80f4200ff71464a3e4a689b97bc86fb`.
+- Verified at: `2026-08-19T22:07:10Z` (`2026-08-20 01:07:10 MSK`)
+- Git SHA: `2516ee874885dd9a0ee8c1d9f73fac2341d539a6`
+- Latest rollback snapshot: `/srv/amigo-rollbacks/20260819T220411Z`
+- Installed config SHA-256: Compose `05d80cfec15d859ad686069652c0b4a33d0f210fdfe6bd4502cce5a111558c49`; nginx locations `a1b07803174a6143014c32da55c166422253b8fdd9db8df5ed3b3afb61de4728`; nginx rate limit `1a1a7d7b3124592c960e600c9fa6ccc7a80f4200ff71464a3e4a689b97bc86fb`.
 - Pinned Codex: `0.148.0` (`sha256:ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`).
 - Verification: all six Compose services healthy; application services use the release image; PostgreSQL ready; web and ingest bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; container secret boundaries, pinned Codex hash, isolated unpublished AI gateway, direct health, hidden public health routes, exact unsigned-ingest rejection, origin proxy, public HTTPS dashboard and overview/activity/recovery/AI JSON, relative `308`, security headers, route rollback rehearsal, cron isolation, and rollback assets passed.
 - Installed image references and IDs:
 
-- `web`: `amigo:15b73450679bdd4cb4023d3dd1b1df26a0564063` (`sha256:c0d23ec8f4488969335f9f27afad12492315410fe6ef632560b473712b26584d`)
-- `worker`: `amigo:15b73450679bdd4cb4023d3dd1b1df26a0564063` (`sha256:c0d23ec8f4488969335f9f27afad12492315410fe6ef632560b473712b26584d`)
-- `ingest`: `amigo:15b73450679bdd4cb4023d3dd1b1df26a0564063` (`sha256:c0d23ec8f4488969335f9f27afad12492315410fe6ef632560b473712b26584d`)
-- `ai-worker`: `amigo:15b73450679bdd4cb4023d3dd1b1df26a0564063` (`sha256:c0d23ec8f4488969335f9f27afad12492315410fe6ef632560b473712b26584d`)
-- `ai-gateway`: `amigo:15b73450679bdd4cb4023d3dd1b1df26a0564063` (`sha256:c0d23ec8f4488969335f9f27afad12492315410fe6ef632560b473712b26584d`)
+- `web`: `amigo:2516ee874885dd9a0ee8c1d9f73fac2341d539a6` (`sha256:89fcc041ad511a4fc8f3370fca1dc37650f01769e96a33b3d8831c6f2bed12c8`)
+- `worker`: `amigo:2516ee874885dd9a0ee8c1d9f73fac2341d539a6` (`sha256:89fcc041ad511a4fc8f3370fca1dc37650f01769e96a33b3d8831c6f2bed12c8`)
+- `ingest`: `amigo:2516ee874885dd9a0ee8c1d9f73fac2341d539a6` (`sha256:89fcc041ad511a4fc8f3370fca1dc37650f01769e96a33b3d8831c6f2bed12c8`)
+- `ai-worker`: `amigo:2516ee874885dd9a0ee8c1d9f73fac2341d539a6` (`sha256:89fcc041ad511a4fc8f3370fca1dc37650f01769e96a33b3d8831c6f2bed12c8`)
+- `ai-gateway`: `amigo:2516ee874885dd9a0ee8c1d9f73fac2341d539a6` (`sha256:89fcc041ad511a4fc8f3370fca1dc37650f01769e96a33b3d8831c6f2bed12c8`)
 - `db`: `postgres:17-alpine` (`sha256:1bea307dfb3ee30541a7acf7de14b58bcd6948da98e5d31a04c627c4d35ec64b`)
-- Rollback command: `sudo /srv/amigo/deploy/rollback.sh /srv/amigo-rollbacks/20260819T203256Z`
+- Rollback command: `sudo /srv/amigo/deploy/rollback.sh /srv/amigo-rollbacks/20260819T220411Z`
 <!-- END AMIGO PRODUCTION CHECKPOINT -->

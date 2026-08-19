@@ -79,9 +79,9 @@ Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are
 documented in [docs/runbook.md](docs/runbook.md).
 
-The signed companion from release `v3.0.0` is
-[`Amigo-Sync-1.0.0.apk`](https://github.com/tolstik/amigo/releases/download/v3.0.0/Amigo-Sync-1.0.0.apk)
-(SHA-256 `c8ba2c76698e99411938a51ce6026da840965ee7e68a3f7533d0f40bce3e2794`).
+The signed companion from release `v3.0.1` is
+[`Amigo-Sync-1.0.1.apk`](https://github.com/tolstik/amigo/releases/download/v3.0.1/Amigo-Sync-1.0.1.apk)
+(SHA-256 `9fd5d005bcc468ae20404b17f80db7e8d7301f937b5e59f233485e06b8006ae5`).
 Verify the checksum before installing it.
 
 ## Telegram schedule

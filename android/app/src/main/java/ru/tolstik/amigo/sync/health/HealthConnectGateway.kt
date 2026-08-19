@@ -45,6 +45,12 @@ data class HealthPermissionStatus(
     val backgroundAvailable: Boolean,
 ) {
     val allGranted: Boolean get() = granted.containsAll(requested)
+    val hasMetricReadPermission: Boolean
+        get() = granted.any { permission ->
+            permission in requested &&
+                permission != HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY &&
+                permission != HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
+        }
     val historyGranted: Boolean
         get() = !historyAvailable || HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in granted
     val backgroundGranted: Boolean

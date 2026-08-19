@@ -4,6 +4,7 @@ import java.io.IOException
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
@@ -93,6 +94,37 @@ class SyncCoordinatorTest {
         assertEquals(now, reconcile.rangeEnd)
         assertTrue(reconcile.finalPage == true)
         assertTrue(state.isSnapshotComplete(RecordType.STEPS))
+        assertFalse(state.snapshotRequiresFullReconcile(RecordType.STEPS))
+    }
+
+    @Test
+    fun expiredTokenSnapshotTargetIsCapturedAfterReplacementTokenCreation() = runTest {
+        val replacementTarget = now.plusSeconds(5 * 60)
+        val mutableClock = MutableClock(now)
+        val source = FakeHealthSource(
+            earliest = null,
+            expireOldToken = true,
+            onCreateToken = { mutableClock.current = replacementTarget },
+        )
+        val state = FakeState(origin).apply {
+            setChangesToken(RecordType.STEPS, "old-token")
+            markSnapshotComplete(RecordType.STEPS)
+        }
+        val uploader = FakeUploader()
+        val coordinator = SyncCoordinator(
+            source = source,
+            uploader = uploader,
+            state = state,
+            clock = mutableClock,
+            generationIds = GenerationIds { "replacement-generation" },
+            historyFloor = floor,
+        )
+
+        coordinator.syncAll(maxPagesPerType = 1)
+
+        assertEquals("fresh-token", state.changesToken(RecordType.STEPS))
+        assertEquals(replacementTarget, source.earliestUntils.single())
+        assertEquals(replacementTarget, uploader.batches.single().rangeEnd)
     }
 
     @Test
@@ -121,10 +153,30 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun emptyHistoryUsesResumableThirtyDaySnapshotWindows() = runTest {
-        val longFloor = Instant.parse("2026-01-01T00:00:00Z")
-        val longNow = Instant.parse("2026-05-15T00:00:00Z")
+    fun initialBackfillMarksProviderConfirmedEmptyTypeCompleteWithoutUpload() = runTest {
         val source = FakeHealthSource(earliest = null)
+        val state = FakeState(origin)
+        val uploader = FakeUploader()
+
+        coordinator(source, uploader, state).syncAll(maxPagesPerType = 1)
+
+        assertTrue(state.isSnapshotComplete(RecordType.STEPS))
+        assertTrue(uploader.batches.isEmpty())
+        assertNull(state.dataAsOf())
+        assertEquals(listOf("token", "earliest"), source.events)
+    }
+
+    @Test
+    fun initialBackfillSkipsGuaranteedEmptyPrefixAndStartsAtEarliestRecord() = runTest {
+        val longFloor = Instant.parse("2026-01-01T00:00:00Z")
+        val earliest = Instant.parse("2026-04-20T08:00:00Z")
+        val longNow = Instant.parse("2026-05-15T00:00:00Z")
+        val source = FakeHealthSource(
+            earliest = earliest,
+            snapshotPages = mutableMapOf(
+                null to SnapshotPage(listOf(recordAt("recent", earliest, longNow)), null),
+            ),
+        )
         val state = FakeState(origin)
         val uploader = FakeUploader()
         val coordinator = SyncCoordinator(
@@ -132,6 +184,240 @@ class SyncCoordinatorTest {
             uploader = uploader,
             state = state,
             clock = Clock.fixed(longNow, ZoneOffset.UTC),
+            generationIds = GenerationIds { "initial-generation" },
+            historyFloor = longFloor,
+        )
+
+        coordinator.syncAll(maxPagesPerType = 1)
+
+        assertTrue(state.isSnapshotComplete(RecordType.STEPS))
+        assertEquals(1, uploader.batches.size)
+        assertEquals(earliest, uploader.batches.single().rangeStart)
+        assertEquals(longNow, uploader.batches.single().rangeEnd)
+        assertEquals(listOf("token", "earliest", "snapshot:first"), source.events)
+    }
+
+    @Test
+    fun initialSnapshotTargetIsCapturedAfterChangesTokenCreation() = runTest {
+        val observationTarget = now.plusSeconds(5 * 60)
+        val mutableClock = MutableClock(now)
+        val source = FakeHealthSource(
+            earliest = floor,
+            snapshotPages = mutableMapOf(
+                null to SnapshotPage(listOf(record("observed")), null),
+            ),
+            onCreateToken = { mutableClock.current = observationTarget },
+        )
+        val uploader = FakeUploader()
+        val coordinator = SyncCoordinator(
+            source = source,
+            uploader = uploader,
+            state = FakeState(origin),
+            clock = mutableClock,
+            generationIds = GenerationIds { "observed-generation" },
+            historyFloor = floor,
+        )
+
+        coordinator.syncAll(maxPagesPerType = 1)
+
+        assertEquals(observationTarget, source.earliestUntils.single())
+        assertEquals(observationTarget, source.snapshotUntils.single())
+        assertEquals(observationTarget, uploader.batches.single().rangeEnd)
+        assertTrue(source.events.indexOf("token") < source.events.indexOf("earliest"))
+    }
+
+    @Test
+    fun pendingSnapshotRetainsItsPersistedTargetWhenSyncResumesLater() = runTest {
+        val persistedTarget = now
+        val mutableClock = MutableClock(now.plusSeconds(24 * 60 * 60))
+        val source = FakeHealthSource(
+            earliest = floor,
+            snapshotPages = mutableMapOf(
+                null to SnapshotPage(listOf(record("resumed")), null),
+            ),
+        )
+        val state = FakeState(origin).apply {
+            setChangesToken(RecordType.STEPS, "initial-token")
+            beginSnapshot(RecordType.STEPS, persistedTarget, requiresFullReconcile = false)
+        }
+        val uploader = FakeUploader()
+        val coordinator = SyncCoordinator(
+            source = source,
+            uploader = uploader,
+            state = state,
+            clock = mutableClock,
+            generationIds = GenerationIds { "resumed-generation" },
+            historyFloor = floor,
+        )
+
+        coordinator.syncAll(maxPagesPerType = 1)
+
+        assertEquals(listOf("earliest", "snapshot:first"), source.events)
+        assertEquals(persistedTarget, source.earliestUntils.single())
+        assertEquals(persistedTarget, source.snapshotUntils.single())
+        assertEquals(persistedTarget, uploader.batches.single().rangeEnd)
+    }
+
+    @Test
+    fun cursorSnapshotRetainsItsTargetWhenNextPageRunsLater() = runTest {
+        val mutableClock = MutableClock(now)
+        val source = FakeHealthSource(
+            earliest = floor,
+            snapshotPages = mutableMapOf(
+                null to SnapshotPage(listOf(record("page-one")), "page-2"),
+                "page-2" to SnapshotPage(listOf(record("page-two")), null),
+            ),
+        )
+        val state = FakeState(origin)
+        val uploader = FakeUploader()
+        val coordinator = SyncCoordinator(
+            source = source,
+            uploader = uploader,
+            state = state,
+            clock = mutableClock,
+            generationIds = GenerationIds { "resumed-cursor-generation" },
+            historyFloor = floor,
+        )
+
+        coordinator.syncAll(maxPagesPerType = 1)
+        mutableClock.current = now.plusSeconds(24 * 60 * 60)
+        coordinator.syncAll(maxPagesPerType = 1)
+
+        assertEquals(listOf(now, now), source.snapshotUntils)
+        assertEquals(1, source.events.count { it == "token" })
+        assertEquals(2, uploader.batches.size)
+        assertTrue(state.isSnapshotComplete(RecordType.STEPS))
+    }
+
+    @Test
+    fun versionTwoInitialCursorIsMigratedAndSkipsItsOldEmptyWindows() = runTest {
+        val earliest = floor.plusSeconds(12 * 60 * 60)
+        val source = FakeHealthSource(
+            earliest = earliest,
+            snapshotPages = mutableMapOf(
+                null to SnapshotPage(listOf(recordAt("migrated", earliest, now)), null),
+            ),
+        )
+        val state = FakeState(origin).apply {
+            setChangesToken(RecordType.STEPS, "initial-token")
+            setSnapshotCursor(
+                RecordType.STEPS,
+                SnapshotCursor(
+                    generation = "v2-generation",
+                    target = now,
+                    rangeStart = floor,
+                    rangeEnd = floor.plusSeconds(60 * 60),
+                    knownEmpty = true,
+                    emptyUntil = now,
+                    formatVersion = 2,
+                ),
+            )
+        }
+        val uploader = FakeUploader()
+
+        coordinator(source, uploader, state).syncAll(maxPagesPerType = 1)
+
+        assertTrue(state.isSnapshotComplete(RecordType.STEPS))
+        assertEquals(earliest, uploader.batches.single().rangeStart)
+        assertEquals(listOf("earliest", "snapshot:first"), source.events)
+    }
+
+    @Test
+    fun versionTwoCursorUsesFullReconcileWhenAnotherTypeCompletedAndPreservesWatermark() = runTest {
+        val freshWatermark = now.plusSeconds(60 * 60)
+        val source = FakeHealthSource(
+            earliest = null,
+            enabled = listOf(RecordType.STEPS, RecordType.DISTANCE),
+        )
+        val state = FakeState(origin).apply {
+            setChangesToken(RecordType.STEPS, "initial-token")
+            setChangesToken(RecordType.DISTANCE, "distance-token")
+            markSnapshotComplete(RecordType.DISTANCE)
+            setDataAsOf(freshWatermark)
+            setSnapshotCursor(
+                RecordType.STEPS,
+                SnapshotCursor(
+                    generation = "v2-empty-generation",
+                    target = now,
+                    rangeStart = floor,
+                    rangeEnd = floor.plusSeconds(60 * 60),
+                    knownEmpty = true,
+                    emptyUntil = now,
+                    formatVersion = 2,
+                ),
+            )
+        }
+        val uploader = FakeUploader()
+
+        coordinator(source, uploader, state).syncAll(maxPagesPerType = 1)
+
+        assertTrue(state.isSnapshotComplete(RecordType.STEPS))
+        assertTrue(state.isSnapshotComplete(RecordType.DISTANCE))
+        assertEquals(1, uploader.batches.size)
+        assertTrue(uploader.batches.single().records.isEmpty())
+        assertEquals(floor, uploader.batches.single().rangeStart)
+        assertEquals(now, uploader.batches.single().rangeEnd)
+        assertEquals(freshWatermark, state.dataAsOf())
+    }
+
+    @Test
+    fun allLegacyCursorsAreMigratedBeforeAnEarlierTypeCanCompleteAndFail() = runTest {
+        val earliest = floor.plusSeconds(12 * 60 * 60)
+        val source = FakeHealthSource(
+            earliest = earliest,
+            enabled = listOf(RecordType.STEPS, RecordType.DISTANCE),
+            failChangesOnceFor = mutableSetOf(RecordType.STEPS),
+        )
+        val state = FakeState(origin).apply {
+            listOf(RecordType.STEPS, RecordType.DISTANCE).forEach { type ->
+                setChangesToken(type, "${type.wireName}-token")
+                setSnapshotCursor(
+                    type,
+                    SnapshotCursor(
+                        generation = "v2-${type.wireName}",
+                        target = now,
+                        rangeStart = floor,
+                        rangeEnd = floor.plusSeconds(60 * 60),
+                        knownEmpty = true,
+                        emptyUntil = now,
+                        formatVersion = 2,
+                    ),
+                )
+            }
+        }
+        val uploader = FakeUploader()
+        val coordinator = coordinator(source, uploader, state)
+
+        runCatching { coordinator.syncAll(maxPagesPerType = 2) }
+            .onSuccess { error("Expected first type changes failure") }
+
+        assertTrue(state.isSnapshotComplete(RecordType.STEPS))
+        assertEquals(now, state.snapshotTarget(RecordType.DISTANCE))
+        assertFalse(state.snapshotRequiresFullReconcile(RecordType.DISTANCE))
+
+        coordinator.syncAll(maxPagesPerType = 1)
+
+        val distanceBatch = uploader.batches.single { it.recordType == RecordType.DISTANCE }
+        assertEquals(earliest, distanceBatch.rangeStart)
+        assertEquals(now, distanceBatch.rangeEnd)
+        assertTrue(state.isSnapshotComplete(RecordType.DISTANCE))
+    }
+
+    @Test
+    fun fullReconcileOfEmptyHistoryUsesResumableThirtyDaySnapshotWindows() = runTest {
+        val longFloor = Instant.parse("2026-01-01T00:00:00Z")
+        val longNow = Instant.parse("2026-05-15T00:00:00Z")
+        val mutableClock = MutableClock(longNow)
+        val source = FakeHealthSource(earliest = null)
+        val state = FakeState(origin).apply {
+            beginSnapshot(RecordType.STEPS, longNow, requiresFullReconcile = true)
+        }
+        val uploader = FakeUploader()
+        val coordinator = SyncCoordinator(
+            source = source,
+            uploader = uploader,
+            state = state,
+            clock = mutableClock,
             generationIds = GenerationIds { "empty-generation" },
             historyFloor = longFloor,
         )
@@ -146,6 +432,7 @@ class SyncCoordinatorTest {
         assertTrue(uploader.batches.all { it.records.isEmpty() && it.finalPage == true })
         assertTrue(source.events.none { it.startsWith("snapshot:") })
 
+        mutableClock.current = longNow.plusSeconds(10 * 24 * 60 * 60)
         coordinator.syncAll(maxPagesPerType = 8)
 
         assertTrue(state.isSnapshotComplete(RecordType.STEPS))
@@ -313,15 +600,30 @@ class SyncCoordinatorTest {
         },
     )
 
+    private fun recordAt(id: String, start: Instant, modified: Instant) = ExportRecord(
+        recordId = id,
+        type = RecordType.STEPS,
+        startTime = start,
+        endTime = start.plusSeconds(60),
+        dataOrigin = origin,
+        lastModifiedTime = modified,
+        values = buildJsonObject { put("count", 100) },
+    )
+
     private class FakeHealthSource(
         private val earliest: Instant?,
         private val snapshotPages: MutableMap<String?, SnapshotPage> = mutableMapOf(),
         private val expireOldToken: Boolean = false,
         private val changes: List<ExportChange> = emptyList(),
+        private val enabled: List<RecordType> = listOf(RecordType.STEPS),
+        private val onCreateToken: () -> Unit = {},
+        private val failChangesOnceFor: MutableSet<RecordType> = mutableSetOf(),
     ) : HealthDataSource {
         val events = mutableListOf<String>()
+        val earliestUntils = mutableListOf<Instant>()
+        val snapshotUntils = mutableListOf<Instant>()
 
-        override suspend fun enabledTypes() = listOf(RecordType.STEPS)
+        override suspend fun enabledTypes() = enabled
 
         override suspend fun findEarliest(
             type: RecordType,
@@ -330,6 +632,7 @@ class SyncCoordinatorTest {
             until: Instant,
         ): Instant? {
             events += "earliest"
+            earliestUntils += until
             return earliest
         }
 
@@ -341,11 +644,13 @@ class SyncCoordinatorTest {
             pageToken: String?,
         ): SnapshotPage {
             events += "snapshot:${pageToken ?: "first"}"
+            snapshotUntils += until
             return snapshotPages[pageToken] ?: SnapshotPage(emptyList(), null)
         }
 
         override suspend fun createChangesToken(type: RecordType, dataOrigin: String): String {
             events += "token"
+            onCreateToken()
             return if (events.any { it == "changes:old-token" }) "fresh-token" else "initial-token"
         }
 
@@ -355,6 +660,7 @@ class SyncCoordinatorTest {
             token: String,
         ): ChangePage {
             events += "changes:$token"
+            if (failChangesOnceFor.remove(type)) throw IOException("changes unavailable")
             if (expireOldToken && token == "old-token") {
                 return ChangePage(emptyList(), token, false, true)
             }
@@ -386,6 +692,8 @@ class SyncCoordinatorTest {
         private val tokens = mutableMapOf<RecordType, String>()
         private val cursors = mutableMapOf<RecordType, SnapshotCursor>()
         private val complete = mutableSetOf<RecordType>()
+        private val reconcile = mutableSetOf<RecordType>()
+        private val targets = mutableMapOf<RecordType, Instant>()
         var asOf: Instant? = null
         var lastSyncValue: Instant? = null
         var lastErrorValue: String? = null
@@ -397,15 +705,35 @@ class SyncCoordinatorTest {
         override fun setSnapshotCursor(type: RecordType, cursor: SnapshotCursor) {
             cursors[type] = cursor
             complete -= type
+            targets -= type
         }
         override fun isSnapshotComplete(type: RecordType) = type in complete
         override fun markSnapshotComplete(type: RecordType) {
             complete += type
             cursors -= type
+            reconcile -= type
+            targets -= type
         }
-        override fun resetSnapshot(type: RecordType) {
+        override fun snapshotRequiresFullReconcile(type: RecordType) = type in reconcile
+        override fun snapshotTarget(type: RecordType) = targets[type]
+        override fun beginSnapshot(
+            type: RecordType,
+            target: Instant,
+            requiresFullReconcile: Boolean,
+        ) {
             complete -= type
             cursors -= type
+            targets[type] = target
+            if (requiresFullReconcile) reconcile += type else reconcile -= type
+        }
+        override fun beginSnapshotWithChangesToken(
+            type: RecordType,
+            newToken: String,
+            target: Instant,
+            requiresFullReconcile: Boolean,
+        ) {
+            tokens[type] = newToken
+            beginSnapshot(type, target, requiresFullReconcile)
         }
         override fun setDataAsOf(value: Instant) {
             if (asOf == null || value > asOf) asOf = value
@@ -413,5 +741,16 @@ class SyncCoordinatorTest {
         override fun dataAsOf() = asOf
         override fun setLastSync(value: Instant) { lastSyncValue = value }
         override fun setLastError(value: String?) { lastErrorValue = value }
+    }
+
+    private class MutableClock(
+        var current: Instant,
+        private val currentZone: ZoneId = ZoneOffset.UTC,
+    ) : Clock() {
+        override fun getZone(): ZoneId = currentZone
+
+        override fun withZone(zone: ZoneId): Clock = MutableClock(current, zone)
+
+        override fun instant(): Instant = current
     }
 }

@@ -8,7 +8,7 @@ import ru.tolstik.amigo.sync.wire.CanonicalJson
 internal const val INGEST_BODY_LIMIT_BYTES = 1_048_576
 internal const val MAX_RECORDS_PER_BATCH = 2_000
 internal const val MAX_HEART_RATE_SAMPLES = 5_000
-internal const val SNAPSHOT_CURSOR_FORMAT_VERSION = 2
+internal const val SNAPSHOT_CURSOR_FORMAT_VERSION = 3
 
 /**
  * Converts a Health Connect page into deterministic server-sized batches.

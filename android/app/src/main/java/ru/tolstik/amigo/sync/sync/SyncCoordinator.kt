@@ -52,7 +52,18 @@ interface SyncStateStore {
 
     fun markSnapshotComplete(type: RecordType)
 
-    fun resetSnapshot(type: RecordType)
+    fun snapshotRequiresFullReconcile(type: RecordType): Boolean
+
+    fun snapshotTarget(type: RecordType): Instant?
+
+    fun beginSnapshot(type: RecordType, target: Instant, requiresFullReconcile: Boolean)
+
+    fun beginSnapshotWithChangesToken(
+        type: RecordType,
+        newToken: String,
+        target: Instant,
+        requiresFullReconcile: Boolean,
+    )
 
     fun setDataAsOf(value: Instant)
 
@@ -81,16 +92,23 @@ class SyncCoordinator(
         require(maxPagesPerType > 0)
         val origin = state.selectedOrigin()?.takeIf(String::isNotBlank)
             ?: throw IllegalStateException("Health Connect source is not selected")
-        val runTarget = clock.instant()
-        val accessibleFloor = source.accessibleHistoryFloor(historyFloor, runTarget)
-            .coerceAtLeast(historyFloor)
-            .coerceAtMost(runTarget.minusMillis(1))
         val enabledTypes = source.enabledTypes()
         check(enabledTypes.isNotEmpty()) { "No Health Connect read permissions are granted" }
+        val legacyMigrationRequiresFullReconcile = enabledTypes.any(state::isSnapshotComplete)
         var uploaded = 0
         try {
+            // Migrate every legacy cursor and persist every observation point before processing
+            // pages. If a later type fails after an earlier one completes, a retry must not
+            // reinterpret the remaining cursors using that newly completed type as evidence.
             for (type in enabledTypes) {
-                uploaded += syncType(type, origin, runTarget, accessibleFloor, maxPagesPerType)
+                prepareSnapshotObservation(
+                    type,
+                    origin,
+                    legacyMigrationRequiresFullReconcile,
+                )
+            }
+            for (type in enabledTypes) {
+                uploaded += syncType(type, origin, maxPagesPerType)
             }
             state.setLastSync(clock.instant())
             state.setLastError(null)
@@ -108,24 +126,13 @@ class SyncCoordinator(
     private suspend fun syncType(
         type: RecordType,
         origin: String,
-        runTarget: Instant,
-        accessibleFloor: Instant,
         budget: Int,
     ): Int {
-        state.snapshotCursor(type)?.let { cursor ->
-            if (
-                cursor.formatVersion != SNAPSHOT_CURSOR_FORMAT_VERSION ||
-                cursor.rangeStart < accessibleFloor
-            ) {
-                state.resetSnapshot(type)
-            }
-        }
-        ensureChangesToken(type, origin)
         var uploaded = 0
         var remaining = budget
         while (remaining > 0) {
             if (!state.isSnapshotComplete(type)) {
-                uploaded += syncSnapshotPage(type, origin, runTarget, accessibleFloor)
+                uploaded += syncSnapshotPage(type, origin)
                 remaining -= 1
                 continue
             }
@@ -142,46 +149,89 @@ class SyncCoordinator(
         return uploaded
     }
 
-    private suspend fun ensureChangesToken(type: RecordType, origin: String) {
-        if (state.changesToken(type) != null) return
-        state.setChangesToken(type, source.createChangesToken(type, origin))
+    private suspend fun prepareSnapshotObservation(
+        type: RecordType,
+        origin: String,
+        legacyMigrationRequiresFullReconcile: Boolean,
+    ) {
+        val cursor = state.snapshotCursor(type)
+        val explicitReconcile = state.snapshotRequiresFullReconcile(type)
+        if (state.changesToken(type) == null) {
+            val newToken = source.createChangesToken(type, origin)
+            val target = clock.instant()
+            state.beginSnapshotWithChangesToken(
+                type = type,
+                newToken = newToken,
+                target = target,
+                requiresFullReconcile = explicitReconcile ||
+                    state.isSnapshotComplete(type) || cursor != null,
+            )
+            return
+        }
+        when {
+            cursor?.formatVersion != null &&
+                cursor.formatVersion != SNAPSHOT_CURSOR_FORMAT_VERSION -> {
+                // v2 had no persisted purpose. A wholly unfinished installation is the known
+                // initial-backfill case; otherwise prefer the safe full-reconcile migration.
+                state.beginSnapshot(
+                    type,
+                    clock.instant(),
+                    explicitReconcile || legacyMigrationRequiresFullReconcile,
+                )
+            }
+            !state.isSnapshotComplete(type) && cursor == null && state.snapshotTarget(type) == null -> {
+                // The token already predates this target, so overlap is safe and no record can fall
+                // between the changes observation point and the snapshot boundary.
+                state.beginSnapshot(type, clock.instant(), explicitReconcile)
+            }
+        }
     }
 
     private suspend fun syncSnapshotPage(
         type: RecordType,
         origin: String,
-        runTarget: Instant,
-        accessibleFloor: Instant,
     ): Int {
-        val cursor = state.snapshotCursor(type)
-            ?: initialiseSnapshot(type, origin, runTarget, accessibleFloor)
-        val page = if (cursor.knownEmpty) {
+        var cursor = state.snapshotCursor(type)
+        var target = cursor?.target ?: state.snapshotTarget(type)
+            ?: error("Snapshot observation target disappeared")
+        var accessibleFloor = accessibleFloor(target)
+        if (cursor != null && cursor.rangeStart < accessibleFloor) {
+            // An existing, older token makes extending the target overlap-safe.
+            target = clock.instant()
+            state.beginSnapshot(type, target, requiresFullReconcile = true)
+            cursor = null
+            accessibleFloor = accessibleFloor(target)
+        }
+        val activeCursor = cursor
+            ?: initialiseSnapshot(type, origin, target, accessibleFloor)
+            ?: return 0
+        val page = if (activeCursor.knownEmpty) {
             SnapshotPage(emptyList(), null)
         } else {
             source.readSnapshotPage(
                 type = type,
                 dataOrigin = origin,
-                from = cursor.rangeStart,
-                until = cursor.rangeEnd,
-                pageToken = cursor.pageToken,
+                from = activeCursor.rangeStart,
+                until = activeCursor.rangeEnd,
+                pageToken = activeCursor.pageToken,
             )
         }
         val sourceFinalPage = page.nextPageToken == null
         val snapshotId = stableId(
-            "snapshot-v2",
-            cursor.generation,
+            "snapshot-v3",
+            activeCursor.generation,
             type.wireName,
-            cursor.rangeStart.toString(),
-            cursor.rangeEnd.toString(),
+            activeCursor.rangeStart.toString(),
+            activeCursor.rangeEnd.toString(),
         )
         val batches = batchPlanner.snapshot(
             type = type,
             origin = origin,
             sourceRecords = page.records,
-            rangeStart = cursor.rangeStart,
-            rangeEnd = cursor.rangeEnd,
+            rangeStart = activeCursor.rangeStart,
+            rangeEnd = activeCursor.rangeEnd,
             snapshotId = snapshotId,
-            firstPageIndex = cursor.pageIndex,
+            firstPageIndex = activeCursor.pageIndex,
             sourceFinalPage = sourceFinalPage,
         )
         batches.forEach { batch ->
@@ -191,13 +241,13 @@ class SyncCoordinator(
         if (!sourceFinalPage) {
             state.setSnapshotCursor(
                 type,
-                cursor.copy(
+                activeCursor.copy(
                     pageToken = page.nextPageToken,
-                    pageIndex = cursor.pageIndex + batches.size,
+                    pageIndex = activeCursor.pageIndex + batches.size,
                 ),
             )
         } else {
-            advanceSnapshot(type, cursor)
+            advanceSnapshot(type, activeCursor)
         }
         return batches.size
     }
@@ -207,10 +257,27 @@ class SyncCoordinator(
         origin: String,
         target: Instant,
         accessibleFloor: Instant,
-    ): SnapshotCursor {
+    ): SnapshotCursor? {
         val earliest = source.findEarliest(type, origin, accessibleFloor, target)
             ?.coerceAtLeast(accessibleFloor)
             ?.coerceAtMost(target)
+        if (!state.snapshotRequiresFullReconcile(type)) {
+            if (earliest == null) {
+                // A newly paired device has no server records to tombstone. Its initial import can
+                // safely omit the provider-confirmed empty prefix (or the entire empty type).
+                state.markSnapshotComplete(type)
+                return null
+            }
+            val rangeStart = minOf(earliest, target.minusMillis(1))
+            val cursor = SnapshotCursor(
+                generation = generationIds.next(),
+                target = target,
+                rangeStart = rangeStart,
+                rangeEnd = minOf(rangeStart.plus(snapshotWindow), target),
+            )
+            state.setSnapshotCursor(type, cursor)
+            return cursor
+        }
         val emptyUntil = when {
             earliest == null -> target
             earliest > accessibleFloor -> earliest
@@ -263,8 +330,13 @@ class SyncCoordinator(
         val page = source.readChanges(type, origin, token)
         if (page.tokenExpired) {
             // Establish the new observation point before starting the full reconcile.
-            state.setChangesToken(type, source.createChangesToken(type, origin))
-            state.resetSnapshot(type)
+            val newToken = source.createChangesToken(type, origin)
+            state.beginSnapshotWithChangesToken(
+                type = type,
+                newToken = newToken,
+                target = clock.instant(),
+                requiresFullReconcile = true,
+            )
             return ChangeStep.Reset
         }
         val records = page.changes.map { change ->
@@ -297,6 +369,11 @@ class SyncCoordinator(
         data object Advanced : ChangeStep
         data class Uploaded(val batchCount: Int) : ChangeStep
     }
+
+    private suspend fun accessibleFloor(target: Instant): Instant =
+        source.accessibleHistoryFloor(historyFloor, target)
+            .coerceAtLeast(historyFloor)
+            .coerceAtMost(target.minusMillis(1))
 }
 
 internal fun stableId(vararg parts: String): String {

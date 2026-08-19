@@ -5,9 +5,9 @@ Health Connect and sends signed, idempotent batches to the Amigo server. The app
 never requests write access, weight, blood pressure, location, or exercise
 routes.
 
-Signed release `1.0.0`:
-[`Amigo-Sync-1.0.0.apk`](https://github.com/tolstik/amigo/releases/download/v3.0.0/Amigo-Sync-1.0.0.apk),
-SHA-256 `c8ba2c76698e99411938a51ce6026da840965ee7e68a3f7533d0f40bce3e2794`.
+Signed release `1.0.1`:
+[`Amigo-Sync-1.0.1.apk`](https://github.com/tolstik/amigo/releases/download/v3.0.1/Amigo-Sync-1.0.1.apk),
+SHA-256 `9fd5d005bcc468ae20404b17f80db7e8d7301f937b5e59f233485e06b8006ae5`.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
@@ -61,10 +61,12 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
    once an hour when networking and background Health Connect reads are
    available.
 
-The full backfill is resumable and may require several runs. “Full history”
-means all records Health Connect allows this app to read. On providers without
-extended-history support, the app safely starts 30 days before its first
-observed permission grant.
+The full backfill is resumable and may require several runs. A newly paired
+device skips the provider-confirmed empty prefix and starts at the first real
+record; token-expiry reconciliation still scans bounded 30-day windows so
+deletions remain detectable. “Full history” means all records Health Connect
+allows this app to read. On providers without extended-history support, the app
+safely starts 30 days before its first observed permission grant.
 
 **Сбросить сопряжение** deletes and immediately replaces the non-exportable
 Android Keystore key before clearing local pairing and sync cursors. Use it only

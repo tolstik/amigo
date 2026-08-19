@@ -112,6 +112,12 @@ private fun AmigoSyncScreen(
                     Text(healthStatusText(state.healthSdkStatus))
                     state.permissions?.let { permissions ->
                         Text("Разрешения: ${permissions.granted.intersect(permissions.requested).size}/${permissions.requested.size}")
+                        if (!permissions.hasMetricReadPermission) {
+                            Text(
+                                "Нет доступа ни к одному показателю здоровья",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                         Text(
                             when {
                                 !permissions.historyAvailable -> "Расширенный доступ к истории не поддерживается"
@@ -133,7 +139,7 @@ private fun AmigoSyncScreen(
                     ) { Text("Выдать доступ") }
                     OutlinedButton(
                         onClick = onDiscoverOrigins,
-                        enabled = !state.busy && state.permissions?.granted?.isNotEmpty() == true,
+                        enabled = !state.busy && state.permissions?.hasMetricReadPermission == true,
                     ) { Text("Найти источники") }
                 }
             }
@@ -183,9 +189,28 @@ private fun AmigoSyncScreen(
                     )
                     val registration = local?.registration
                     if (registration == null) {
+                        val hasMetricReadPermission =
+                            state.permissions?.hasMetricReadPermission == true
+                        if (!hasMetricReadPermission) {
+                            Text(
+                                "Перед регистрацией разрешите чтение хотя бы одного показателя " +
+                                    "Health Connect.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else if (local?.selectedOrigin == null) {
+                            Text(
+                                "Перед регистрацией нажмите «Найти источники» и выберите " +
+                                    "Mi Fitness выше.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         Button(
                             onClick = onRegister,
-                            enabled = !state.busy && local?.selectedOrigin != null,
+                            enabled = !state.busy &&
+                                local?.selectedOrigin != null &&
+                                hasMetricReadPermission,
                         ) { Text("Зарегистрировать телефон") }
                     } else {
                         if (registration.pairingCode.isNotBlank()) {

@@ -57,4 +57,8 @@ class AppContainer(application: Application) {
     suspend fun resetPairing() = syncMutex.withLock {
         pairingResetter.reset()
     }
+
+    suspend fun resetSnapshotsAfterPermissionsChange() = syncMutex.withLock {
+        preferences.resetAllSnapshots()
+    }
 }

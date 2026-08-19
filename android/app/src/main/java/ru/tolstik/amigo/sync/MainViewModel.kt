@@ -49,12 +49,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onPermissionsResult(granted: Set<String>) {
-        if (granted.isNotEmpty()) {
-            preferences.markHealthPermissionsObserved()
-            preferences.resetAllSnapshots()
+        launchBusy {
+            if (granted.isNotEmpty()) {
+                preferences.markHealthPermissionsObserved()
+                container.resetSnapshotsAfterPermissionsChange()
+            }
+            showNotice(if (granted.isEmpty()) "Доступ не предоставлен" else "Разрешения обновлены")
         }
-        showNotice(if (granted.isEmpty()) "Доступ не предоставлен" else "Разрешения обновлены")
-        refresh()
     }
 
     fun setServerUrl(value: String) {
@@ -85,6 +86,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun registerDevice() = launchBusy {
         val current = preferences.status()
         require(current.selectedOrigin != null) { "Сначала выберите источник Mi Fitness" }
+        val enabledTypes = container.healthGateway?.enabledTypes().orEmpty()
+        check(enabledTypes.isNotEmpty()) {
+            "Сначала разрешите чтение хотя бы одного показателя Health Connect"
+        }
         val response = container.ingestApi.register(current.serverUrl, current.deviceLabel)
         preferences.saveRegistration(
             DeviceRegistration(

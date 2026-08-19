@@ -74,8 +74,18 @@ class AppPreferences(context: Context) : SyncStateStore {
     fun resetAllSnapshots() {
         values.edit().also { editor ->
             RecordType.entries.forEach { type ->
+                val requiresFullReconcile =
+                    values.getBoolean(syncKey(type, "reconcile"), false) ||
+                        values.getBoolean(syncKey(type, "complete"), false) ||
+                        values.contains(syncKey(type, "cursor"))
                 editor.remove(syncKey(type, "cursor"))
+                editor.remove(syncKey(type, "target"))
                 editor.putBoolean(syncKey(type, "complete"), false)
+                if (requiresFullReconcile) {
+                    editor.putBoolean(syncKey(type, "reconcile"), true)
+                } else {
+                    editor.remove(syncKey(type, "reconcile"))
+                }
             }
         }.apply()
     }
@@ -174,6 +184,7 @@ class AppPreferences(context: Context) : SyncStateStore {
         values.edit()
             .putString(syncKey(type, "cursor"), CanonicalJson.render(payload))
             .putBoolean(syncKey(type, "complete"), false)
+            .remove(syncKey(type, "target"))
             .apply()
     }
 
@@ -184,14 +195,48 @@ class AppPreferences(context: Context) : SyncStateStore {
         values.edit()
             .putBoolean(syncKey(type, "complete"), true)
             .remove(syncKey(type, "cursor"))
+            .remove(syncKey(type, "reconcile"))
+            .remove(syncKey(type, "target"))
             .apply()
     }
 
-    override fun resetSnapshot(type: RecordType) {
-        values.edit()
+    override fun snapshotRequiresFullReconcile(type: RecordType): Boolean =
+        values.getBoolean(syncKey(type, "reconcile"), false)
+
+    override fun snapshotTarget(type: RecordType): Instant? =
+        values.getString(syncKey(type, "target"), null)
+            ?.let { runCatching { Instant.parse(it) }.getOrNull() }
+
+    override fun beginSnapshot(type: RecordType, target: Instant, requiresFullReconcile: Boolean) {
+        val editor = values.edit()
             .putBoolean(syncKey(type, "complete"), false)
+            .putString(syncKey(type, "target"), target.toString())
             .remove(syncKey(type, "cursor"))
-            .apply()
+        if (requiresFullReconcile) {
+            editor.putBoolean(syncKey(type, "reconcile"), true)
+        } else {
+            editor.remove(syncKey(type, "reconcile"))
+        }
+        editor.apply()
+    }
+
+    override fun beginSnapshotWithChangesToken(
+        type: RecordType,
+        newToken: String,
+        target: Instant,
+        requiresFullReconcile: Boolean,
+    ) {
+        val editor = values.edit()
+            .putString(syncKey(type, "changes_token"), newToken)
+            .putBoolean(syncKey(type, "complete"), false)
+            .putString(syncKey(type, "target"), target.toString())
+            .remove(syncKey(type, "cursor"))
+        if (requiresFullReconcile) {
+            editor.putBoolean(syncKey(type, "reconcile"), true)
+        } else {
+            editor.remove(syncKey(type, "reconcile"))
+        }
+        editor.apply()
     }
 
     override fun setDataAsOf(value: Instant) {

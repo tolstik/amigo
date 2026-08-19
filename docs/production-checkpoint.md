@@ -4,16 +4,20 @@
 
 - Status: **deployed and verified**
 - Production URL: `https://amigo.tolstik.ru/amigo/`
-- Verified at: `2026-08-19T17:49:14Z` (`2026-08-19 20:49:14 MSK`)
-- Git SHA: `77a6699f9af2d564bbb252212ed32baeea00e746`
-- Latest rollback snapshot: `/srv/amigo-rollbacks/20260819T174504Z`
-- Installed config SHA-256: Compose `6727c935a9960a6a83c332c83b304d8814c26a328dd04d5a82ee63b2009847d7`; nginx locations `37ca8718449885e28e44fb04ded159913169d43b839024960c861063186d574e`; nginx rate limit `a887ddf70734dda6821fcd4db984d99dcb70993eff64a5ae4a2108e517a93362`.
-- Verification: Compose `web`, `worker`, and `db` running; PostgreSQL ready; web bound to `127.0.0.1:18181`; direct health, hidden public health routes, origin proxy, public HTTPS dashboard/API, relative `308`, security headers, route rollback rehearsal, cron isolation, and rollback assets passed.
+- Verified at: `2026-08-19T20:38:42Z` (`2026-08-19 23:38:42 MSK`)
+- Git SHA: `15b73450679bdd4cb4023d3dd1b1df26a0564063`
+- Latest rollback snapshot: `/srv/amigo-rollbacks/20260819T203256Z`
+- Installed config SHA-256: Compose `25372a82af6c15051bb241dcc63e94fd39d5b972bc37f663b6d600a08d621be5`; nginx locations `a1b07803174a6143014c32da55c166422253b8fdd9db8df5ed3b3afb61de4728`; nginx rate limit `1a1a7d7b3124592c960e600c9fa6ccc7a80f4200ff71464a3e4a689b97bc86fb`.
+- Pinned Codex: `0.148.0` (`sha256:ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`).
+- Verification: all six Compose services healthy; application services use the release image; PostgreSQL ready; web and ingest bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; container secret boundaries, pinned Codex hash, isolated unpublished AI gateway, direct health, hidden public health routes, exact unsigned-ingest rejection, origin proxy, public HTTPS dashboard and overview/activity/recovery/AI JSON, relative `308`, security headers, route rollback rehearsal, cron isolation, and rollback assets passed.
 - Installed image references and IDs:
 
-- `web`: `amigo:77a6699f9af2d564bbb252212ed32baeea00e746` (`sha256:8b53c6bff5b9db086df6de412296b0c972ac20d23c199028cf6ba52fc0271227`)
-- `worker`: `amigo:77a6699f9af2d564bbb252212ed32baeea00e746` (`sha256:8b53c6bff5b9db086df6de412296b0c972ac20d23c199028cf6ba52fc0271227`)
+- `web`: `amigo:15b73450679bdd4cb4023d3dd1b1df26a0564063` (`sha256:c0d23ec8f4488969335f9f27afad12492315410fe6ef632560b473712b26584d`)
+- `worker`: `amigo:15b73450679bdd4cb4023d3dd1b1df26a0564063` (`sha256:c0d23ec8f4488969335f9f27afad12492315410fe6ef632560b473712b26584d`)
+- `ingest`: `amigo:15b73450679bdd4cb4023d3dd1b1df26a0564063` (`sha256:c0d23ec8f4488969335f9f27afad12492315410fe6ef632560b473712b26584d`)
+- `ai-worker`: `amigo:15b73450679bdd4cb4023d3dd1b1df26a0564063` (`sha256:c0d23ec8f4488969335f9f27afad12492315410fe6ef632560b473712b26584d`)
+- `ai-gateway`: `amigo:15b73450679bdd4cb4023d3dd1b1df26a0564063` (`sha256:c0d23ec8f4488969335f9f27afad12492315410fe6ef632560b473712b26584d`)
 - `db`: `postgres:17-alpine` (`sha256:1bea307dfb3ee30541a7acf7de14b58bcd6948da98e5d31a04c627c4d35ec64b`)
-- Rollback command: `sudo /srv/amigo/deploy/rollback.sh /srv/amigo-rollbacks/20260819T174504Z`
+- Rollback command: `sudo /srv/amigo/deploy/rollback.sh /srv/amigo-rollbacks/20260819T203256Z`
 
 The checkpoint contains no credentials. Commit these documentation changes back to the canonical repository before reporting the deployment complete.

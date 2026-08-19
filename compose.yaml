@@ -1,0 +1,162 @@
+name: amigo
+
+x-application: &application
+  image: amigo:${AMIGO_IMAGE_TAG:?AMIGO_IMAGE_TAG must be a Git SHA}
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      AMIGO_BUILD_SHA: ${AMIGO_IMAGE_TAG:?AMIGO_IMAGE_TAG must be a Git SHA}
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:size=32m,mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  environment: &application-environment
+    AMIGO_ENV: ${AMIGO_ENV:-production}
+    AMIGO_PUBLIC_URL: ${AMIGO_PUBLIC_URL:-https://amigo.tolstik.ru/amigo/}
+    AMIGO_TIMEZONE: ${AMIGO_TIMEZONE:-Europe/Moscow}
+    AMIGO_LOG_LEVEL: ${AMIGO_LOG_LEVEL:-INFO}
+    AMIGO_STATIC_DIR: /app/static
+    DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://amigo@db:5432/amigo}
+    POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    AMIGO_SYNC_INTERVAL_SECONDS: ${AMIGO_SYNC_INTERVAL_SECONDS:-300}
+    AMIGO_NOTIFICATION_DEBOUNCE_SECONDS: ${AMIGO_NOTIFICATION_DEBOUNCE_SECONDS:-120}
+    AMIGO_WEEKLY_DIGEST_DAY: ${AMIGO_WEEKLY_DIGEST_DAY:-mon}
+    AMIGO_WEEKLY_DIGEST_TIME: ${AMIGO_WEEKLY_DIGEST_TIME:-08:00}
+  secrets:
+    - postgres_password
+  volumes:
+    - type: bind
+      source: /srv/amigo/data/import
+      target: /imports
+      read_only: true
+  networks:
+    - backend
+  depends_on:
+    db:
+      condition: service_healthy
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+
+x-integration-environment: &integration-environment
+  <<: *application-environment
+  AMIGO_ENCRYPTION_KEY_FILE: /run/secrets/app_encryption_key
+  WITHINGS_CLIENT_ID_FILE: /run/secrets/withings_client_id
+  WITHINGS_CLIENT_SECRET_FILE: /run/secrets/withings_client_secret
+  WITHINGS_ACCESS_TOKEN_FILE: /run/secrets/withings_access_token
+  WITHINGS_REFRESH_TOKEN_FILE: /run/secrets/withings_refresh_token
+  TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+  TELEGRAM_CHAT_ID_FILE: /run/secrets/telegram_chat_id
+
+x-integration-secrets: &integration-secrets
+  - postgres_password
+  - app_encryption_key
+  - withings_client_id
+  - withings_client_secret
+  - withings_access_token
+  - withings_refresh_token
+  - telegram_bot_token
+  - telegram_chat_id
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-amigo}
+      POSTGRES_USER: ${POSTGRES_USER:-amigo}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      TZ: ${AMIGO_TIMEZONE:-Europe/Moscow}
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  web:
+    <<: *application
+    command:
+      - python
+      - -m
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --proxy-headers
+      - --forwarded-allow-ips=*
+    ports:
+      - ${AMIGO_WEB_BIND:-127.0.0.1}:${AMIGO_WEB_PORT:-18181}:8000
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read()
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    stop_grace_period: 30s
+
+  worker:
+    <<: *application
+    environment: *integration-environment
+    secrets: *integration-secrets
+    command: ["python", "-m", "app.worker"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.cli", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+
+volumes:
+  postgres_data:
+
+networks:
+  backend:
+    internal: false
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  app_encryption_key:
+    file: ./secrets/app_encryption_key
+  withings_client_id:
+    file: ./secrets/withings_client_id
+  withings_client_secret:
+    file: ./secrets/withings_client_secret
+  withings_access_token:
+    file: ./secrets/withings_access_token
+  withings_refresh_token:
+    file: ./secrets/withings_refresh_token
+  telegram_bot_token:
+    file: ./secrets/telegram_bot_token
+  telegram_chat_id:
+    file: ./secrets/telegram_chat_id

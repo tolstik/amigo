@@ -1,0 +1,145 @@
+export type Period = "program" | "30d" | "90d" | "1y" | "all";
+
+export interface PlanSummary {
+  startDate: string;
+  startWeightKg: number;
+  targetWeightKg: number;
+  targetDate: string | null;
+  plannedTodayKg: number | null;
+}
+
+export interface WeightSummary {
+  latestKg: number | null;
+  latestAt: string | null;
+  smoothed7dKg: number | null;
+  changeSinceStartKg: number | null;
+  deviationFromPlanKg: number | null;
+  progressPct: number | null;
+  trend28dKg: number | null;
+  trend42dKg: number | null;
+  forecastDate: string | null;
+  measurementDays30d: number | null;
+}
+
+export interface PressureSummary {
+  latestSystolic: number | null;
+  latestDiastolic: number | null;
+  latestPulse: number | null;
+  latestAt: string | null;
+  avg7dSystolic: number | null;
+  avg7dDiastolic: number | null;
+  avg30dSystolic: number | null;
+  avg30dDiastolic: number | null;
+}
+
+export interface CompositionSummary {
+  fatPct: number | null;
+  fatMassKg: number | null;
+  leanMassKg: number | null;
+  measuredAt: string | null;
+}
+
+export type SyncStatus = "ok" | "syncing" | "delayed" | "error" | "unknown";
+
+export interface SyncSummary {
+  status: SyncStatus;
+  lastSuccessAt: string | null;
+  nextSyncAt: string | null;
+  source: string;
+}
+
+export type InsightTone = "positive" | "attention" | "neutral" | "achievement";
+
+export interface Insight {
+  id: string;
+  title: string;
+  text: string;
+  tone: InsightTone;
+  createdAt: string | null;
+}
+
+export interface Overview {
+  generatedAt: string | null;
+  plan: PlanSummary;
+  weight: WeightSummary;
+  pressure: PressureSummary;
+  composition: CompositionSummary;
+  sync: SyncSummary;
+  insights: Insight[];
+}
+
+export interface SeriesMeta {
+  range: Period;
+  from: string | null;
+  to: string | null;
+  count: number;
+  timezone: string;
+}
+
+export interface WeightPoint {
+  measuredAt: string;
+  weightKg: number;
+  smoothed7dKg: number | null;
+  plannedKg: number | null;
+  forecastKg: number | null;
+  forecastLowKg: number | null;
+  forecastHighKg: number | null;
+  isOutlier: boolean;
+}
+
+export interface WeightProjectionPoint {
+  measuredAt: string;
+  forecastKg: number;
+  forecastLowKg: number | null;
+  forecastHighKg: number | null;
+}
+
+export interface WeightPlanPoint {
+  measuredAt: string;
+  plannedKg: number;
+}
+
+export interface PressurePoint {
+  measuredAt: string;
+  systolic: number;
+  diastolic: number;
+  pulse: number | null;
+  pulsePressure: number | null;
+  sessionSize: number;
+  periodOfDay: "morning" | "evening" | "other";
+}
+
+export interface CompositionPoint {
+  measuredAt: string;
+  fatPct: number | null;
+  fatMassKg: number | null;
+  leanMassKg: number | null;
+}
+
+export interface SeriesResponse<T> {
+  points: T[];
+  meta: SeriesMeta;
+}
+
+export interface WeightSeriesResponse extends SeriesResponse<WeightPoint> {
+  projection: WeightProjectionPoint[];
+  planProjection: WeightPlanPoint[];
+}
+
+export interface PressureStats {
+  avgSystolic: number | null;
+  avgDiastolic: number | null;
+  avgPulse: number | null;
+  minSystolic: number | null;
+  maxSystolic: number | null;
+  minDiastolic: number | null;
+  maxDiastolic: number | null;
+  variabilitySystolic: number | null;
+  variabilityDiastolic: number | null;
+  sessions: number;
+}
+
+export interface PressureSeriesResponse extends SeriesResponse<PressurePoint> {
+  stats7d: PressureStats;
+  stats30d: PressureStats;
+}

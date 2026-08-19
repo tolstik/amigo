@@ -1,0 +1,208 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+import logging
+import signal
+import time
+
+from sqlalchemy import or_, select, update
+from sqlalchemy.orm import Session
+
+from .config import Settings, get_settings
+from .db import SessionLocal
+from .models import JobRun, Outbox, utcnow
+from .telegram import TelegramNotifier
+from .withings import WithingsClient
+
+
+logger = logging.getLogger("amigo.worker")
+WEEKDAYS = {name: index for index, name in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))}
+
+
+def schedule_weekly_digest(db: Session, settings: Settings, now: datetime | None = None) -> bool:
+    current = now or datetime.now(timezone.utc)
+    local = current.astimezone(settings.tz)
+    digest_time = settings.weekly_digest_time
+    if local.weekday() != WEEKDAYS[settings.weekly_digest_day] or (
+        local.hour,
+        local.minute,
+    ) < (digest_time.hour, digest_time.minute):
+        return False
+    event_key = f"weekly-digest:{local.date().isoformat()}"
+    if db.scalar(select(Outbox.id).where(Outbox.event_key == event_key)) is not None:
+        return False
+    db.add(
+        Outbox(
+            event_key=event_key,
+            event_type="weekly.digest",
+            payload={"week_ending": local.date().isoformat()},
+            available_at=current,
+        )
+    )
+    db.commit()
+    return True
+
+
+class OutboxProcessor:
+    def __init__(self, db: Session, settings: Settings):
+        self.db = db
+        self.settings = settings
+
+    def recover_stale(self, now: datetime | None = None) -> int:
+        current = now or utcnow()
+        result = self.db.execute(
+            update(Outbox)
+            .where(Outbox.status == "processing", Outbox.available_at <= current)
+            .values(status="pending")
+        )
+        self.db.commit()
+        return result.rowcount
+
+    def process_one(self, now: datetime | None = None) -> bool:
+        current = now or utcnow()
+        event = self.db.scalar(
+            select(Outbox)
+            .where(
+                Outbox.status == "pending",
+                Outbox.available_at <= current,
+                Outbox.attempts < 6,
+            )
+            .order_by(Outbox.available_at, Outbox.id)
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
+        if event is None:
+            return False
+        event.status = "processing"
+        event.available_at = current + timedelta(minutes=10)
+        self.db.commit()
+        try:
+            notifier = TelegramNotifier(self.db, self.settings)
+            try:
+                result = notifier.deliver(event, current)
+            finally:
+                notifier.close()
+            event.status = "sent"
+            event.sent_at = utcnow()
+            event.last_error = None
+            for key in result.advice_run_keys:
+                if self.db.scalar(select(JobRun.id).where(JobRun.run_key == key)) is None:
+                    self.db.add(
+                        JobRun(
+                            job_name="advice-delivered",
+                            run_key=key,
+                            status="success",
+                            finished_at=utcnow(),
+                        )
+                    )
+            self.db.commit()
+        except Exception as exc:
+            self.db.rollback()
+            event = self.db.get(Outbox, event.id)
+            event.attempts += 1
+            event.last_error = str(exc)[:2000]
+            if event.attempts >= 6:
+                event.status = "failed"
+            else:
+                event.status = "pending"
+                event.available_at = utcnow() + timedelta(minutes=min(60, 2**event.attempts))
+            self.db.commit()
+            logger.warning("outbox delivery %s failed: %s", event.id, type(exc).__name__)
+        return True
+
+    def drain(self, limit: int = 20) -> int:
+        processed = 0
+        while processed < limit and self.process_one():
+            processed += 1
+        return processed
+
+
+class Worker:
+    def __init__(self, settings: Settings | None = None):
+        self.settings = settings or get_settings()
+        self.running = True
+        self.next_sync_at = 0.0
+
+    def stop(self, *_: object) -> None:
+        self.running = False
+
+    def _recorded_job(self, db: Session, job_name: str, run_key: str, action) -> None:
+        if db.scalar(select(JobRun.id).where(JobRun.run_key == run_key)) is not None:
+            return
+        run = JobRun(job_name=job_name, run_key=run_key, status="running")
+        db.add(run)
+        db.commit()
+        try:
+            details = action()
+            run.status = "success"
+            run.details = details or {}
+        except Exception as exc:
+            db.rollback()
+            run = db.scalar(select(JobRun).where(JobRun.run_key == run_key))
+            run.status = "failed"
+            run.details = {"error_type": type(exc).__name__}
+            logger.exception("job %s failed", job_name)
+        run.finished_at = utcnow()
+        db.commit()
+
+    def run_once(self) -> None:
+        now = datetime.now(timezone.utc)
+        local = now.astimezone(self.settings.tz)
+        with SessionLocal() as db:
+            processor = OutboxProcessor(db, self.settings)
+            processor.recover_stale(now)
+            if time.monotonic() >= self.next_sync_at:
+                run_key = f"sync:{now.strftime('%Y%m%dT%H%M')}"
+
+                def incremental():
+                    with WithingsClient(db, self.settings) as client:
+                        result = client.sync()
+                    return result.__dict__
+
+                self._recorded_job(db, "withings-incremental", run_key, incremental)
+                self.next_sync_at = time.monotonic() + self.settings.sync_interval_seconds
+            if local.hour >= 3:
+                run_key = f"reconcile-90d:{local.date().isoformat()}"
+
+                def reconcile():
+                    with WithingsClient(db, self.settings) as client:
+                        result = client.sync(reconcile_days=90, suppress_notifications=True)
+                    return result.__dict__
+
+                self._recorded_job(db, "withings-reconcile", run_key, reconcile)
+            schedule_weekly_digest(db, self.settings, now)
+            processor.drain()
+            heartbeat_key = f"worker-heartbeat:{now.strftime('%Y%m%dT%H%M')}"
+            if db.scalar(select(JobRun.id).where(JobRun.run_key == heartbeat_key)) is None:
+                db.add(
+                    JobRun(
+                        job_name="worker-heartbeat",
+                        run_key=heartbeat_key,
+                        status="success",
+                        finished_at=utcnow(),
+                    )
+                )
+                db.commit()
+
+    def run(self) -> None:
+        while self.running:
+            self.run_once()
+            if self.settings.worker_once:
+                break
+            time.sleep(self.settings.outbox_poll_seconds)
+
+
+def main() -> None:
+    settings = get_settings()
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    worker = Worker(settings)
+    signal.signal(signal.SIGTERM, worker.stop)
+    signal.signal(signal.SIGINT, worker.stop)
+    worker.run()
+
+
+if __name__ == "__main__":
+    main()

@@ -20,6 +20,7 @@ x-application: &application
     AMIGO_ENV: ${AMIGO_ENV:-production}
     AMIGO_PUBLIC_URL: ${AMIGO_PUBLIC_URL:-https://amigo.tolstik.ru/amigo/}
     AMIGO_TIMEZONE: ${AMIGO_TIMEZONE:-Europe/Moscow}
+    AMIGO_USER_HEIGHT_CM: ${AMIGO_USER_HEIGHT_CM:-176}
     AMIGO_LOG_LEVEL: ${AMIGO_LOG_LEVEL:-INFO}
     AMIGO_STATIC_DIR: /app/static
     DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://amigo@db:5432/amigo}

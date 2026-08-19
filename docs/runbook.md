@@ -24,10 +24,17 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
   личную базу и корреляции. В Codex уходят только минимизированные
   факты и ограниченные дневные ряды без имени, device ID, raw provider
   payload, GPS/location и учётных данных.
+- В production задано `AMIGO_USER_HEIGHT_CM=176`. Snapshot передаёт этот
+  identifier-free факт; BMI рассчитывается детерминированно только при наличии
+  последнего доступного Withings weight, получает его `observed_on` и не
+  пересчитывается моделью или из Health Connect weight.
 - AI вызывается асинхронно через SHA-256-pinned Codex CLI `0.148.0`
   (`ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`),
   фиксированную модель `gpt-5.6-terra`, read-only sandbox и строгую JSON
   schema. Публичные GET только читают кэш PostgreSQL.
+- Prompt contract `amigo-health-v2` требует для каждой рекомендации конкретное
+  действие, cadence или review period и ссылки на существующие evidence keys.
+  На overview и в Telegram рекомендации идут раньше общих наблюдений.
 - Ни дашборд, ни Telegram не показывают шаблонную подмену AI-текста.
   При недоступном AI графики и факты остаются рабочими.
 - Дашборд намеренно публичный и read-only. Health Connect публикуется только
@@ -36,9 +43,12 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
 - Withings — единственный источник веса, состава тела и давления. Mi Fitness
   передаёт только allowlisted activity/recovery records через Health Connect;
   weight, pressure, location и exercise routes из Health Connect не принимаются.
-- Давление, сердечные метрики, SpO2 и VO2 max остаются только описательными: без
-  диагнозов, порогов, severity-цветов, лечения, лекарств и рекомендаций
-  на их основе.
+- Детерминированные экраны давления, сердечных метрик, SpO2 и VO2 max остаются
+  описательными, без severity-цветов и app-side диагнозов. Валидированный AI
+  может использовать эти метрики только для совета повторить измерения, вести
+  журнал или обсудить устойчивую измеренную динамику с врачом. Запрещены
+  диагноз, назначение лечения, лекарств или изменения дозировки и фиксированная
+  цель по калориям.
 - TLS завершается на public edge `5.35.114.76`. Внешний HTTPS проверяется
   без `-k`; локальный nginx — отдельный HTTP origin.
 - Origin nginx хранит действующую конфигурацию в `/etc/nginx/conf.d/my.conf`.
@@ -57,7 +67,8 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
 1. Разместить чистый root-owned Git checkout нужного commit в `/srv/amigo`.
    Tracked и untracked source-файлы должны быть чисты; `.env`, `secrets/` и `data/`
    остаются ignored runtime state.
-2. Создать `/srv/amigo/.env` из `.env.example`, установить `0600` и выполнить:
+2. Создать `/srv/amigo/.env` из `.env.example`, оставить
+   `AMIGO_USER_HEIGHT_CM=176`, установить `0600` и выполнить:
 
    ```bash
    candidate_sha="$(sudo git -C /srv/amigo rev-parse HEAD)"
@@ -92,8 +103,11 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
    ```
 
    `--insecure` запрещён. Origin проверяется отдельно по HTTP с явным `Host`.
-7. Перед установкой Android APK сверить его SHA-256 с опубликованным
-   release-артефактом. Keystore и его пароли не хранятся в Git или Markdown.
+7. Для Android `1.0.2` (`versionCode 3`) использовать
+   [`Amigo-Sync-1.0.2.apk`](https://github.com/tolstik/amigo/releases/download/v3.1.0/Amigo-Sync-1.0.2.apk)
+   из GitHub release `v3.1.0` и сверить SHA-256
+   `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`.
+   Keystore и его пароли не хранятся в Git или Markdown.
 
 Для первого перехода с legacy файлы секретов можно создать без вывода
 значений:
@@ -215,14 +229,29 @@ AI job создаётся после новых Withings/Health Connect данн
 без старого текста и без fallback. Если входные данные не менялись,
 соответствующий кэш остаётся `ready`.
 
+Контракт `amigo-health-v2` допускает устойчивые рекомендации по питанию,
+активности, сну и измерениям, но каждый пункт должен содержать конкретное
+действие, периодичность или срок пересмотра и фактические evidence keys.
+Pressure/heart/SpO2/VO2 evidence разрешено только для repeat-measurement,
+logging или обсуждения устойчивого паттерна с врачом; validator отклоняет
+диагноз, лечение, назначение или изменение лекарств/дозировки и фиксированные
+калории. Если хотя бы одна такая медицинская метрика присутствует, validator
+требует минимум одну bounded medical/measurement рекомендацию. В Telegram и
+overview рекомендации показываются до наблюдений.
+
 ## Android APK, pairing и backfill
 
-1. Установить проверенный signed release APK или обновить его с сохранением
-   Android Keystore identity:
+1. Установить проверенный signed Android `1.0.2` (`versionCode 3`) из release
+   `v3.1.0` или обновить предыдущую версию:
 
    ```bash
    adb install -r <PATH_TO_SIGNED_APK>
    ```
+
+   SHA-256 asset `Amigo-Sync-1.0.2.apk`:
+   `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`.
+   Upgrade через `adb install -r` сохраняет pairing state, non-exportable
+   Android Keystore key, выбранный Mi Fitness origin и resumable sync cursors.
 
 2. В Amigo Sync выдать read-only Health Connect permissions, включая history и
    background access, если они доступны. Нажать «Найти источники» и
@@ -269,6 +298,11 @@ Client формирует deterministic canonical batches строго мень�
 origin rate limit 60 requests/minute. При HTTP-ошибке cursor/token не сдвигается,
 и следующий запуск повторяет тот же batch ID/body. Не исправлять БД вручную:
 client/server idempotency и snapshot reconciliation уже предусмотрены.
+Health Connect step record принимается до документированного значения
+`1 000 000` включительно. При отклонении сервер пишет только стабильный
+`detail.code`, без payload, headers, device ID, batch ID и validation details;
+Android `1.0.2` показывает только allowlisted code рядом с HTTP status и не
+отражает произвольное тело ответа.
 
 ## Telegram schedule
 
@@ -304,7 +338,10 @@ sudo bash /srv/amigo/deploy/verify-production.sh
 
 Дополнительно оператор проверяет desktop/mobile, полный Health Connect backfill,
 один следующий sync-цикл, отсутствие дублей, табличные альтернативы графиков
-и то, что pressure/heart/SpO2/VO2 max остаются описательными. Полный checklist — в
+и то, что pressure/heart/SpO2/VO2 max остаются описательными в детерминированных
+экранах. AI-рекомендации должны идти до наблюдений, содержать action,
+cadence/review period и evidence, не содержать диагноз, лечение,
+лекарства/дозировки или фиксированные калории. Полный checklist — в
 [production-verification.md](production-verification.md).
 
 ## Degraded mode
@@ -325,7 +362,8 @@ sudo bash /srv/amigo/deploy/verify-production.sh
   полный documented rollback с token handback.
 
 Логи и диагностический output не должны содержать health payload, prompt, generated
-analysis, auth, headers или токены.
+analysis, auth, headers или токены. Для ingest rejection допустим только
+стабильный `detail.code`, без device ID, batch ID и validation details.
 
 ## Rollback
 

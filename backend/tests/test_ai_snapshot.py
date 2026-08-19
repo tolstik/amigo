@@ -13,7 +13,10 @@ def test_snapshot_maps_current_recovery_contract(monkeypatch):
     monkeypatch.setattr(
         "app.ai_snapshot.overview",
         lambda *_args: {
-            "weight": {},
+            "weight": {
+                "latest_kg": 124.0,
+                "latest_at": "2026-08-19T06:00:00Z",
+            },
             "plan": {},
             "composition": {},
             "pressure": {},
@@ -42,6 +45,11 @@ def test_snapshot_maps_current_recovery_contract(monkeypatch):
     )
     result = build_analysis_snapshot(None, ZoneInfo("Europe/Moscow"), NOW)
     facts = {item.key: item for item in result.facts}
+    assert facts["profile.height_cm"].value == 176
+    assert facts["profile.height_cm"].unit == "centimeters"
+    assert facts["weight.bmi_latest"].value == 40.03
+    assert facts["weight.bmi_latest"].unit == "kg_m2"
+    assert facts["weight.bmi_latest"].observed_on.isoformat() == "2026-08-19"
     assert facts["recovery.spo2_latest"].value == 97.2
     assert facts["recovery.vo2max_latest"].value == 41.5
     assert facts["recovery.hrv_latest"].scope == "heart"
@@ -52,6 +60,39 @@ def test_snapshot_maps_current_recovery_contract(monkeypatch):
     assert series["recovery.spo290d"].points[0].value == 97.2
     assert series["recovery.spo290d"].scope == "oxygen"
     assert series["recovery.hrv90d"].scope == "heart"
+
+
+def test_snapshot_keeps_configured_height_without_weight(monkeypatch):
+    monkeypatch.setattr(
+        "app.ai_snapshot.overview",
+        lambda *_args: {
+            "weight": {},
+            "plan": {},
+            "composition": {},
+            "pressure": {},
+        },
+    )
+    monkeypatch.setattr("app.ai_snapshot.weight_series", lambda *_args: {"points": []})
+    monkeypatch.setattr("app.ai_snapshot.pressure_series", lambda *_args: {"points": []})
+    monkeypatch.setattr(
+        "app.ai_snapshot.activity_series",
+        lambda *_args: {"daily": [], "weekly": [], "correlations": []},
+    )
+    monkeypatch.setattr(
+        "app.ai_snapshot.recovery_series",
+        lambda *_args: {"daily": [], "correlations": []},
+    )
+
+    result = build_analysis_snapshot(
+        None,
+        ZoneInfo("Europe/Moscow"),
+        NOW,
+        user_height_cm=176,
+    )
+    facts = {item.key: item for item in result.facts}
+
+    assert facts["profile.height_cm"].value == 176
+    assert "weight.bmi_latest" not in facts
 
 
 def test_snapshot_keeps_correlation_targets_unique_and_restricted(monkeypatch):

@@ -17,7 +17,7 @@ from app.ai_contracts import (
     SnapshotFact,
     snapshot_hash,
 )
-from app.ai_gateway import AiGatewaySettings, CodexRunner, create_app
+from app.ai_gateway import AiGatewaySettings, CodexRunner, build_analysis_prompt, create_app
 
 
 NOW = datetime(2026, 8, 19, 18, 0, tzinfo=timezone.utc)
@@ -114,6 +114,23 @@ def test_codex_runner_rejects_binary_with_unexpected_hash(tmp_path):
         codex_home=codex_home,
     )
     assert CodexRunner(settings).resolved_binary() is None
+
+
+def test_analysis_prompt_demands_specific_actions_bounded_medical_guidance_and_dating():
+    prompt = build_analysis_prompt(request_payload())
+
+    assert "concrete action" in prompt
+    assert "realistic cadence or review period" in prompt
+    assert "scope \"medical\" or" in prompt
+    assert "include at least one bounded" in prompt
+    assert "standardized repeat-measurement plan" in prompt
+    assert "start/stop/change medication" in prompt
+    assert "fixed calorie target" in prompt
+    assert "not an emergency-triage tool" in prompt
+    assert "persistent logged pattern" in prompt
+    assert "Never recalculate or classify BMI" in prompt
+    assert "`observed_on` is the actual measurement date" in prompt
+    assert "never imply that it is fresher than that date" in prompt
 
 
 class FakeRunner:

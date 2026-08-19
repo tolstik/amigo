@@ -162,7 +162,10 @@ grep --fixed-strings --line-regexp --quiet 'AMIGO_AI_ENABLED=true' <<<"${ai_work
 grep --fixed-strings --line-regexp --quiet \
     'AMIGO_AI_GATEWAY_URL=http://ai-gateway:8090' <<<"${ai_worker_environment}" \
     || amigo_die "AI worker can send snapshots outside the isolated gateway"
-amigo_log "PASS production AI worker is pinned to the isolated Compose gateway"
+grep --fixed-strings --line-regexp --quiet \
+    'AMIGO_USER_HEIGHT_CM=176' <<<"${ai_worker_environment}" \
+    || amigo_die "AI worker does not use the configured 176 cm profile height"
+amigo_log "PASS production AI worker is pinned to the isolated gateway and 176 cm profile height"
 
 worker_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${worker_container}")"
 grep --fixed-strings --line-regexp --quiet 'AMIGO_WEEKLY_DIGEST_DAY=mon' <<<"${worker_environment}" \
@@ -344,8 +347,21 @@ elif contract in {"activity", "recovery"}:
 elif contract == "ai":
     if payload.get("ai_generated") is not True:
         raise SystemExit("AI payload is not marked as generated")
-    if payload.get("status") not in {"fresh", "stale", "pending", "unavailable"}:
-        raise SystemExit("AI payload has an invalid status")
+    if payload.get("status") != "fresh":
+        raise SystemExit("AI payload is not a fresh validated result")
+    if payload.get("prompt_version") != "amigo-health-v2":
+        raise SystemExit("AI payload does not use amigo-health-v2")
+    recommendations = payload.get("recommendations")
+    if not isinstance(recommendations, list) or not recommendations:
+        raise SystemExit("AI payload has no validated recommendations")
+    for recommendation in recommendations:
+        if not isinstance(recommendation, dict):
+            raise SystemExit("AI recommendation is not an object")
+        if not isinstance(recommendation.get("text"), str):
+            raise SystemExit("AI recommendation has no text")
+        evidence = recommendation.get("evidence_ids")
+        if not isinstance(evidence, list) or not evidence:
+            raise SystemExit("AI recommendation has no evidence keys")
 else:
     raise SystemExit("unknown verification contract")
 PY

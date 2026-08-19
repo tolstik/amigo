@@ -118,6 +118,8 @@ def build_analysis_snapshot(
     db: Session,
     tz: ZoneInfo,
     now: datetime | None = None,
+    *,
+    user_height_cm: float = 176.0,
 ) -> AnalysisSnapshot:
     current = now or datetime.now(timezone.utc)
     current = current.replace(tzinfo=timezone.utc) if current.tzinfo is None else current
@@ -160,6 +162,19 @@ def build_analysis_snapshot(
     weight = summary["weight"]
     plan = summary["plan"]
     fact("weight.latest", "weight", "current", weight.get("latest_kg"), "kg", _day(weight.get("latest_at")))
+    if user_height_cm > 0:
+        fact("profile.height_cm", "profile", "current", user_height_cm, "centimeters")
+    latest_weight = _number(weight.get("latest_kg"))
+    if latest_weight is not None and user_height_cm > 0:
+        height_m = user_height_cm / 100
+        fact(
+            "weight.bmi_latest",
+            "weight",
+            "current",
+            round(float(latest_weight) / (height_m * height_m), 2),
+            "kg_m2",
+            _day(weight.get("latest_at")),
+        )
     fact("weight.trend7d", "weight", "7d", weight.get("smoothed_7d_kg"), "kg")
     fact("weight.change28d", "weight", "28d", weight.get("trend_28d_kg"), "kg")
     fact("weight.plan_today", "weight", "day", plan.get("planned_today_kg"), "kg", today)
@@ -295,7 +310,12 @@ def enqueue_current_analysis(
 
     if not settings.ai_enabled:
         return None
-    snapshot = build_analysis_snapshot(db, settings.tz, now)
+    snapshot = build_analysis_snapshot(
+        db,
+        settings.tz,
+        now,
+        user_height_cm=settings.user_height_cm,
+    )
     return enqueue_analysis(
         db,
         snapshot,

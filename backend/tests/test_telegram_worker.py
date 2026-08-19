@@ -234,18 +234,52 @@ def test_ai_text_is_bounded_without_cutting_html_entities(db, monkeypatch):
                 "summary": "&" * 1_000,
                 "observations": [
                     {"title": "&" * 200, "text": "&" * 1_000}
-                    for _ in range(4)
+                    for _ in range(5)
                 ],
-                "recommendations": [],
+                "recommendations": [
+                    {"title": "&" * 200, "text": "&" * 1_000}
+                    for _ in range(5)
+                ],
             },
         },
     )
 
-    text = notifier._daily_digest_text(datetime(2026, 8, 18, 6, 30, tzinfo=timezone.utc))
+    now = datetime(2026, 8, 18, 6, 30, tzinfo=timezone.utc)
+    daily = notifier._daily_digest_text(now)
+    weekly = notifier._digest_text(now)
 
-    assert len(text) < 3_900
-    assert "&…" not in text
-    assert "&amp;" in text
+    for text in (daily, weekly):
+        assert len(text) < 3_900
+        assert "&…" not in text
+        assert "&amp;" in text
+
+
+def test_ai_recommendations_are_shown_before_observations(db, monkeypatch):
+    ensure_default_plan(db)
+    settings = Settings(database_url="sqlite+pysqlite:///:memory:")
+    notifier = TelegramNotifier(db, settings, client=RecordingTelegramClient())  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        "app.telegram.public_analysis_payload",
+        lambda *_args: {
+            "status": "ready",
+            "analysis": {
+                "headline": "План на неделю",
+                "summary": "Выбраны действия по свежим данным.",
+                "observations": [
+                    {"title": "Наблюдение", "text": "Тренд изменился."},
+                ],
+                "recommendations": [
+                    {"title": "Действие", "text": "Повторяйте замер семь дней."},
+                ],
+            },
+        },
+    )
+
+    lines = notifier._ai_lines(limit=2)
+
+    assert next(index for index, line in enumerate(lines) if "Действие" in line) < next(
+        index for index, line in enumerate(lines) if "Наблюдение" in line
+    )
 
 
 def test_digests_are_explicitly_facts_only_while_ai_is_unavailable(db, monkeypatch):
@@ -266,6 +300,31 @@ def test_digests_are_explicitly_facts_only_while_ai_is_unavailable(db, monkeypat
     assert notice in weekly
     assert "<b>✨" not in daily
     assert "<b>✨" not in weekly
+
+
+def test_stale_ai_text_is_not_presented_as_current_in_telegram(db, monkeypatch):
+    ensure_default_plan(db)
+    settings = Settings(database_url="sqlite+pysqlite:///:memory:")
+    notifier = TelegramNotifier(db, settings, client=RecordingTelegramClient())  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        "app.telegram.public_analysis_payload",
+        lambda *_args: {
+            "status": "stale",
+            "analysis": {
+                "headline": "Старый анализ",
+                "summary": "Этот текст не должен попасть в сводку.",
+                "observations": [],
+                "recommendations": [],
+            },
+        },
+    )
+
+    text = notifier._daily_digest_text(
+        datetime(2026, 8, 18, 6, 30, tzinfo=timezone.utc)
+    )
+
+    assert "Старый анализ" not in text
+    assert "отправлены только факты" in text
 
 
 def test_stale_weekly_digest_does_not_present_old_trend_as_current(db, add_group):

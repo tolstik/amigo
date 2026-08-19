@@ -5,9 +5,9 @@ Health Connect and sends signed, idempotent batches to the Amigo server. The app
 never requests write access, weight, blood pressure, location, or exercise
 routes.
 
-Signed release `1.0.1`:
-[`Amigo-Sync-1.0.1.apk`](https://github.com/tolstik/amigo/releases/download/v3.0.1/Amigo-Sync-1.0.1.apk),
-SHA-256 `9fd5d005bcc468ae20404b17f80db7e8d7301f937b5e59f233485e06b8006ae5`.
+Signed release `1.0.2`:
+[`Amigo-Sync-1.0.2.apk`](https://github.com/tolstik/amigo/releases/download/v3.1.0/Amigo-Sync-1.0.2.apk),
+SHA-256 `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
@@ -97,4 +97,7 @@ heart-rate record at 5,000 evenly sampled points while preserving the first and
 last point. Batch starts are separated by at least 1,100 ms to remain below the
 production 60 requests/minute limit. A failed upload leaves the cursor/token
 unchanged, so the same deterministic batch ID and body are retried. No raw
-health payload or private key is written to logs.
+health payload or private key is written to logs. Release 1.0.2 also displays a
+server rejection's allowlisted `detail.code` next to the HTTP status; arbitrary
+response bodies are never reflected. Installing it over 1.0.1 preserves the
+pairing key, selected origin, and resumable sync cursors.

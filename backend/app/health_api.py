@@ -109,6 +109,10 @@ async def post_health_connect_batch(
     try:
         response = ingest_signed_batch(db, raw_body=raw_body, **required)  # type: ignore[arg-type]
     except HealthIngestError as exc:
+        # This endpoint accepts sensitive health records. Keep rejection telemetry
+        # deliberately limited to the stable, non-identifying error code: never
+        # log bodies, headers, device IDs, batch IDs, or validation errors.
+        logger.warning("Health ingest rejected detail.code=%s", exc.code)
         _raise_http(exc)
     if not response.idempotent:
         try:

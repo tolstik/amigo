@@ -100,7 +100,7 @@ def test_gateway_request_rejects_noncanonical_hash():
         )
 
 
-def test_generated_output_rejects_markup_unknown_evidence_and_medical_recommendations():
+def test_generated_output_allows_bounded_medical_guidance_but_rejects_unsafe_instructions():
     snapshot = AnalysisSnapshot(
         source_through=NOW,
         facts=[
@@ -145,7 +145,7 @@ def test_generated_output_rejects_markup_unknown_evidence_and_medical_recommenda
         "recovery.hrv_ms",
         "recovery.vo2_max",
     ):
-        medical = AiAnalysis(
+        wrong_scope = AiAnalysis(
             headline="Наблюдение",
             summary="Данных достаточно для описания динамики.",
             confidence="medium",
@@ -160,10 +160,81 @@ def test_generated_output_rejects_markup_unknown_evidence_and_medical_recommenda
             observations=[],
             limitations=[],
         )
-        with pytest.raises(ValueError, match="cannot support"):
-            validate_analysis_evidence(medical, snapshot)
+        with pytest.raises(ValueError, match="must be medical or measurement scoped"):
+            validate_analysis_evidence(wrong_scope, snapshot)
 
-    with pytest.raises(ValidationError, match="clinical recommendations"):
+        medical = AiAnalysis(
+            headline="Наблюдение",
+            summary="Данных достаточно для описания динамики.",
+            confidence="medium",
+            recommendations=[
+                AiRecommendation(
+                    title="Проверка динамики",
+                    text="Повторяйте измерение утром семь дней и покажите журнал врачу, если уровень сохраняется.",
+                    scope="medical",
+                    evidence_keys=[evidence],
+                )
+            ],
+            observations=[],
+            limitations=[],
+        )
+        validate_analysis_evidence(medical, snapshot)
+
+    wrong_medical_evidence = AiAnalysis(
+        headline="Наблюдение",
+        summary="Данных достаточно для описания динамики.",
+        confidence="medium",
+        recommendations=[
+            AiRecommendation(
+                title="Обсуждение динамики",
+                text="Покажите журнал врачу, если измеренный паттерн сохраняется.",
+                scope="medical",
+                evidence_keys=["weight.change_7d_kg"],
+            )
+        ],
+        observations=[],
+        limitations=[],
+    )
+    with pytest.raises(ValueError, match="must cite a medical metric"):
+        validate_analysis_evidence(wrong_medical_evidence, snapshot)
+
+    unbounded_medical_action = AiAnalysis(
+        headline="Наблюдение",
+        summary="Данных достаточно для описания динамики.",
+        confidence="medium",
+        recommendations=[
+            AiRecommendation(
+                title="Рацион",
+                text="Добавляйте овощи к каждому основному приему пищи.",
+                scope="measurement",
+                evidence_keys=["pressure.systolic_7d"],
+            )
+        ],
+        observations=[],
+        limitations=[],
+    )
+    with pytest.raises(ValueError, match="only measurement, logging, or clinician"):
+        validate_analysis_evidence(unbounded_medical_action, snapshot)
+
+    clinician_without_pattern = AiAnalysis(
+        headline="Наблюдение",
+        summary="Данных достаточно для описания динамики.",
+        confidence="medium",
+        recommendations=[
+            AiRecommendation(
+                title="Обсуждение",
+                text="Покажите результат врачу.",
+                scope="medical",
+                evidence_keys=["pressure.systolic_7d"],
+            )
+        ],
+        observations=[],
+        limitations=[],
+    )
+    with pytest.raises(ValueError, match="persistent measured pattern"):
+        validate_analysis_evidence(clinician_without_pattern, snapshot)
+
+    with pytest.raises(ValidationError, match="unsafe medical recommendation"):
         AiRecommendation(
             title="Лечение",
             text="Измените дозировку препарата.",
@@ -171,7 +242,7 @@ def test_generated_output_rejects_markup_unknown_evidence_and_medical_recommenda
             evidence_keys=["weight.change_7d_kg"],
         )
 
-    with pytest.raises(ValidationError, match="clinical language"):
+    with pytest.raises(ValidationError, match="diagnosis, treatment, and medication"):
         AiObservation(
             title="Давление",
             text="Давление находится в опасной категории.",
@@ -180,13 +251,53 @@ def test_generated_output_rejects_markup_unknown_evidence_and_medical_recommenda
             evidence_keys=["pressure.systolic_7d"],
         )
 
-    with pytest.raises(ValidationError, match="clinical recommendations"):
+    with pytest.raises(ValidationError, match="diagnosis, treatment, and medication"):
+        AiObservation(
+            title="Диагноз",
+            text="Эти измерения означают гипертонию.",
+            scope="pressure",
+            tone="attention",
+            evidence_keys=["pressure.systolic_7d"],
+        )
+
+    with pytest.raises(ValidationError, match="unsafe medical recommendation"):
+        AiRecommendation(
+            title="Препарат",
+            text="Примите аспирин и повторите измерение.",
+            scope="medical",
+            evidence_keys=["pressure.systolic_7d"],
+        )
+
+    with pytest.raises(ValidationError, match="unsafe medical recommendation"):
+        AiRecommendation(
+            title="Срочная реакция",
+            text="Немедленно вызовите скорую.",
+            scope="medical",
+            evidence_keys=["pressure.systolic_7d"],
+        )
+
+    with pytest.raises(ValidationError, match="unsafe medical recommendation"):
         AiRecommendation(
             title="Рацион",
             text="Сократите рацион до 1500 ккал.",
             scope="weight",
             evidence_keys=["weight.change_7d_kg"],
         )
+    with pytest.raises(ValidationError, match="unsafe medical recommendation"):
+        AiRecommendation(
+            title="Рацион",
+            text="Установите цель 1500 калорий в день.",
+            scope="nutrition",
+            evidence_keys=["weight.change_7d_kg"],
+        )
+
+    sustainable = AiRecommendation(
+        title="Рацион на две недели",
+        text="Добавляйте овощи к двум основным приемам пищи и отмечайте голод перед едой.",
+        scope="nutrition",
+        evidence_keys=["weight.change_7d_kg"],
+    )
+    assert sustainable.scope == "nutrition"
 
 
 def test_recommendations_reject_restricted_correlations_but_allow_safe_one():
@@ -217,7 +328,13 @@ def test_recommendations_reject_restricted_correlations_but_allow_safe_one():
                     text="Сохраняйте устойчивый распорядок активности.",
                     scope="activity",
                     evidence_keys=[evidence_key],
-                )
+                ),
+                AiRecommendation(
+                    title="Серия измерений",
+                    text="Повторяйте измерение утром семь дней и записывайте результат в журнал.",
+                    scope="measurement",
+                    evidence_keys=[pressure_key],
+                ),
             ],
             observations=[],
             limitations=[],
@@ -225,5 +342,23 @@ def test_recommendations_reject_restricted_correlations_but_allow_safe_one():
 
     validate_analysis_evidence(analysis(safe_key), snapshot)
     for evidence_key in (pressure_key, heart_key, oxygen_key, vo2_key):
-        with pytest.raises(ValueError, match="cannot support"):
+        with pytest.raises(ValueError, match="must be medical or measurement scoped"):
             validate_analysis_evidence(analysis(evidence_key), snapshot)
+
+
+def test_medical_metrics_require_one_bounded_recommendation():
+    snapshot = AnalysisSnapshot(
+        source_through=NOW,
+        facts=[fact("pressure.systolic_7d", 128, "pressure", "mmhg")],
+    )
+    analysis = AiAnalysis(
+        headline="Наблюдение",
+        summary="Доступна серия измерений.",
+        confidence="medium",
+        recommendations=[],
+        observations=[],
+        limitations=[],
+    )
+
+    with pytest.raises(ValueError, match="requires a bounded"):
+        validate_analysis_evidence(analysis, snapshot)

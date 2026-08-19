@@ -57,3 +57,10 @@ def test_production_requires_the_isolated_ai_gateway():
             ai_enabled=True,
             weekly_digest_time="08:00",
         )
+
+
+def test_user_height_is_validated_and_normalized():
+    assert Settings().user_height_cm == 176.0
+    assert Settings(user_height_cm=176.04).user_height_cm == 176.0
+    with pytest.raises(ValidationError, match="between 100 and 250"):
+        Settings(user_height_cm=99)

@@ -35,7 +35,12 @@ export function OverviewPage() {
 
   const { weight, plan, pressure, composition } = overview.data;
   const progress = weight.progressPct;
-  const aiItems = ai.data ? [...ai.data.insights, ...ai.data.recommendations] : [];
+  const aiItems = ai.data
+    ? [
+        ...ai.data.recommendations.map((item) => ({ ...item, kind: "recommendation" as const })),
+        ...ai.data.insights.map((item) => ({ ...item, kind: "insight" as const })),
+      ]
+    : [];
 
   return (
     <>
@@ -137,11 +142,11 @@ export function OverviewPage() {
           <div className="ai-unavailable"><strong>{ai.data.status === "pending" ? "Анализ новых данных готовится" : "ИИ-анализ временно недоступен"}</strong><p>Здесь нет шаблонной подмены: до готовности модели остаются только проверяемые факты.</p></div>
         ) : (
           <div className="ai-analysis panel">
-            <div className="ai-analysis__intro"><span className="ai-orbit"><Icon name="sparkle" /></span><div><h3>{ai.data?.headline ?? "Разбор текущей динамики"}</h3>{ai.data?.summary && <p>{ai.data.summary}</p>}<small>Данные на {formatDateTime(ai.data?.dataAsOf)} · {ai.data?.model ?? "Codex"} · не медицинская рекомендация</small></div></div>
+            <div className="ai-analysis__intro"><span className="ai-orbit"><Icon name="sparkle" /></span><div><h3>{ai.data?.headline ?? "Разбор текущей динамики"}</h3>{ai.data?.summary && <p>{ai.data.summary}</p>}<small>Данные на {formatDateTime(ai.data?.dataAsOf)} · {ai.data?.model ?? "Codex"} · информационная поддержка, не диагноз и не замена врачу</small></div></div>
             {aiItems.length > 0 && <div className="insight-grid">
-              {aiItems.slice(0, 6).map((item, index) => (
-                <article className={`insight ${index >= (ai.data?.insights.length ?? 0) ? "insight--recommendation" : ""}`} key={item.id}>
-                  <span className="insight__icon"><Icon name={index >= (ai.data?.insights.length ?? 0) ? "progress" : "activity"} /></span>
+              {aiItems.slice(0, 6).map((item) => (
+                <article className={`insight ${item.kind === "recommendation" ? "insight--recommendation" : ""}`} key={`${item.kind}-${item.id}`}>
+                  <span className="insight__icon"><Icon name={item.kind === "recommendation" ? "progress" : "activity"} /></span>
                   <div><strong>{item.title}</strong><p>{item.text}</p>{item.evidenceIds.length > 0 && <small>Основание: {item.evidenceIds.join(", ")}</small>}</div>
                 </article>
               ))}

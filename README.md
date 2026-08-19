@@ -48,6 +48,16 @@ or Docker secrets. Results are validated against the supplied evidence keys and
 cached in PostgreSQL. Public GET requests only read that cache and never invoke
 Codex.
 
+The private snapshot includes the configured height of 176 cm and a
+deterministically calculated current BMI when a current Withings weight exists.
+Prompt contract `amigo-health-v2` requires recommendations to name a concrete
+action, a cadence or review period, and the exact supplied evidence. It may
+suggest repeat measurements, a journal, sustainable food/activity/sleep steps,
+or discussing a persistent pattern with a clinician. It cannot diagnose,
+prescribe treatment, change medication or dosage, or set a fixed calorie target.
+When pressure, heart, SpO2, or VO2 evidence is available, the result must include
+at least one bounded measurement or medical recommendation.
+
 There is no generated or rule-based narrative fallback. When a newer snapshot
 is waiting or regeneration fails, the previous result may be marked stale for
 at most 24 hours; after that the UI reports AI as unavailable and Telegram sends
@@ -79,9 +89,9 @@ Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are
 documented in [docs/runbook.md](docs/runbook.md).
 
-The signed companion from release `v3.0.1` is
-[`Amigo-Sync-1.0.1.apk`](https://github.com/tolstik/amigo/releases/download/v3.0.1/Amigo-Sync-1.0.1.apk)
-(SHA-256 `9fd5d005bcc468ae20404b17f80db7e8d7301f937b5e59f233485e06b8006ae5`).
+The signed companion from release `v3.1.0` is
+[`Amigo-Sync-1.0.2.apk`](https://github.com/tolstik/amigo/releases/download/v3.1.0/Amigo-Sync-1.0.2.apk)
+(SHA-256 `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`).
 Verify the checksum before installing it.
 
 ## Telegram schedule
@@ -93,9 +103,10 @@ Verify the checksum before installing it.
 - Scheduled AI preparation begins at 08:45. If no validated AI result is ready,
   the report explicitly contains facts only.
 
-Blood pressure, heart, SpO2, and VO2 max metrics are descriptive observations only. They are
-never classified by severity and are not used for diagnoses, treatment,
-medication, or recommendations.
+Blood pressure, heart, SpO2, and VO2 max charts remain descriptive and have no
+severity colors or app-side diagnosis. Validated AI can turn a repeated pattern
+into measurement/logging or clinician-discussion guidance, but never diagnosis,
+treatment, medication changes, or fixed calorie prescriptions.
 
 ## Weekly plan/fact analytics
 

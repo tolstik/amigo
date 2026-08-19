@@ -332,9 +332,24 @@ def latest_analysis(db: Session, *, now: datetime | None = None) -> LatestAnalys
             model=None,
             prompt_version=None,
         )
+    try:
+        analysis = AiAnalysis.model_validate(result.analysis)
+    except ValueError:
+        # A stricter output contract may make a cached result from an older
+        # prompt version invalid. Fail closed instead of breaking public GETs
+        # or exposing text that no longer passes the active safety boundary.
+        return LatestAnalysis(
+            status="pending" if pending is not None else "unavailable",
+            analysis=None,
+            snapshot_hash=None,
+            generated_at=None,
+            source_through=None,
+            model=None,
+            prompt_version=None,
+        )
     return LatestAnalysis(
         status=status,
-        analysis=AiAnalysis.model_validate(result.analysis),
+        analysis=analysis,
         snapshot_hash=result.snapshot_hash,
         generated_at=_aware(result.generated_at),
         source_through=_aware(result.source_through),

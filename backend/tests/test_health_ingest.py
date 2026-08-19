@@ -136,6 +136,34 @@ def test_signed_batch_is_normalised_idempotent_and_replay_safe(db):
         send(db, private, device_id, second, now, batch_id="batch-2", nonce=nonce)
 
 
+def test_health_connect_step_count_upper_bound_is_accepted(db):
+    now = datetime(2026, 8, 19, 8, tzinfo=timezone.utc)
+    private, device_id = register_and_approve(db, now - timedelta(minutes=2))
+
+    accepted = send(
+        db,
+        private,
+        device_id,
+        changes_payload(now, [step("steps-sdk-upper-bound", now, 1_000_000)]),
+        now,
+    )
+
+    assert accepted.upserted_count == 1
+    row = db.scalar(select(HealthConnectRecord))
+    assert row is not None
+    assert float(row.primary_value) == 1_000_000
+
+    later = now + timedelta(seconds=1)
+    with pytest.raises(HealthIngestError, match="invalid_step_count"):
+        send(
+            db,
+            private,
+            device_id,
+            changes_payload(later, [step("steps-over-sdk-bound", later, 1_000_001)]),
+            later,
+        )
+
+
 def test_deletion_origin_lock_and_allowlist(db):
     now = datetime(2026, 8, 19, 8, tzinfo=timezone.utc)
     private, device_id = register_and_approve(db, now - timedelta(minutes=2))

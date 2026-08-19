@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     public_url: str = "https://amigo.tolstik.ru/amigo/"
     static_dir: Path = Path("/app/static")
     log_level: str = "INFO"
+    user_height_cm: float = 176.0
 
     token_encryption_key: str | None = Field(default=None, repr=False)
     withings_client_id: str | None = None
@@ -139,6 +140,13 @@ class Settings(BaseSettings):
         if value < 0:
             raise ValueError("interval must not be negative")
         return value
+
+    @field_validator("user_height_cm")
+    @classmethod
+    def valid_user_height(cls, value: float) -> float:
+        if not 100 <= value <= 250:
+            raise ValueError("user height must be between 100 and 250 cm")
+        return round(value, 1)
 
     @field_validator("ai_gateway_url")
     @classmethod

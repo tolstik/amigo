@@ -260,7 +260,10 @@ def _normalise_record(
     if record.type == "steps":
         if set(values) != {"count"}:
             raise HealthIngestError(422, "invalid_step_values")
-        primary = _number(values, ("count",), 0, 200_000, "step_count")
+        # Match Health Connect's StepsRecord upper bound. Mi Fitness may emit a single
+        # provider record above a conventional daily total, and rejecting a value the
+        # source API considers valid stalls the entire ordered initial backfill.
+        primary = _number(values, ("count",), 0, 1_000_000, "step_count")
         if int(primary) != primary:
             raise HealthIngestError(422, "invalid_step_count")
         unit = "count"

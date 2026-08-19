@@ -26,6 +26,8 @@ import ru.tolstik.amigo.sync.sync.BatchUploader
 import ru.tolstik.amigo.sync.sync.INGEST_BODY_LIMIT_BYTES
 import ru.tolstik.amigo.sync.wire.CanonicalJson
 
+private val SAFE_SERVER_ERROR_CODE = Regex("[a-z][a-z0-9_]{0,63}")
+
 data class RegistrationResponse(
     val deviceId: String,
     val pairingCode: String?,
@@ -116,7 +118,9 @@ class IngestApi(
 
     private suspend fun executeJson(request: Request): JsonObject = withContext(Dispatchers.IO) {
         http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("Amigo server returned HTTP ${response.code}")
+            if (!response.isSuccessful) {
+                throw IOException(serverErrorMessage(response.code, response.body?.string()))
+            }
             val body = response.body?.string() ?: throw IOException("Amigo server returned no body")
             try {
                 json.parseToJsonElement(body).jsonObject
@@ -128,7 +132,9 @@ class IngestApi(
 
     private suspend fun executeNoContent(request: Request) = withContext(Dispatchers.IO) {
         http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("Amigo server returned HTTP ${response.code}")
+            if (!response.isSuccessful) {
+                throw IOException(serverErrorMessage(response.code, response.body?.string()))
+            }
         }
     }
 
@@ -140,6 +146,24 @@ class IngestApi(
             "Server URL must contain only scheme and host"
         }
         return parsed.newBuilder().encodedPath(path).build().toString()
+    }
+}
+
+internal fun serverErrorMessage(statusCode: Int, responseBody: String?): String {
+    val errorCode = responseBody?.let { body ->
+        runCatching {
+            val detail = Json.parseToJsonElement(body).jsonObject["detail"]?.jsonObject
+            detail?.get("code")?.jsonPrimitive?.takeIf(JsonPrimitive::isString)?.content
+        }.getOrNull()
+    }?.takeIf { it.matches(SAFE_SERVER_ERROR_CODE) }
+    return buildString {
+        append("Amigo server returned HTTP ")
+        append(statusCode)
+        errorCode?.let {
+            append(" (")
+            append(it)
+            append(')')
+        }
     }
 }
 

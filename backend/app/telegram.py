@@ -213,7 +213,7 @@ class TelegramNotifier:
         if self._owns_client:
             self.client.close()
 
-    def _ai_lines(self, limit: int = 3, max_chars: int = 2_200) -> list[str]:
+    def _ai_lines(self, limit: int = 4, max_chars: int = 2_400) -> list[str]:
         payload = public_analysis_payload(self.db)
         if payload.get("status") != "ready" or not isinstance(payload.get("analysis"), dict):
             return []
@@ -230,8 +230,8 @@ class TelegramNotifier:
             if safe_summary:
                 lines.append(safe_summary)
         candidates = [
-            *(analysis.get("observations") if isinstance(analysis.get("observations"), list) else []),
             *(analysis.get("recommendations") if isinstance(analysis.get("recommendations"), list) else []),
+            *(analysis.get("observations") if isinstance(analysis.get("observations"), list) else []),
         ]
         for item in candidates[:limit]:
             if not isinstance(item, dict) or not isinstance(item.get("text"), str):
@@ -353,7 +353,7 @@ class TelegramNotifier:
         if composition:
             lines.extend(composition)
             lines.append("<i>Состав тела — приблизительная BIA-оценка.</i>")
-        lines.extend(self._ai_lines(limit=1))
+        lines.extend(self._ai_lines(limit=2))
         lines.append(f'<a href="{escape(self.settings.public_url)}">Открыть Amigo</a>')
         return "\n".join(lines), ()
 
@@ -503,7 +503,7 @@ class TelegramNotifier:
                 f"{float(pressure['latest_diastolic']):.0f} мм рт. ст."
             )
         lines.extend(self._activity_recovery_lines(now, weekly=False))
-        ai_lines = self._ai_lines(limit=2)
+        ai_lines = self._ai_lines(limit=3)
         lines.extend(ai_lines)
         if not ai_lines:
             lines.append("<i>ИИ-анализ ещё готовится; отправлены только факты.</i>")
@@ -553,7 +553,7 @@ class TelegramNotifier:
                 week_ending=week_ending,
             )
         )
-        ai_lines = self._ai_lines(limit=3)
+        ai_lines = self._ai_lines(limit=4)
         lines.extend(ai_lines)
         if not ai_lines:
             lines.append("<i>ИИ-анализ ещё готовится; отправлены только факты.</i>")

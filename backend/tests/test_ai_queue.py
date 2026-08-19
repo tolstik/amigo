@@ -164,6 +164,29 @@ def test_cached_result_stays_ready_until_new_snapshot_then_expires(db):
     assert public_analysis_payload(db, now=newer_at + timedelta(seconds=61))["analysis"] is None
 
 
+def test_cached_result_that_fails_the_active_contract_is_hidden(db):
+    enqueue_analysis(
+        db,
+        snapshot(-0.8),
+        trigger="measurement",
+        now=NOW,
+        debounce_seconds=0,
+    )
+    job = claim_analysis_job(db, now=NOW, lease_seconds=30)
+    assert job is not None
+    result = complete_analysis_job(db, job, response_for(job))
+    result.analysis = {
+        **result.analysis,
+        "headline": "Диагноз: гипертония",
+    }
+    db.commit()
+
+    state = latest_analysis(db, now=NOW)
+    assert state.status == "unavailable"
+    assert state.analysis is None
+    assert public_analysis_payload(db, now=NOW)["analysis"] is None
+
+
 def test_failure_backoff_and_expired_lease_never_persist_raw_errors(db):
     enqueue_analysis(
         db,

@@ -30,6 +30,8 @@
 ## Product invariants
 
 - Program start: 2026-08-15 in `Europe/Moscow`; baseline weight: 127.03 kg.
+- User height is 176 cm. AI snapshots may include this identifier-free profile
+  fact and a deterministic current BMI derived from the latest Withings weight.
 - Plan: lose 4 kg per calendar month, interpolated between matching month-days, capped at 76.5 kg.
 - Pre-program weight data is visible in the all-history view but excluded from program KPIs and forecasts.
 - Withings is the only source of weight, body composition, blood pressure, and
@@ -40,10 +42,14 @@
   pairing state is cleared. Health batches stay below 1 MiB, contain at most
   2,000 records and 5,000 heart-rate samples per record, and start no faster
   than once every 1.1 seconds so resumable backfill remains below the origin
-  rate limit.
-- Blood pressure, heart, SpO2, and VO2 max metrics are descriptive statistics only: do not add
-  diagnostic categories, severity colors, medical thresholds, treatment or
-  medication advice, or recommendations derived from those metrics.
+  rate limit. Health Connect step counts up to its documented 1,000,000 maximum
+  are accepted. Ingest rejection logs contain only the stable `detail.code`,
+  never health payloads, headers, device IDs, batch IDs, or validation details.
+- Deterministic blood-pressure, heart, SpO2, and VO2 displays remain descriptive
+  and never add severity colors or app-side diagnoses. Validated AI may use those
+  metrics only for evidence-bound measurement/logging advice or discussion of a
+  persistent pattern with a clinician. It must never diagnose, prescribe
+  treatment, set medication/dosage, or prescribe a fixed calorie target.
 - KPI, trends, plans, forecasts, outliers, baselines, and correlations are
   deterministic. Visible observations and recommendations are generated only
   from a validated AI result; never add template or rule-based narrative
@@ -53,6 +59,11 @@
   `gpt-5.6-terra` model. AI runs asynchronously after data changes or before a
   scheduled digest. Public GET handlers only read the validated PostgreSQL
   cache and must never call Codex or enqueue analysis.
+- AI prompt contract `amigo-health-v2` requires concrete actions, a cadence or
+  review period, and cited metric evidence; recommendations are shown before
+  general observations in Telegram and on the overview dashboard. When any
+  pressure, heart, SpO2, or VO2 evidence exists, validated output must contain
+  at least one bounded medical/measurement recommendation.
 - Production must keep AI enabled and must use exactly
   `http://ai-gateway:8090`; never redirect minimized health snapshots to an
   override endpoint.

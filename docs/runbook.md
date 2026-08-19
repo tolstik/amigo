@@ -224,15 +224,15 @@ image SHA, а checkout после синхронизации обязан ост
 <!-- BEGIN AMIGO PRODUCTION CHECKPOINT -->
 - Status: **deployed and verified**
 - Production URL: `https://amigo.tolstik.ru/amigo/`
-- Verified at: `2026-08-19T15:51:29Z` (`2026-08-19 18:51:29 MSK`)
-- Git SHA: `f447960ab5d0d798b6ea84aa6afa0fe4865bd115`
-- Latest rollback snapshot: `/srv/amigo-rollbacks/20260819T154852Z`
+- Verified at: `2026-08-19T17:49:14Z` (`2026-08-19 20:49:14 MSK`)
+- Git SHA: `77a6699f9af2d564bbb252212ed32baeea00e746`
+- Latest rollback snapshot: `/srv/amigo-rollbacks/20260819T174504Z`
 - Installed config SHA-256: Compose `6727c935a9960a6a83c332c83b304d8814c26a328dd04d5a82ee63b2009847d7`; nginx locations `37ca8718449885e28e44fb04ded159913169d43b839024960c861063186d574e`; nginx rate limit `a887ddf70734dda6821fcd4db984d99dcb70993eff64a5ae4a2108e517a93362`.
 - Verification: Compose `web`, `worker`, and `db` running; PostgreSQL ready; web bound to `127.0.0.1:18181`; direct health, hidden public health routes, origin proxy, public HTTPS dashboard/API, relative `308`, security headers, route rollback rehearsal, cron isolation, and rollback assets passed.
 - Installed image references and IDs:
 
-- `web`: `amigo:f447960ab5d0d798b6ea84aa6afa0fe4865bd115` (`sha256:f7ff42f496def8ff86c1c8f20ed959a6d18ef6cc88176849eed214038f6b3027`)
-- `worker`: `amigo:f447960ab5d0d798b6ea84aa6afa0fe4865bd115` (`sha256:f7ff42f496def8ff86c1c8f20ed959a6d18ef6cc88176849eed214038f6b3027`)
+- `web`: `amigo:77a6699f9af2d564bbb252212ed32baeea00e746` (`sha256:8b53c6bff5b9db086df6de412296b0c972ac20d23c199028cf6ba52fc0271227`)
+- `worker`: `amigo:77a6699f9af2d564bbb252212ed32baeea00e746` (`sha256:8b53c6bff5b9db086df6de412296b0c972ac20d23c199028cf6ba52fc0271227`)
 - `db`: `postgres:17-alpine` (`sha256:1bea307dfb3ee30541a7acf7de14b58bcd6948da98e5d31a04c627c4d35ec64b`)
-- Rollback command: `sudo /srv/amigo/deploy/rollback.sh /srv/amigo-rollbacks/20260819T154852Z`
+- Rollback command: `sudo /srv/amigo/deploy/rollback.sh /srv/amigo-rollbacks/20260819T174504Z`
 <!-- END AMIGO PRODUCTION CHECKPOINT -->

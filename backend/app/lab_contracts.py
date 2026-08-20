@@ -55,8 +55,8 @@ class LabExtraction(StrictModel):
 
 
 class GatewayLabRequest(StrictModel):
-    contract_version: Literal[LAB_EXTRACTION_PROMPT_VERSION]
-    model: Literal[AI_MODEL]
+    contract_version: Literal[LAB_EXTRACTION_PROMPT_VERSION] = LAB_EXTRACTION_PROMPT_VERSION
+    model: Literal[AI_MODEL] = AI_MODEL
     document_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f-]{36}$")]
     chunk_index: int = Field(ge=0, le=99)
     page_from: int = Field(ge=1, le=50)
@@ -65,8 +65,8 @@ class GatewayLabRequest(StrictModel):
 
 
 class GatewayLabResponse(StrictModel):
-    contract_version: Literal[LAB_EXTRACTION_PROMPT_VERSION]
-    model: Literal[AI_MODEL]
+    contract_version: Literal[LAB_EXTRACTION_PROMPT_VERSION] = LAB_EXTRACTION_PROMPT_VERSION
+    model: Literal[AI_MODEL] = AI_MODEL
     extraction: LabExtraction
 
 
@@ -82,18 +82,19 @@ class ChatAnswer(StrictModel):
 
 
 class GatewayChatRequest(StrictModel):
-    model: Literal[AI_MODEL]
-    contract_version: Literal["amigo-health-chat-v1"]
+    model: Literal[AI_MODEL] = AI_MODEL
+    contract_version: Literal["amigo-health-chat-v1"] = "amigo-health-chat-v1"
     message_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f-]{36}$")]
+    attempt: int = Field(default=1, ge=1, le=2)
     prompt: Annotated[str, StringConstraints(min_length=1, max_length=600_000)]
     allowed_evidence_keys: list[Annotated[str, StringConstraints(min_length=1, max_length=180)]] = Field(
-        max_length=3000
+        min_length=1, max_length=3000
     )
 
 
 class GatewayChatResponse(StrictModel):
-    model: Literal[AI_MODEL]
-    contract_version: Literal["amigo-health-chat-v1"]
+    model: Literal[AI_MODEL] = AI_MODEL
+    contract_version: Literal["amigo-health-chat-v1"] = "amigo-health-chat-v1"
     answer: ChatAnswer
 
 

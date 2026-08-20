@@ -200,8 +200,9 @@ Markdown, source code, fixtures, command output, or logs.
 Follow [docs/runbook.md](docs/runbook.md). It preserves the legacy PHP
 application and shared cron jobs, creates a verified rollback snapshot, checks
 all seven services, authentication, laboratory/AI isolation boundaries, and
-authenticated HTTPS/API/upload/SSE contracts, then records deployed hashes after
-cutover.
+authenticated HTTPS/API/upload/SSE contracts. Before cutover its non-personal
+synthetic smoke exercises live analysis, laboratory-extraction, and assistant-turn
+Codex contracts, then the release records deployed hashes after cutover.
 
 After the first interactive production cutover, repeat releases use the
 root-owned `/usr/local/sbin/amigo-release GIT_SHA MODE` wrapper. The sudoers

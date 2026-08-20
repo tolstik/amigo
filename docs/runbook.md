@@ -253,13 +253,15 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    MariaDB строку и импорт legacy-only весов из root-only TSV.
 6. Запуск `web` без workers и direct health на `127.0.0.1:18181`.
 7. Запуск изолированных `ai-gateway` и `lab-parser`; synthetic smoke через
-   `ai-worker` проверяет auth, sandbox, model и JSON schema без реальных health data.
+   `ai-worker` последовательно проверяет live-контракты analysis, laboratory
+   extraction и assistant turn, включая auth, sandbox, model, strict JSON schema
+   и streaming completion, без реальных health data или персонального контекста.
 8. При всё ещё остановленном persistent `ai-worker` один
    `ai-retry-current --worker-stopped` готовит exact current job. `ai-ready`
    принимает только `0` (готово) или `75` (ещё не готово); любой другой exit
    fatal. Выполняется не более четырёх foreground one-shot workers, и только
    между неуспешными попытками 1–3 вызывается `ai-enqueue` для снятия backoff.
-   Gateway smoke/retry не повторяется.
+   Тройной gateway smoke/retry не повторяется.
 9. Запуск `ingest`, затем атомарная установка nginx route. Общий prefix
    разрешает только `GET`/`HEAD`/`OPTIONS`; exact auth/profile/labs/assistant
    mutation routes имеют отдельные rate/body limits, upload — 21 МиБ, SSE —

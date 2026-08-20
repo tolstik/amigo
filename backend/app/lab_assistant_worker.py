@@ -307,6 +307,7 @@ def process_assistant_job(db: Session, settings: Settings, gateway: LabAssistant
             model=AI_MODEL,
             contract_version="amigo-health-chat-v1",
             message_id=assistant.id,
+            attempt=min(2, max(1, job.attempts)),
             prompt=prompt,
             allowed_evidence_keys=evidence,
         )

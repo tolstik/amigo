@@ -104,8 +104,9 @@
       `http://lab-parser:8085`; override на внешний endpoint отклоняется fail-closed.
 - [ ] Pinned Codex binary на host и read-only mount в `ai-gateway` имеют ожидаемый
       SHA-256. Gateway health сообщает fixed model `gpt-5.6-sol` и
-      `amigo-health-v3`; synthetic
-      `python -m app.ai_smoke` прошёл без real health data.
+      `amigo-health-v3`; synthetic `python -m app.ai_smoke` прошёл live analysis,
+      laboratory-extraction и assistant-turn контракты без real health data или
+      персонального контекста.
 - [ ] `/srv/amigo/data/import/legacy-weight.tsv` root-owned, закрыт для group/world и
       смонтирован как read-only `/imports`.
 - [ ] `/srv/amigo/data/lab-files` — real root:root directory `0700`; `web` видит

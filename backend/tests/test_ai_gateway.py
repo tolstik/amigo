@@ -28,8 +28,12 @@ from app.ai_gateway import (
     GatewayExecutionError,
     build_analysis_output_schema,
     build_analysis_prompt,
+    build_chat_output_schema,
+    build_chat_prompt,
+    build_lab_output_schema,
     create_app,
 )
+from app.lab_contracts import GatewayChatRequest
 
 
 NOW = datetime(2026, 8, 19, 18, 0, tzinfo=timezone.utc)
@@ -246,6 +250,64 @@ def test_request_specific_schema_allows_empty_recommendations_without_medical_ev
     schema = build_analysis_output_schema(request_payload().snapshot)
 
     assert "minItems" not in schema["properties"]["recommendations"]
+
+
+def _schema_nodes(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _schema_nodes(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _schema_nodes(child)
+
+
+def test_lab_output_schema_meets_strict_structured_outputs_contract():
+    schema = build_lab_output_schema()
+
+    for node in _schema_nodes(schema):
+        assert "default" not in node
+        if node.get("type") == "object":
+            assert set(node.get("required", [])) == set(node.get("properties", {}))
+            assert node.get("additionalProperties") is False
+    result_properties = schema["$defs"]["ExtractedLabResult"]["properties"]
+    for field in ("value_numeric", "reference_low", "reference_high"):
+        assert result_properties[field] == {
+            "anyOf": [{"type": "number"}, {"type": "null"}]
+        }
+
+
+def test_chat_output_schema_enumerates_exact_allowed_evidence():
+    request = GatewayChatRequest(
+        message_id="00000000-0000-0000-0000-000000000001",
+        prompt="Synthetic context",
+        allowed_evidence_keys=["weight.latest", "activity.steps", "weight.latest"],
+    )
+
+    schema = build_chat_output_schema(request)
+
+    assert schema["$defs"]["ChatSegment"]["properties"]["evidence_keys"][
+        "items"
+    ]["enum"] == ["activity.steps", "weight.latest"]
+
+
+def test_chat_prompt_matches_validator_and_adds_retry_correction():
+    request = GatewayChatRequest(
+        message_id="00000000-0000-0000-0000-000000000001",
+        attempt=2,
+        prompt="Synthetic context",
+        allowed_evidence_keys=["quality.runtime_smoke"],
+    )
+
+    prompt = build_chat_prompt(request)
+
+    assert "Retry correction (2/2)" in prompt
+    assert "including a negated caveat" in prompt
+    assert "validator-blocked stems" in prompt
+    assert "`диагноз`" in prompt
+    assert "HTML, Markdown, links" in prompt
+    assert 'Allowed evidence keys: ["quality.runtime_smoke"]' in prompt
+    assert "Attempt: 2/2" in prompt
 
 
 class FakeRunner:

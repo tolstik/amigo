@@ -1,0 +1,1 @@
+tolstik ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/amigo-release *

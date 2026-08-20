@@ -14,6 +14,12 @@
   and one-shot synchronization. After the verified snapshot exists, every
   failure restores the exact previous application and PostgreSQL images on the
   preserved PostgreSQL volume; it never restores the PostgreSQL dump.
+- Unattended release preparation uses only the root-owned
+  `/usr/local/sbin/amigo-release GIT_SHA MODE` wrapper. Its sudoers rule grants
+  `tolstik` no-password access to that wrapper only, never `NOPASSWD: ALL`; the
+  wrapper accepts exactly the current `origin/main` commit, requires a clean
+  root-owned checkout and a descendant of the recorded production release, and
+  then invokes `deploy/deploy.sh` with exactly one notification mode.
 - Automatic recovery must call `restore-previous-release.sh` and must never
   activate legacy PHP. Legacy is an explicit disaster fallback requiring
   `rollback.sh --to-legacy SNAPSHOT`. From an already active legacy route/cron,

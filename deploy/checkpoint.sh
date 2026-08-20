@@ -49,11 +49,14 @@ COMPOSE_SHA256="$(sha256sum "${AMIGO_COMPOSE_FILE}" | awk '{ print $1 }')"
 NGINX_SNIPPET_SHA256="$(sha256sum "${AMIGO_NGINX_SNIPPET}" | awk '{ print $1 }')"
 NGINX_HTTP_SHA256="$(sha256sum "${AMIGO_NGINX_HTTP_CONFIG}" | awk '{ print $1 }')"
 CODEX_BINARY_SHA256="$(sha256sum /srv/amigo/data/codex-bin/codex | awk '{ print $1 }')"
+RELEASE_WRAPPER_SHA256="$(sha256sum /usr/local/sbin/amigo-release | awk '{ print $1 }')"
+RELEASE_SUDOERS_SHA256="$(sha256sum /etc/sudoers.d/amigo-release | awk '{ print $1 }')"
 TEMP_BLOCK="$(mktemp /run/amigo-checkpoint-block.XXXXXX)"
 TEMP_DOCUMENT="$(mktemp /run/amigo-checkpoint-document.XXXXXX)"
 TEMP_IMAGES="$(mktemp /run/amigo-checkpoint-images.XXXXXX)"
 readonly GIT_SHA CHECKED_AT_UTC CHECKED_AT_MOSCOW
 readonly COMPOSE_SHA256 NGINX_SNIPPET_SHA256 NGINX_HTTP_SHA256 CODEX_BINARY_SHA256
+readonly RELEASE_WRAPPER_SHA256 RELEASE_SUDOERS_SHA256
 readonly TEMP_BLOCK TEMP_DOCUMENT TEMP_IMAGES
 
 cleanup() {
@@ -83,7 +86,9 @@ done
     printf -- '- Installed config SHA-256: Compose `%s`; nginx locations `%s`; nginx rate limit `%s`.\n' \
         "${COMPOSE_SHA256}" "${NGINX_SNIPPET_SHA256}" "${NGINX_HTTP_SHA256}"
     printf -- '- Pinned Codex: `0.148.0` (`sha256:%s`).\n' "${CODEX_BINARY_SHA256}"
-    printf -- '- Verification: all seven Compose services healthy; application services use the release image; PostgreSQL ready; the current worker completed a successful post-start Withings incremental job; web and ingest are bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; authentication, exact Origin/CSRF, short-lived authenticated API/CSV/upload/SSE checks, root-only laboratory storage, parser/gateway isolation and unpublished ports, container secret boundaries, pinned Codex hash, fixed `gpt-5.6-sol`/`amigo-health-v3` gateway health, signed-ingest rejection, origin proxy, HTTPS login shell, hidden health routes, immutable frontend assets, cron isolation, previous-release auth-floor recovery assets, and the explicit legacy disaster-fallback guard passed.\n'
+    printf -- '- Release access SHA-256: wrapper `%s`; sudoers policy `%s`.\n' \
+        "${RELEASE_WRAPPER_SHA256}" "${RELEASE_SUDOERS_SHA256}"
+    printf -- '- Verification: all seven Compose services healthy; application services use the release image; PostgreSQL ready; the current worker completed a successful post-start Withings incremental job; web and ingest are bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; authentication, exact Origin/CSRF, short-lived authenticated API/CSV/upload/SSE checks, root-only laboratory storage, parser/gateway isolation and unpublished ports, container secret boundaries, pinned Codex hash, fixed `gpt-5.6-sol`/`amigo-health-v3` gateway health, root-owned least-privilege release access, signed-ingest rejection, origin proxy, HTTPS login shell, hidden health routes, immutable frontend assets, cron isolation, previous-release auth-floor recovery assets, and the explicit legacy disaster-fallback guard passed.\n'
     printf -- '- Installed image references and IDs:\n\n'
     cat "${TEMP_IMAGES}"
     printf -- '- Previous-release recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh %s`\n' "${SNAPSHOT}"

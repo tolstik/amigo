@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+readonly PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
+unset BASH_ENV CDPATH ENV GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM \
+    GIT_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_WORK_TREE
+
+readonly APP_DIR="/srv/amigo"
+readonly CURRENT_RELEASE_FILE="/var/lib/amigo/current-release"
+readonly EXPECTED_ORIGIN="https://github.com/tolstik/amigo.git"
+readonly DEPLOY_USER="tolstik"
+
+usage() {
+    printf 'Usage: %s GIT_SHA --send-telegram-test|--skip-telegram-test\n' \
+        "${0##*/}" >&2
+    exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+readonly CANDIDATE_SHA=$1
+readonly NOTIFICATION_MODE=$2
+[[ "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]] || usage
+case "${NOTIFICATION_MODE}" in
+    --send-telegram-test|--skip-telegram-test)
+        ;;
+    *)
+        usage
+        ;;
+esac
+
+[[ ${EUID} -eq 0 ]] || {
+    printf 'amigo-release must run as root through sudo\n' >&2
+    exit 1
+}
+[[ "${SUDO_USER:-}" == "${DEPLOY_USER}" ]] || {
+    printf 'amigo-release may only be invoked through sudo by %s\n' \
+        "${DEPLOY_USER}" >&2
+    exit 1
+}
+
+exec 8>"/run/lock/amigo-release.lock"
+flock -n 8 || {
+    printf 'another Amigo release preparation is running\n' >&2
+    exit 1
+}
+
+[[ -d "${APP_DIR}/.git" && ! -L "${APP_DIR}" ]] || {
+    printf 'production checkout is missing or is a symlink\n' >&2
+    exit 1
+}
+[[ "$(realpath -e -- "${APP_DIR}")" == "${APP_DIR}" ]] || {
+    printf 'production checkout does not resolve to %s\n' "${APP_DIR}" >&2
+    exit 1
+}
+[[ "$(stat -c '%U:%G' "${APP_DIR}")" == "root:root" ]] || {
+    printf 'production checkout must be owned by root:root\n' >&2
+    exit 1
+}
+[[ -f "${CURRENT_RELEASE_FILE}" && ! -L "${CURRENT_RELEASE_FILE}" ]] || {
+    printf 'recorded production release is missing or is a symlink\n' >&2
+    exit 1
+}
+
+git_release() {
+    env -i \
+        HOME=/root \
+        PATH="${PATH}" \
+        GIT_TERMINAL_PROMPT=0 \
+        git -C "${APP_DIR}" "$@"
+}
+
+CURRENT_RELEASE="$(<"${CURRENT_RELEASE_FILE}")"
+readonly CURRENT_RELEASE
+[[ "${CURRENT_RELEASE}" =~ ^[0-9a-f]{40,64}$ ]] || {
+    printf 'recorded production release is invalid\n' >&2
+    exit 1
+}
+[[ "${CANDIDATE_SHA}" != "${CURRENT_RELEASE}" ]] || {
+    printf 'candidate is already the recorded production release\n' >&2
+    exit 1
+}
+[[ -z "$(git_release status --porcelain=v1 -uall)" ]] || {
+    printf 'production checkout is dirty\n' >&2
+    exit 1
+}
+[[ "$(git_release remote get-url origin)" == "${EXPECTED_ORIGIN}" ]] || {
+    printf 'production origin is not the pinned Amigo repository\n' >&2
+    exit 1
+}
+
+git_release fetch --no-tags --prune origin \
+    '+refs/heads/main:refs/remotes/origin/main'
+REMOTE_MAIN_SHA="$(git_release rev-parse --verify 'refs/remotes/origin/main^{commit}')"
+readonly REMOTE_MAIN_SHA
+[[ "${REMOTE_MAIN_SHA}" == "${CANDIDATE_SHA}" ]] || {
+    printf 'candidate SHA is not the current origin/main commit\n' >&2
+    exit 1
+}
+git_release merge-base --is-ancestor "${CURRENT_RELEASE}" "${CANDIDATE_SHA}" || {
+    printf 'candidate is not a descendant of the recorded production release\n' >&2
+    exit 1
+}
+
+git_release checkout --detach "${CANDIDATE_SHA}"
+[[ "$(git_release rev-parse HEAD)" == "${CANDIDATE_SHA}" ]] || {
+    printf 'production checkout did not reach the requested candidate\n' >&2
+    exit 1
+}
+[[ -z "$(git_release status --porcelain=v1 -uall)" ]] || {
+    printf 'production checkout became dirty after candidate checkout\n' >&2
+    exit 1
+}
+
+exec env -i \
+    HOME=/root \
+    LOGNAME=root \
+    PATH="${PATH}" \
+    TERM="${TERM:-xterm-256color}" \
+    USER=root \
+    bash "${APP_DIR}/deploy/deploy.sh" "${NOTIFICATION_MODE}"

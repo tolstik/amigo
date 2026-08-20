@@ -9,6 +9,10 @@
 
 - [ ] Выбран точный Git SHA; `/srv/amigo` root-owned и полностью чист,
       включая untracked source-файлы.
+- [ ] `/usr/local/sbin/amigo-release` и `/etc/sudoers.d/amigo-release`
+      root-owned, не являются symlink, совпадают с release и проходят
+      `visudo -cf /etc/sudoers`. Правило даёт `tolstik` `NOPASSWD` только на
+      wrapper, не на shell, Git, Docker, `deploy.sh` или `ALL`.
 - [ ] `/var/lib/amigo/current-release` совпадает с реально запущенным previous
       Amigo image; exact image tag/ID и Git object доступны. Candidate не меняет
       rollback-protected базовые ORM models, pinned Codex runtime и существующие
@@ -75,6 +79,8 @@
 
 ## Автоматические проверки после cutover
 
+- [ ] Least-privilege release wrapper и sudoers policy имеют ожидаемые
+      ownership/mode/content; полный sudoers config валиден.
 - [ ] `db`, `web`, `worker`, `ingest`, `ai-worker`, `ai-gateway`, `lab-parser` имеют state
       `running` и health `healthy`; `pg_isready` успешен.
 - [ ] После `StartedAt` текущего worker container появился

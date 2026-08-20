@@ -202,3 +202,9 @@ application and shared cron jobs, creates a verified rollback snapshot, checks
 all seven services, authentication, laboratory/AI isolation boundaries, and
 authenticated HTTPS/API/upload/SSE contracts, then records deployed hashes after
 cutover.
+
+After the first interactive production cutover, repeat releases use the
+root-owned `/usr/local/sbin/amigo-release GIT_SHA MODE` wrapper. The sudoers
+policy grants `tolstik` passwordless access only to that validated wrapper; it
+does not grant passwordless shell, Git, Docker, direct deploy-script, or global
+root access. See the runbook for the exact command and validation contract.

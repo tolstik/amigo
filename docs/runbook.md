@@ -194,6 +194,25 @@ sudo sha256sum --check --strict SHA256SUMS
 
 ## Развёртывание и cutover
 
+Первый переход или восстановление release-доступа выполняются обычным
+интерактивным `sudo`. В ходе deploy root-owned installer размещает
+`/usr/local/sbin/amigo-release` и точное правило
+`/etc/sudoers.d/amigo-release`. Оно разрешает `tolstik` без пароля запускать
+только этот wrapper, а не shell, Git, Docker, `deploy.sh` или `NOPASSWD: ALL`.
+Wrapper принимает ровно 40-символьный SHA текущего `origin/main`, требует
+чистый root-owned checkout и descendant текущего recorded release, после чего
+сам вызывает штатный `deploy.sh`.
+
+Повторный unattended deploy запускается так:
+
+```bash
+sudo /usr/local/sbin/amigo-release GIT_SHA --send-telegram-test
+```
+
+Для режима без Telegram smoke используется `--skip-telegram-test`. Сам wrapper
+не отменяет первый скрытый prompt пароля Amigo, если локальный аккаунт ещё не
+создан.
+
 Команда требует ровно один явный режим Telegram-проверки:
 
 ```bash

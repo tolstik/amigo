@@ -29,6 +29,7 @@ for script in \
     nginx-control.sh \
     cron-control.sh \
     checkpoint.sh \
+    install-release-wrapper.sh \
     test-recovery-transitions.sh \
     lib/common.sh; do
     bash -n "${SCRIPT_DIR}/${script}"
@@ -38,11 +39,21 @@ bash "${SCRIPT_DIR}/test-recovery-transitions.sh"
 
 for executable_script in \
     deploy.sh pre-cutover-backup.sh restore-previous-release.sh \
-    takeover-from-legacy.sh rollback.sh nginx-control.sh \
+    takeover-from-legacy.sh rollback.sh nginx-control.sh install-release-wrapper.sh \
     test-recovery-transitions.sh; do
     [[ -x "${SCRIPT_DIR}/${executable_script}" ]] \
         || amigo_die "deployment script is not executable: ${executable_script}"
 done
+bash -n "${SCRIPT_DIR}/amigo-release"
+
+[[ -x "${SCRIPT_DIR}/amigo-release" ]] \
+    || amigo_die "versioned release wrapper is not executable"
+grep --quiet --fixed-strings 'bash "${SCRIPT_DIR}/install-release-wrapper.sh"' \
+    "${SCRIPT_DIR}/deploy.sh" \
+    || amigo_die "deploy does not install the least-privilege release wrapper"
+[[ "$(<"${SCRIPT_DIR}/sudoers/amigo-release")" \
+    == 'tolstik ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/amigo-release *' ]] \
+    || amigo_die "release sudoers policy is not narrowly scoped to the wrapper"
 
 amigo_assert_release_rollback_compatible \
     "${PROJECT_ROOT}" "${PREVIOUS_RELEASE_SHA}" "${CANDIDATE_RELEASE_SHA}"
@@ -175,8 +186,10 @@ if command -v shellcheck >/dev/null 2>&1; then
         "${SCRIPT_DIR}/rollback.sh" \
         "${SCRIPT_DIR}/nginx-control.sh" \
         "${SCRIPT_DIR}/checkpoint.sh" \
+        "${SCRIPT_DIR}/install-release-wrapper.sh" \
         "${SCRIPT_DIR}/test-recovery-transitions.sh" \
-        "${SCRIPT_DIR}/lib/common.sh"
+        "${SCRIPT_DIR}/lib/common.sh" \
+        "${SCRIPT_DIR}/amigo-release"
 else
     printf 'shellcheck unavailable; syntax and recovery-contract checks still passed\n' >&2
 fi

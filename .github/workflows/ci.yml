@@ -111,9 +111,15 @@ jobs:
           fi
           git diff --check "${BASE_SHA}" "${GITHUB_SHA}"
       - name: Check deployment shell syntax
-        run: find deploy -type f -name '*.sh' -exec bash -n '{}' \;
+        run: |
+          find deploy -type f -name '*.sh' -exec bash -n '{}' \;
+          bash -n deploy/amigo-release
       - name: Run ShellCheck
-        run: find deploy -type f -name '*.sh' -exec shellcheck '{}' +
+        run: |
+          find deploy -type f -name '*.sh' -exec shellcheck '{}' +
+          shellcheck deploy/amigo-release
+      - name: Validate least-privilege sudoers policy
+        run: visudo -cf deploy/sudoers/amigo-release
       - name: Validate the production Compose model
         env:
           AMIGO_IMAGE_TAG: ${{ github.sha }}

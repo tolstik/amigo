@@ -11,7 +11,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 amigo_require_root
 amigo_require_commands \
     awk cmp crontab curl docker git grep install mariadb mktemp nginx python3 rm rmdir \
-    sha256sum sleep ss stat
+    sha256sum sleep ss stat visudo
 amigo_require_production_layout
 
 TMP_DIR="$(mktemp -d /run/amigo-verify.XXXXXX)"
@@ -63,6 +63,26 @@ cleanup() {
 }
 trap cleanup EXIT
 install -d -o root -g root -m 0700 "${VERIFICATION_DIR}"
+
+readonly INSTALLED_RELEASE_WRAPPER="/usr/local/sbin/amigo-release"
+readonly INSTALLED_RELEASE_SUDOERS="/etc/sudoers.d/amigo-release"
+for release_access_file in \
+    "${INSTALLED_RELEASE_WRAPPER}" "${INSTALLED_RELEASE_SUDOERS}"; do
+    [[ -f "${release_access_file}" && ! -L "${release_access_file}" ]] \
+        || amigo_die "release access file is missing or is a symlink: ${release_access_file}"
+    [[ "$(stat -c '%U:%G' "${release_access_file}")" == "root:root" ]] \
+        || amigo_die "release access file is not owned by root:root: ${release_access_file}"
+done
+[[ "$(stat -c '%a' "${INSTALLED_RELEASE_WRAPPER}")" == "755" ]] \
+    || amigo_die "installed release wrapper mode is not 0755"
+[[ "$(stat -c '%a' "${INSTALLED_RELEASE_SUDOERS}")" == "440" ]] \
+    || amigo_die "installed release sudoers mode is not 0440"
+cmp --silent "${SCRIPT_DIR}/amigo-release" "${INSTALLED_RELEASE_WRAPPER}" \
+    || amigo_die "installed release wrapper differs from the deployed release"
+cmp --silent "${SCRIPT_DIR}/sudoers/amigo-release" "${INSTALLED_RELEASE_SUDOERS}" \
+    || amigo_die "installed release sudoers policy differs from the deployed release"
+visudo -cf /etc/sudoers >/dev/null
+amigo_log "PASS unattended release access is root-owned and limited to the validated wrapper"
 
 check_service() {
     local service=$1

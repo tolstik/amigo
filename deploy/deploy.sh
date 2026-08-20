@@ -85,6 +85,7 @@ amigo_assert_release_rollback_compatible \
 bash "${SCRIPT_DIR}/test-release-recovery.sh" "${PREVIOUS_RELEASE_SHA}"
 [[ -n "$(docker image inspect --format '{{.Id}}' "amigo:${PREVIOUS_RELEASE_SHA}")" ]] \
     || amigo_die "recorded previous release image is unavailable"
+bash "${SCRIPT_DIR}/install-release-wrapper.sh"
 export AMIGO_IMAGE_TAG="${RELEASE_SHA}"
 amigo_log "candidate Git SHA: ${RELEASE_SHA}"
 amigo_log "automatic recovery target: ${PREVIOUS_RELEASE_SHA}"

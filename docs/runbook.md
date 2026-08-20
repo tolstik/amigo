@@ -519,7 +519,8 @@ PostgreSQL на сохранённом volume. Для auth-capable previous rele
 maintenance snippet: `/amigo/` стабилизируется на `503`, unsigned ingest всё ещё
 точно отклоняется его backend-контрактом. Shared `my.conf` вне markers сохраняется;
 maintenance status завершается в собственном named nginx handler и не зависит
-от общего server-level `error_page` или наличия shared `50x.html`;
+от общего server-level `error_page` или наличия shared `50x.html`; локальное
+неиспользуемое правило отключает наследование shared error handlers;
 worker ждёт новый minute run-key и успешный incremental run. Окончательная
 production verification остаётся обязательной.
 Production checkout остаётся на candidate commit; фактический runtime определяет

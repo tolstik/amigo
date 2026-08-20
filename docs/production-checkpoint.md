@@ -4,21 +4,21 @@
 
 - Status: **deployed and verified**
 - Production URL: `https://amigo.tolstik.ru/amigo/`
-- Verified at: `2026-08-20T07:57:43Z` (`2026-08-20 10:57:43 MSK`)
-- Git SHA: `c997d450d5f4281fe2a4b04ea85abad364fc1256`
-- Latest rollback snapshot: `/srv/amigo-rollbacks/20260820T075052Z`
+- Verified at: `2026-08-20T08:58:59Z` (`2026-08-20 11:58:59 MSK`)
+- Git SHA: `ce78ab1ef22d447eba0e52477c511160d10abea6`
+- Latest rollback snapshot: `/srv/amigo-rollbacks/20260820T085347Z`
 - Installed config SHA-256: Compose `05d80cfec15d859ad686069652c0b4a33d0f210fdfe6bd4502cce5a111558c49`; nginx locations `a1b07803174a6143014c32da55c166422253b8fdd9db8df5ed3b3afb61de4728`; nginx rate limit `1a1a7d7b3124592c960e600c9fa6ccc7a80f4200ff71464a3e4a689b97bc86fb`.
 - Pinned Codex: `0.148.0` (`sha256:ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`).
 - Verification: all six Compose services healthy; application services use the release image; PostgreSQL ready; the current worker completed a successful post-start Withings incremental job; web and ingest are bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; container secret boundaries, pinned Codex hash, isolated unpublished AI gateway, fixed `gpt-5.6-sol` gateway health and public AI payload, direct health, hidden public health routes, exact unsigned-ingest rejection, origin proxy, public HTTPS dashboard and overview/activity/recovery/AI JSON, hashed JavaScript/CSS cache policy, relative `308`, security headers, cron isolation, previous-release recovery assets, and the explicit legacy disaster-fallback guard passed.
 - Installed image references and IDs:
 
-- `web`: `amigo:c997d450d5f4281fe2a4b04ea85abad364fc1256` (`sha256:90ab52fce41cae605968d749a7f4cf12fef9f32a08c864ffc6c8fe551699cc18`)
-- `worker`: `amigo:c997d450d5f4281fe2a4b04ea85abad364fc1256` (`sha256:90ab52fce41cae605968d749a7f4cf12fef9f32a08c864ffc6c8fe551699cc18`)
-- `ingest`: `amigo:c997d450d5f4281fe2a4b04ea85abad364fc1256` (`sha256:90ab52fce41cae605968d749a7f4cf12fef9f32a08c864ffc6c8fe551699cc18`)
-- `ai-worker`: `amigo:c997d450d5f4281fe2a4b04ea85abad364fc1256` (`sha256:90ab52fce41cae605968d749a7f4cf12fef9f32a08c864ffc6c8fe551699cc18`)
-- `ai-gateway`: `amigo:c997d450d5f4281fe2a4b04ea85abad364fc1256` (`sha256:90ab52fce41cae605968d749a7f4cf12fef9f32a08c864ffc6c8fe551699cc18`)
+- `web`: `amigo:ce78ab1ef22d447eba0e52477c511160d10abea6` (`sha256:a5fcd42dafccf54bb5f439035dc24621253587a42e4254ac793f7bba3b5e9361`)
+- `worker`: `amigo:ce78ab1ef22d447eba0e52477c511160d10abea6` (`sha256:a5fcd42dafccf54bb5f439035dc24621253587a42e4254ac793f7bba3b5e9361`)
+- `ingest`: `amigo:ce78ab1ef22d447eba0e52477c511160d10abea6` (`sha256:a5fcd42dafccf54bb5f439035dc24621253587a42e4254ac793f7bba3b5e9361`)
+- `ai-worker`: `amigo:ce78ab1ef22d447eba0e52477c511160d10abea6` (`sha256:a5fcd42dafccf54bb5f439035dc24621253587a42e4254ac793f7bba3b5e9361`)
+- `ai-gateway`: `amigo:ce78ab1ef22d447eba0e52477c511160d10abea6` (`sha256:a5fcd42dafccf54bb5f439035dc24621253587a42e4254ac793f7bba3b5e9361`)
 - `db`: `postgres:17-alpine` (`sha256:1bea307dfb3ee30541a7acf7de14b58bcd6948da98e5d31a04c627c4d35ec64b`)
-- Previous-release recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh /srv/amigo-rollbacks/20260820T075052Z`
-- Legacy disaster fallback command: `sudo /srv/amigo/deploy/rollback.sh --to-legacy /srv/amigo-rollbacks/20260820T075052Z`
+- Previous-release recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh /srv/amigo-rollbacks/20260820T085347Z`
+- Legacy disaster fallback command: `sudo /srv/amigo/deploy/rollback.sh --to-legacy /srv/amigo-rollbacks/20260820T085347Z`
 
 The checkpoint contains no credentials. Commit these documentation changes back to the canonical repository before reporting the deployment complete.

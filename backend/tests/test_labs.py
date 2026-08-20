@@ -42,7 +42,10 @@ def test_magic_detection_rejects_extension_spoofing():
 def test_text_pdf_is_extracted_without_codex():
     document = fitz.open()
     page = document.new_page()
-    page.insert_text((72, 72), "Glucose 5.1 mmol/L reference 3.9-5.6")
+    page.insert_text(
+        (72, 72),
+        "Glucose 5.1 mmol/L reference interval 3.9-5.6 mmol/L",
+    )
     data = document.tobytes()
     document.close()
     parsed = parse_document(data, "report.pdf")

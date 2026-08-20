@@ -200,6 +200,8 @@ grep --quiet --fixed-strings 'limit_req zone=amigo_upload burst=5 nodelay;' \
 grep --quiet --fixed-strings 'proxy_pass_header X-Accel-Buffering;' \
     "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
     || amigo_die "assistant SSE route does not pass its no-buffer response contract"
+# Literal shell-variable syntax is the verifier source pattern being required.
+# shellcheck disable=SC2016
 grep --quiet --fixed-strings '"${SSE_ORIGIN_HEADERS}"' \
     "${SCRIPT_DIR}/verify-production.sh" \
     || amigo_die "production verification does not inspect the origin SSE headers"

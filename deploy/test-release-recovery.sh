@@ -152,6 +152,10 @@ grep --quiet --fixed-strings 'location @amigo_auth_floor_503 {' \
 grep --quiet --fixed-strings 'error_page 418 =418 /amigo/;' \
     "${SCRIPT_DIR}/nginx/amigo.maintenance.locations.conf" \
     || amigo_die "auth-floor named handler still inherits the shared 503 error page"
+grep --quiet --fixed-strings \
+    'installed auth-floor locations do not match the candidate maintenance release' \
+    "${SCRIPT_DIR}/pre-cutover-backup.sh" \
+    || amigo_die "pre-cutover backup cannot safely resume from an exact auth-floor route"
 grep --quiet --fixed-strings 'lab-parser' "${SCRIPT_DIR}/rollback.sh" \
     || amigo_die "legacy disaster fallback does not stop the isolated laboratory parser"
 # Literal variable syntax is the unsafe source pattern being rejected.

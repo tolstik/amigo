@@ -28,6 +28,8 @@
 - A previous release without `backend/app/auth.py` is never allowed to make the
   dashboard public again: recovery installs the auth-floor maintenance route,
   returns `503` for `/amigo/`, and keeps only signed Android ingest available.
+  A retry from that state may snapshot only an installed locations snippet that
+  exactly matches the candidate's versioned maintenance snippet.
 - A responding but unhealthy legacy origin may be bypassed only with takeover's
   explicit `--allow-unhealthy-legacy-origin` flag. In that mode failure reversal
   must never treat legacy as healthy, enable its Withings cron, or stop a

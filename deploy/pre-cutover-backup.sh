@@ -239,9 +239,15 @@ cp --archive -- "${AMIGO_NGINX_SNIPPET}" \
     "${STAGING_DIR}/nginx/amigo-v2-locations.conf"
 cp --archive -- "${AMIGO_NGINX_HTTP_CONFIG}" \
     "${STAGING_DIR}/nginx/amigo-v2-http.conf"
-cmp --silent "${STAGING_DIR}/release/nginx/amigo.locations.conf" \
-    "${STAGING_DIR}/nginx/amigo-v2-locations.conf" \
-    || amigo_die "installed nginx locations do not match the previous release"
+if [[ "${PREVIOUS_AUTH_FLOOR}" == "enabled" ]]; then
+    cmp --silent "${STAGING_DIR}/release/nginx/amigo.locations.conf" \
+        "${STAGING_DIR}/nginx/amigo-v2-locations.conf" \
+        || amigo_die "installed nginx locations do not match the previous release"
+else
+    cmp --silent "${SCRIPT_DIR}/nginx/amigo.maintenance.locations.conf" \
+        "${STAGING_DIR}/nginx/amigo-v2-locations.conf" \
+        || amigo_die "installed auth-floor locations do not match the candidate maintenance release"
+fi
 cmp --silent "${STAGING_DIR}/release/nginx/amigo.http.conf" \
     "${STAGING_DIR}/nginx/amigo-v2-http.conf" \
     || amigo_die "installed nginx HTTP config does not match the previous release"

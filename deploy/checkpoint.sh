@@ -52,6 +52,8 @@ git -C "${AMIGO_APP_DIR}" diff --quiet -- \
     ':(exclude)docs/runbook.md' \
     ':(exclude)docs/production-checkpoint.md' \
     || amigo_die "non-checkpoint tracked files are dirty; reconcile them first"
+[[ -z "$(git -C "${AMIGO_APP_DIR}" ls-files --others --exclude-standard)" ]] \
+    || amigo_die "untracked production checkout files exist before checkpoint"
 
 if [[ ${VERIFICATION_PASSED} -eq 1 ]]; then
     amigo_log "using the complete verification suite that passed immediately before checkpoint"
@@ -135,5 +137,22 @@ install -d -o root -g root -m 0700 \
 install -o root -g root -m 0600 \
     "${TEMP_DOCUMENT}" "${AMIGO_STATE_DIR}/deployments/${CHECKED_AT_UTC//:/-}.md"
 
-amigo_log "DOCUMENTATION CHECKPOINT WRITTEN"
-amigo_log "commit AGENTS.md and docs checkpoint changes before reporting completion"
+amigo_log "recording a local documentation-only checkpoint commit"
+git -C "${AMIGO_APP_DIR}" add -- \
+    AGENTS.md docs/runbook.md docs/production-checkpoint.md
+git -C "${AMIGO_APP_DIR}" diff --cached --quiet \
+    && amigo_die "checkpoint generated no documentation changes"
+git -C "${AMIGO_APP_DIR}" \
+    -c user.name='Amigo production checkpoint' \
+    -c user.email='checkpoint@localhost' \
+    commit --no-gpg-sign --no-verify \
+    -m "docs: record production checkpoint ${GIT_SHA}"
+CHECKPOINT_COMMIT="$(git -C "${AMIGO_APP_DIR}" rev-parse HEAD)"
+CHECKPOINT_REF="refs/amigo/checkpoints/${GIT_SHA}"
+readonly CHECKPOINT_COMMIT CHECKPOINT_REF
+git -C "${AMIGO_APP_DIR}" update-ref "${CHECKPOINT_REF}" "${CHECKPOINT_COMMIT}"
+[[ -z "$(git -C "${AMIGO_APP_DIR}" status --porcelain=v1 -uall)" ]] \
+    || amigo_die "production checkout is dirty after checkpoint commit"
+
+amigo_log "DOCUMENTATION CHECKPOINT WRITTEN AND COMMITTED: ${CHECKPOINT_COMMIT}"
+amigo_log "copy the checkpoint facts into the canonical repository before reporting completion"

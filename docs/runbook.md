@@ -126,6 +126,13 @@ auth-floor/App Links контракты остаются в pre-cutover recovery
 verification. Это сокращает нормальный cutover, не ослабляя snapshot и
 automatic recovery.
 
+Preflight релиза v5 также выявил отдельную повторяемую причину: обязательный
+checkpoint прошлого deploy обновлял `AGENTS.md` и два документа, но оставлял
+checkout dirty, поэтому следующий root-owned wrapper останавливался ещё до
+backup. Теперь checkpoint сам создаёт локальный documentation-only commit,
+сохраняет его под `refs/amigo/checkpoints/GIT_SHA` и проверяет, что checkout
+снова чист. Перенос фактов в canonical `main` по-прежнему обязателен.
+
 ## Подготовка релиза
 
 1. Разместить чистый root-owned Git checkout нужного commit в `/srv/amigo`.
@@ -739,10 +746,13 @@ image refs/IDs всех семи services, SHA-256 Compose/nginx/Codex, резу
 `--verification-passed` сразу после полного успешного прогона и не повторяет
 тот же mutation/upload-набор второй раз; при отдельном ручном вызове без флага
 checkpoint по-прежнему самостоятельно выполняет полную verification.
-Изменённые `AGENTS.md`, runbook и `production-checkpoint.md` нужно закоммитить в
-канонический репозиторий до сообщения о завершении. Documentation-only commit
-можно перенести в production checkout без rebuild; source of truth для runtime SHA остаётся
-`/var/lib/amigo/current-release`.
+Checkpoint атомарно создаёт локальный documentation-only commit и сохраняет его
+под `refs/amigo/checkpoints/GIT_SHA`, поэтому production checkout после deploy
+снова чист и следующий guarded release не блокируется на старых Markdown-
+изменениях. Факты из этого commit всё равно нужно перенести отдельным commit в
+канонический репозиторий до сообщения о завершении; rebuild runtime для этого не
+нужен. Source of truth для runtime SHA остаётся `/var/lib/amigo/current-release`,
+а не HEAD локального documentation commit.
 
 <!-- BEGIN AMIGO PRODUCTION CHECKPOINT -->
 - Status: **deployed and verified**

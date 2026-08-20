@@ -71,6 +71,11 @@
   with status `success`. The verification query may read only job name, status,
   and timestamps; never read or print `details`, provider payloads, or secrets.
 - After every production deployment, update this file and the runbook checkpoint with the deployed Git SHA/image IDs, verification results, production URL, and latest rollback location before reporting completion.
+- `deploy/checkpoint.sh` must leave the root-owned production checkout clean by
+  creating a local documentation-only commit and durable
+  `refs/amigo/checkpoints/GIT_SHA` ref. Copy the checkpoint facts into the
+  canonical repository in the same work cycle; runtime identity still comes
+  only from `/var/lib/amigo/current-release`.
 
 ## Product invariants
 

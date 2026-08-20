@@ -94,6 +94,22 @@ grep --quiet --fixed-strings \
 grep --quiet --fixed-strings "bash \"\${SCRIPT_DIR}/verify-production.sh\"" \
     "${SCRIPT_DIR}/checkpoint.sh" \
     || amigo_die "standalone checkpoint no longer runs the complete verification suite"
+# Literal shell-variable syntax is the checkpoint source pattern being required.
+# shellcheck disable=SC2016
+grep --quiet --fixed-strings \
+    'git -C "${AMIGO_APP_DIR}" add --' \
+    "${SCRIPT_DIR}/checkpoint.sh" \
+    || amigo_die "checkpoint no longer stages its three documentation files"
+# Literal shell-variable syntax is the checkpoint source pattern being required.
+# shellcheck disable=SC2016
+grep --quiet --fixed-strings \
+    'refs/amigo/checkpoints/${GIT_SHA}' \
+    "${SCRIPT_DIR}/checkpoint.sh" \
+    || amigo_die "checkpoint no longer preserves a durable local documentation ref"
+grep --quiet --fixed-strings \
+    'production checkout is dirty after checkpoint commit' \
+    "${SCRIPT_DIR}/checkpoint.sh" \
+    || amigo_die "checkpoint no longer guarantees a clean production checkout"
 pull_line=$(grep --line-number --fixed-strings 'amigo_compose pull db' \
     "${SCRIPT_DIR}/deploy.sh" | cut -d: -f1)
 # Literal shell-variable syntax is the deploy source pattern being required.

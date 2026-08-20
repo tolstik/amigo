@@ -154,6 +154,10 @@
   receives the eight integration/database secrets. `ai-gateway` and `lab-parser`
   receive no Docker secrets or database access; only the gateway has its pinned
   binary and dedicated Codex auth state mounted.
+- The runtime image must normalize copied backend source to be readable and
+  traversable by non-root services. Release preparation uses a restrictive
+  `umask`, so build-context file modes must never be trusted for container
+  runtime access.
 
 ## Latest production checkpoint
 

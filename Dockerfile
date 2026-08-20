@@ -29,7 +29,8 @@ RUN apt-get update \
 
 WORKDIR /app/backend
 COPY backend/ ./
-RUN python -m pip install --no-cache-dir .
+RUN chmod --recursive a+rX /app/backend \
+    && python -m pip install --no-cache-dir .
 COPY --from=frontend-builder /build/frontend/dist /app/static
 
 EXPOSE 8000

@@ -13,11 +13,15 @@ from .ai_snapshot import enqueue_current_analysis
 from .db import SessionLocal
 from .models import JobRun, Outbox, utcnow
 from .telegram import TelegramNotifier
-from .withings import WithingsClient
+from .withings import SyncResult, WithingsClient
 
 
 logger = logging.getLogger("amigo.worker")
 WEEKDAYS = {name: index for index, name in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))}
+
+
+def _withings_sync_has_changes(result: SyncResult) -> bool:
+    return result.groups_created > 0 or result.groups_updated > 0
 
 
 def schedule_weekly_digest(db: Session, settings: Settings, now: datetime | None = None) -> bool:
@@ -185,7 +189,7 @@ class Worker:
                 def incremental():
                     with WithingsClient(db, self.settings) as client:
                         result = client.sync()
-                    if result.created or result.updated:
+                    if _withings_sync_has_changes(result):
                         enqueue_current_analysis(
                             db,
                             self.settings,
@@ -202,7 +206,7 @@ class Worker:
                 def reconcile():
                     with WithingsClient(db, self.settings) as client:
                         result = client.sync(reconcile_days=90, suppress_notifications=True)
-                    if result.created or result.updated:
+                    if _withings_sync_has_changes(result):
                         enqueue_current_analysis(
                             db,
                             self.settings,

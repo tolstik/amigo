@@ -25,6 +25,10 @@
   `auth.json`; use `--refresh-auth` after an interactive login by the service
   owner.
 - The deployed application SHA is recorded in `/var/lib/amigo/current-release`; verification must use it rather than assuming the documentation checkout HEAD equals the running image.
+- Production verification must wait for a `withings-incremental` `JobRun` that
+  started at or after the current worker container's `StartedAt` and finished
+  with status `success`. The verification query may read only job name, status,
+  and timestamps; never read or print `details`, provider payloads, or secrets.
 - After every production deployment, update this file and the runbook checkpoint with the deployed Git SHA/image IDs, verification results, production URL, and latest rollback location before reporting completion.
 
 ## Product invariants

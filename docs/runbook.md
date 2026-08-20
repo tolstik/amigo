@@ -188,7 +188,9 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    разрешает только `GET`/`HEAD`/`OPTIONS`; ingest имеет точные rate-limited
    routes и body limit 1 MiB.
 10. Запуск `worker` и `ai-worker`, полный verification, route-only rollback
-    rehearsal и повторный verification.
+    rehearsal и повторный verification. Проверка ждёт, пока текущий container
+    `worker` завершит новый `withings-incremental` `JobRun` со статусом
+    `success`; старый успешный run не засчитывается.
 11. Запись `/var/lib/amigo/current-release` и обязательный
     documentation/memory checkpoint.
 
@@ -329,6 +331,9 @@ sudo bash /srv/amigo/deploy/verify-production.sh
 
 - health всех шести services и immutable image SHA;
 - PostgreSQL, точные secret mounts и отсутствие Docker secrets у gateway;
+- успешный `withings-incremental` `JobRun`, начатый не раньше `StartedAt`
+  текущего worker container; privacy-safe запрос читает только job name,
+  status и timestamps, но не `details` или provider payload;
 - loopback binds `18181`/`18182` и отсутствие published `8090`;
 - pinned Codex hash на host и в gateway container;
 - direct health, origin nginx, public TLS, relative `308`, defensive headers и immutable assets;

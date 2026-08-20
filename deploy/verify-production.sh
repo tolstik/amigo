@@ -10,7 +10,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 amigo_require_root
 amigo_require_commands \
-    awk cmp crontab curl docker git grep mariadb mktemp nginx python3 rm rmdir sha256sum ss stat
+    awk cmp crontab curl docker git grep mariadb mktemp nginx python3 rm rmdir sha256sum sleep ss stat
 amigo_require_production_layout
 
 TMP_DIR="$(mktemp -d /run/amigo-verify.XXXXXX)"
@@ -175,6 +175,65 @@ grep --fixed-strings --line-regexp --quiet 'AMIGO_WEEKLY_DIGEST_TIME=09:00' <<<"
 grep --fixed-strings --line-regexp --quiet 'AMIGO_DAILY_DIGEST_TIME=09:00' <<<"${worker_environment}" \
     || amigo_die "worker daily digest time differs from 09:00"
 amigo_log "PASS production Telegram daily/weekly schedule is pinned to 09:00 Europe/Moscow"
+
+WORKER_STARTED_AT="$(docker inspect --format '{{.State.StartedAt}}' "${worker_container}")"
+readonly WORKER_STARTED_AT
+[[ "${WORKER_STARTED_AT}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$ ]] \
+    || amigo_die "current worker has an invalid Docker StartedAt timestamp"
+WORKER_INCREMENTAL_VERIFIED=0
+for ((attempt = 1; attempt <= 30; attempt += 1)); do
+    WORKER_INCREMENTAL_STATE="$(
+        amigo_compose exec -T db psql \
+            --username amigo \
+            --dbname amigo \
+            --no-psqlrc \
+            --quiet \
+            --tuples-only \
+            --no-align \
+            --set=ON_ERROR_STOP=1 \
+            --command "
+                WITH post_start_runs AS (
+                    SELECT status, finished_at
+                    FROM job_runs
+                    WHERE job_name = 'withings-incremental'
+                      AND started_at >= '${WORKER_STARTED_AT}'::timestamptz
+                    ORDER BY started_at DESC, id DESC
+                    LIMIT 1
+                )
+                SELECT COALESCE(
+                    (
+                        SELECT CASE
+                            WHEN status = 'success' AND finished_at IS NOT NULL THEN 'success'
+                            WHEN status = 'failed' AND finished_at IS NOT NULL THEN 'failed'
+                            ELSE 'waiting'
+                        END
+                        FROM post_start_runs
+                    ),
+                    'waiting'
+                );
+            "
+    )"
+    case "${WORKER_INCREMENTAL_STATE}" in
+        success)
+            WORKER_INCREMENTAL_VERIFIED=1
+            break
+            ;;
+        failed)
+            amigo_die "current worker's post-start Withings incremental job failed"
+            ;;
+        waiting)
+            ;;
+        *)
+            amigo_die "unexpected privacy-safe worker verification result"
+            ;;
+    esac
+    if [[ ${attempt} -lt 30 ]]; then
+        sleep 3
+    fi
+done
+[[ ${WORKER_INCREMENTAL_VERIFIED} -eq 1 ]] \
+    || amigo_die "current worker did not finish a successful post-start Withings incremental job"
+amigo_log "PASS current worker completed a successful post-start Withings incremental job"
 
 readonly CODEX_RUNTIME_BINARY="/srv/amigo/data/codex-bin/codex"
 readonly CODEX_CONTAINER_BINARY="/opt/amigo/codex"

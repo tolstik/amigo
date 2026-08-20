@@ -46,6 +46,11 @@
 
 - [ ] `db`, `web`, `worker`, `ingest`, `ai-worker`, `ai-gateway` имеют state
       `running` и health `healthy`; `pg_isready` успешен.
+- [ ] После `StartedAt` текущего worker container появился
+      `withings-incremental` `JobRun` с `finished_at` и status `success`.
+      Автоматическая проверка читала только job name/status/timestamps, не
+      `details`, provider payload или секреты; run от прежнего container не
+      засчитан.
 - [ ] Пять application services используют один immutable `amigo:<Git SHA>`;
       OCI label `org.opencontainers.image.revision` каждого из них равен этому
       SHA; `db` использует `postgres:17-alpine`; SHA совпадает с

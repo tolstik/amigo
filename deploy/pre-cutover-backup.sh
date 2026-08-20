@@ -243,14 +243,17 @@ if [[ "${PREVIOUS_AUTH_FLOOR}" == "enabled" ]]; then
     cmp --silent "${STAGING_DIR}/release/nginx/amigo.locations.conf" \
         "${STAGING_DIR}/nginx/amigo-v2-locations.conf" \
         || amigo_die "installed nginx locations do not match the previous release"
+    cmp --silent "${STAGING_DIR}/release/nginx/amigo.http.conf" \
+        "${STAGING_DIR}/nginx/amigo-v2-http.conf" \
+        || amigo_die "installed nginx HTTP config does not match the previous release"
 else
     cmp --silent "${SCRIPT_DIR}/nginx/amigo.maintenance.locations.conf" \
         "${STAGING_DIR}/nginx/amigo-v2-locations.conf" \
         || amigo_die "installed auth-floor locations do not match the candidate maintenance release"
+    cmp --silent "${SCRIPT_DIR}/nginx/amigo.http.conf" \
+        "${STAGING_DIR}/nginx/amigo-v2-http.conf" \
+        || amigo_die "installed auth-floor HTTP config does not match the candidate release"
 fi
-cmp --silent "${STAGING_DIR}/release/nginx/amigo.http.conf" \
-    "${STAGING_DIR}/nginx/amigo-v2-http.conf" \
-    || amigo_die "installed nginx HTTP config does not match the previous release"
 [[ "$(awk '/^[[:space:]]*# BEGIN AMIGO V2 ROUTE[[:space:]]*$/ { count += 1 } END { print count + 0 }' \
     "${STAGING_DIR}/nginx/my.conf")" -eq 2 ]] \
     || amigo_die "previous managed Amigo nginx route is not active"

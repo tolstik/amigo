@@ -524,8 +524,9 @@ maintenance status завершается в собственном named nginx 
 worker ждёт новый minute run-key и успешный incremental run. Окончательная
 production verification остаётся обязательной.
 Повторный cutover из такого fail-closed состояния разрешён только когда
-установленный locations snippet байт-в-байт совпадает с versioned maintenance
-snippet нового candidate; произвольная nginx-конфигурация backup не принимается.
+установленные locations snippet и HTTP config байт-в-байт совпадают с versioned
+maintenance snippet и HTTP config нового candidate; произвольная
+nginx-конфигурация backup не принимается.
 Production checkout остаётся на candidate commit; фактический runtime определяет
 `/var/lib/amigo/current-release`. Автоматического `pg_restore` нет.
 

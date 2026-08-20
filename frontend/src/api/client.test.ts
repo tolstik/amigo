@@ -146,12 +146,27 @@ describe("API normalization", () => {
 
   it("keeps recovery metrics optional", () => {
     const result = normalizeRecoverySeries({
-      points: [{ date: "2026-08-18", sleep_minutes: 438, resting_heart_rate_bpm: 62 }],
-      available_metrics: ["sleep", "resting_heart_rate"],
+      points: [{
+        date: "2026-08-18",
+        sleep_minutes: 438,
+        average_heart_rate_bpm: 59,
+        minimum_heart_rate_bpm: 47,
+        maximum_heart_rate_bpm: 89,
+        resting_heart_rate_bpm: 62,
+      }],
+      available_metrics: ["heart_rate", "sleep", "resting_heart_rate"],
       correlations: [{ metric: "sleep_minutes", target: "weight_kg", coefficient: 0.31, full_overlapping_weeks: 8 }],
     }, "90d");
-    expect(result.points[0]).toMatchObject({ sleepMinutes: 438, restingHeartRateBpm: 62, hrvRmssdMs: null });
-    expect(result.availableMetrics).toEqual(["sleep", "resting_heart_rate"]);
+    expect(result.points[0]).toMatchObject({
+      sleepMinutes: 438,
+      averageHeartRateBpm: 59,
+      minimumHeartRateBpm: 47,
+      maximumHeartRateBpm: 89,
+      restingHeartRateBpm: 62,
+      hrvRmssdMs: null,
+    });
+    expect(result.summary).toMatchObject({ averageHeartRateBpm: 59, minimumHeartRateBpm: 47, maximumHeartRateBpm: 89 });
+    expect(result.availableMetrics).toEqual(["heart_rate", "sleep", "resting_heart_rate"]);
     expect(result.correlations[0].disclaimer).toBe("Корреляция не доказывает причинность.");
   });
 

@@ -217,6 +217,8 @@ export interface RecoveryPoint {
   awakeMinutes: number | null;
   restingHeartRateBpm: number | null;
   averageHeartRateBpm: number | null;
+  minimumHeartRateBpm: number | null;
+  maximumHeartRateBpm: number | null;
   hrvRmssdMs: number | null;
   spo2Pct: number | null;
   vo2Max: number | null;
@@ -226,6 +228,9 @@ export interface RecoverySummary {
   latestDate: string | null;
   sleepMinutes: number | null;
   baselineSleepMinutes: number | null;
+  averageHeartRateBpm: number | null;
+  minimumHeartRateBpm: number | null;
+  maximumHeartRateBpm: number | null;
   restingHeartRateBpm: number | null;
   baselineRestingHeartRateBpm: number | null;
   hrvRmssdMs: number | null;

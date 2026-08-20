@@ -6,6 +6,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import app.health_api as health_api
+import app.api as public_api
+from app.api import export_csv
+from app.config import Settings
 from app.db import get_db
 from app.health_api import ingest_router, public_router
 from app.health_ingest import HealthIngestError
@@ -93,3 +96,42 @@ def test_health_ingest_rejection_logs_only_detail_code(db, monkeypatch, caplog):
         "signature-private-value",
     ):
         assert private_value not in caplog.text
+
+
+def test_recovery_csv_includes_watch_heart_rate_range(db, monkeypatch):
+    monkeypatch.setattr(
+        public_api,
+        "recovery_series",
+        lambda *_args: {
+            "daily": [
+                {
+                    "date": "2026-08-20",
+                    "sleep_minutes": 420,
+                    "deep_sleep_minutes": 90,
+                    "rem_sleep_minutes": 80,
+                    "average_heart_rate_bpm": 59,
+                    "minimum_heart_rate_bpm": 47,
+                    "maximum_heart_rate_bpm": 89,
+                    "resting_heart_rate_bpm": None,
+                    "hrv_rmssd_ms": None,
+                    "spo2_pct": 97,
+                    "vo2_max": None,
+                }
+            ]
+        },
+    )
+
+    response = export_csv(
+        "recovery",
+        "all",
+        db,
+        Settings(database_url="sqlite+pysqlite:///:memory:"),
+    )
+    lines = response.body.decode("utf-8").splitlines()
+
+    assert lines[0].split(",")[4:7] == [
+        "average_heart_rate_bpm",
+        "minimum_heart_rate_bpm",
+        "maximum_heart_rate_bpm",
+    ]
+    assert lines[1].split(",")[4:7] == ["59", "47", "89"]

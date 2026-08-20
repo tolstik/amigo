@@ -191,6 +191,9 @@ def export_csv(
                 row.get("sleep_minutes"),
                 row.get("deep_sleep_minutes"),
                 row.get("rem_sleep_minutes"),
+                row.get("average_heart_rate_bpm"),
+                row.get("minimum_heart_rate_bpm"),
+                row.get("maximum_heart_rate_bpm"),
                 row.get("resting_heart_rate_bpm"),
                 row.get("hrv_rmssd_ms"),
                 row.get("spo2_pct"),
@@ -200,7 +203,19 @@ def export_csv(
         ]
         return _csv_response(
             "amigo-recovery.csv",
-            ["date", "sleep_minutes", "deep_sleep_minutes", "rem_sleep_minutes", "resting_heart_rate_bpm", "hrv_rmssd_ms", "spo2_pct", "vo2_max"],
+            [
+                "date",
+                "sleep_minutes",
+                "deep_sleep_minutes",
+                "rem_sleep_minutes",
+                "average_heart_rate_bpm",
+                "minimum_heart_rate_bpm",
+                "maximum_heart_rate_bpm",
+                "resting_heart_rate_bpm",
+                "hrv_rmssd_ms",
+                "spo2_pct",
+                "vo2_max",
+            ],
             rows,
         )
     payload = composition_series(db, settings.tz, range)

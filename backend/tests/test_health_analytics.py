@@ -108,6 +108,61 @@ def test_recovery_only_advertises_metrics_that_exist(db):
     assert point["hrv_rmssd_ms"] is None
 
 
+def test_recovery_exposes_watch_heart_rate_without_resting_heart_rate(db):
+    tz = Settings(database_url="sqlite+pysqlite:///:memory:").tz
+    now = datetime(2026, 8, 19, 12, tzinfo=timezone.utc)
+    device = add_device(db, now)
+    start = datetime(2026, 8, 19, 6, tzinfo=timezone.utc)
+    add_record(
+        db,
+        device,
+        "heart-1",
+        "heart_rate",
+        start,
+        59,
+        "bpm",
+        metrics={
+            "average_bpm": 59,
+            "minimum_bpm": 47,
+            "maximum_bpm": 71,
+            "sample_count": 2,
+        },
+    )
+    add_record(
+        db,
+        device,
+        "heart-2",
+        "heart_rate",
+        start + timedelta(hours=1),
+        85,
+        "bpm",
+        metrics={
+            "average_bpm": 85,
+            "minimum_bpm": 80,
+            "maximum_bpm": 89,
+            "sample_count": 1,
+        },
+    )
+    db.commit()
+
+    payload = recovery_series(db, tz, "30d", now)
+
+    assert payload["available_metrics"] == ["heart_rate"]
+    point = payload["daily"][0]
+    assert point["average_heart_rate_bpm"] == 67.7
+    assert point["minimum_heart_rate_bpm"] == 47
+    assert point["maximum_heart_rate_bpm"] == 89
+    assert point["resting_heart_rate_bpm"] is None
+    assert payload["summary"]["average_heart_rate_bpm"] == 67.7
+    assert payload["summary"]["minimum_heart_rate_bpm"] == 47
+    assert payload["summary"]["maximum_heart_rate_bpm"] == 89
+    week = payload["weekly"][0]
+    assert week["average_heart_rate_bpm"] == 67.7
+    assert week["minimum_heart_rate_bpm"] == 47
+    assert week["maximum_heart_rate_bpm"] == 89
+    assert week["coverage_days"]["heart_rate"] == 1
+
+
 def test_correlation_requires_eight_complete_overlapping_weeks():
     first = date(2026, 5, 4)
     daily = []

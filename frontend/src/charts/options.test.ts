@@ -1,5 +1,5 @@
-import type { WeeklyWeightPoint } from "../api/types";
-import { weeklyChangeChartOption, weeklyWeightChartOption } from "./options";
+import type { RecoveryPoint, WeeklyWeightPoint } from "../api/types";
+import { heartRateChartOption, weeklyChangeChartOption, weeklyWeightChartOption } from "./options";
 import { chartOptionForTheme, chartPalettes } from "./theme";
 
 function week(index: number, overrides: Partial<WeeklyWeightPoint> = {}): WeeklyWeightPoint {
@@ -74,5 +74,29 @@ describe("weekly chart options", () => {
     expect(series[1].itemStyle.color).toBe(chartPalettes.ocean.blue);
     expect(factColor({ value: -0.7, dataIndex: 1 })).toBe(chartPalettes.ocean.green);
     expect(factColor({ value: 0.1, dataIndex: 1 })).toBe(chartPalettes.ocean.coral);
+  });
+});
+
+describe("watch heart-rate chart", () => {
+  it("renders daily minimum, average and maximum without treating them as resting heart rate", () => {
+    const point: RecoveryPoint = {
+      measuredAt: "2026-08-20",
+      sleepMinutes: 420,
+      deepSleepMinutes: 90,
+      remSleepMinutes: 80,
+      awakeMinutes: 30,
+      averageHeartRateBpm: 59,
+      minimumHeartRateBpm: 47,
+      maximumHeartRateBpm: 89,
+      restingHeartRateBpm: null,
+      hrvRmssdMs: null,
+      spo2Pct: 97,
+      vo2Max: null,
+    };
+
+    const series = heartRateChartOption([point]).series as any[];
+
+    expect(series.map((item) => item.name)).toEqual(["Минимум", "Средний", "Максимум"]);
+    expect(series.map((item) => item.data[0][1])).toEqual([47, 59, 89]);
   });
 });

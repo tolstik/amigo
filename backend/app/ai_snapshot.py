@@ -210,6 +210,10 @@ def build_analysis_snapshot(
     recovery_day = _day(latest_recovery.get("date"))
     fact("sleep.duration_latest", "sleep", "day", latest_recovery.get("sleep_minutes"), "minutes", recovery_day)
     fact("sleep.duration_baseline28d", "sleep", "28d", _median(recovery_rows, "sleep_minutes"), "minutes")
+    fact("recovery.heart_rate_average_latest", "heart", "day", latest_recovery.get("average_heart_rate_bpm"), "bpm", recovery_day)
+    fact("recovery.heart_rate_minimum_latest", "heart", "day", latest_recovery.get("minimum_heart_rate_bpm"), "bpm", recovery_day)
+    fact("recovery.heart_rate_maximum_latest", "heart", "day", latest_recovery.get("maximum_heart_rate_bpm"), "bpm", recovery_day)
+    fact("recovery.heart_rate_average_baseline28d", "heart", "28d", _median(recovery_rows, "average_heart_rate_bpm"), "bpm")
     fact("recovery.resting_heart_rate_latest", "heart", "day", latest_recovery.get("resting_heart_rate_bpm"), "bpm", recovery_day)
     fact("recovery.resting_heart_rate_baseline28d", "heart", "28d", _median(recovery_rows, "resting_heart_rate_bpm"), "bpm")
     fact("recovery.hrv_latest", "heart", "day", latest_recovery.get("hrv_rmssd_ms"), "milliseconds", recovery_day)
@@ -260,6 +264,7 @@ def build_analysis_snapshot(
         _series("activity.steps90d", "activity", "steps", activity_rows, "date", "steps"),
         _series("activity.active_minutes90d", "activity", "minutes", activity_rows, "date", "active_minutes"),
         _series("sleep.duration90d", "sleep", "minutes", recovery_rows, "date", "sleep_minutes"),
+        _series("recovery.heart_rate_average90d", "heart", "bpm", recovery_rows, "date", "average_heart_rate_bpm"),
         _series("recovery.resting_heart_rate90d", "heart", "bpm", recovery_rows, "date", "resting_heart_rate_bpm"),
         _series("recovery.hrv90d", "heart", "milliseconds", recovery_rows, "date", "hrv_rmssd_ms"),
         _series(

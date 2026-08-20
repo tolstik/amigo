@@ -37,6 +37,9 @@ def test_snapshot_maps_current_recovery_contract(monkeypatch):
                     "spo2_pct": 97.2,
                     "vo2_max": 41.5,
                     "hrv_rmssd_ms": 48,
+                    "average_heart_rate_bpm": 59,
+                    "minimum_heart_rate_bpm": 47,
+                    "maximum_heart_rate_bpm": 89,
                 }
             ],
             "correlations": [],
@@ -54,12 +57,18 @@ def test_snapshot_maps_current_recovery_contract(monkeypatch):
     assert facts["recovery.vo2max_latest"].value == 41.5
     assert facts["recovery.hrv_latest"].scope == "heart"
     assert facts["recovery.hrv_baseline28d"].scope == "heart"
+    assert facts["recovery.heart_rate_average_latest"].value == 59
+    assert facts["recovery.heart_rate_minimum_latest"].value == 47
+    assert facts["recovery.heart_rate_maximum_latest"].value == 89
+    assert facts["recovery.heart_rate_average_baseline28d"].value == 59
     assert facts["recovery.spo2_latest"].scope == "oxygen"
     assert facts["recovery.vo2max_latest"].scope == "vo2"
     series = {item.key: item for item in result.series}
     assert series["recovery.spo290d"].points[0].value == 97.2
     assert series["recovery.spo290d"].scope == "oxygen"
     assert series["recovery.hrv90d"].scope == "heart"
+    assert series["recovery.heart_rate_average90d"].points[0].value == 59
+    assert series["recovery.heart_rate_average90d"].scope == "heart"
 
 
 def test_snapshot_keeps_configured_height_without_weight(monkeypatch):

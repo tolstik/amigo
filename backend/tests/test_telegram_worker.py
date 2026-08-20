@@ -166,6 +166,9 @@ def test_monday_weekly_digest_uses_previous_completed_activity_and_recovery_week
                     "start_date": "2026-08-10",
                     "end_date": "2026-08-16",
                     "average_sleep_minutes": 450,
+                    "average_heart_rate_bpm": 64,
+                    "minimum_heart_rate_bpm": 48,
+                    "maximum_heart_rate_bpm": 102,
                     "average_resting_heart_rate_bpm": 61,
                     "average_hrv_rmssd_ms": 44,
                 },
@@ -173,6 +176,9 @@ def test_monday_weekly_digest_uses_previous_completed_activity_and_recovery_week
                     "start_date": "2026-08-17",
                     "end_date": "2026-08-17",
                     "average_sleep_minutes": 120,
+                    "average_heart_rate_bpm": 100,
+                    "minimum_heart_rate_bpm": 99,
+                    "maximum_heart_rate_bpm": 101,
                     "average_resting_heart_rate_bpm": 99,
                     "average_hrv_rmssd_ms": 10,
                 },
@@ -185,6 +191,7 @@ def test_monday_weekly_digest_uses_previous_completed_activity_and_recovery_week
     assert "Шаги за неделю 10.08–16.08.2026: 70 000 · личная база 63 000" in text
     assert "Тренировки за неделю: 4" in text
     assert "Средний сон за неделю: 7 ч 30 мин" in text
+    assert "Пульс с часов за неделю: средний 64 уд/мин · диапазон 48–102" in text
     assert "Средний пульс покоя за неделю: 61 уд/мин" in text
     assert "Средний HRV за неделю: 44 мс" in text
     assert "99 уд/мин" not in text
@@ -373,6 +380,9 @@ def test_stale_daily_digest_dates_sources_and_suppresses_old_weight_trend(
             "summary": {
                 "latest_date": "2026-08-21",
                 "sleep_minutes": 438,
+                "average_heart_rate_bpm": 59,
+                "minimum_heart_rate_bpm": 47,
+                "maximum_heart_rate_bpm": 89,
                 "resting_heart_rate_bpm": 62,
                 "hrv_rmssd_ms": 43,
             },
@@ -392,6 +402,7 @@ def test_stale_daily_digest_dates_sources_and_suppresses_old_weight_trend(
     assert "Активные минуты за 20.08.2026: 47" in text
     assert "Последние данные активности: 20.08.2026" in text
     assert "Сон за 21.08.2026: 7 ч 18 мин" in text
+    assert "Пульс с часов за 21.08.2026: средний 59 уд/мин · диапазон 47–89" in text
     assert "Пульс покоя за 21.08.2026: 62 уд/мин" in text
     assert "HRV за 21.08.2026: 43 мс" in text
     assert "Последние данные восстановления: 21.08.2026" in text

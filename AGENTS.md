@@ -49,9 +49,13 @@
 - Plan: lose 4 kg per calendar month, interpolated between matching month-days, capped at 76.5 kg.
 - Pre-program weight data is visible in the all-history view but excluded from program KPIs and forecasts.
 - Withings is the only source of weight, body composition, blood pressure, and
-  pulse. Mi Fitness data arrives only through Health Connect and the signed
+  pulse recorded during a blood-pressure session. Mi Fitness data, including
+  ordinary watch heart rate, arrives only through Health Connect and the signed
   Android companion; never import Health Connect weight, blood pressure,
-  GPS/location, or exercise routes.
+  GPS/location, or exercise routes. Dashboard, CSV, Telegram, and minimized AI
+  snapshots use daily average/minimum/maximum watch heart rate; resting heart
+  rate remains a distinct metric and must never be inferred from ordinary
+  samples.
 - Identical Withings groups replayed by the overlap window are not updates and
   must not enqueue another AI analysis. Only newly created or structurally
   changed provider groups may trigger measurement-driven regeneration.

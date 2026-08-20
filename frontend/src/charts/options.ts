@@ -372,6 +372,37 @@ export function recoveryChartOption(points: RecoveryPoint[]): EChartsOption {
   };
 }
 
+export function heartRateChartOption(points: RecoveryPoint[]): EChartsOption {
+  return {
+    animationDuration: 500,
+    color: [colors.blue, colors.coral, colors.violet],
+    grid: sharedGrid,
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: {
+      trigger: "axis",
+      confine: true,
+      formatter: tooltipFormatter,
+      backgroundColor: "rgba(22,31,25,.95)",
+      borderWidth: 0,
+      textStyle: { color: "#fff" },
+    },
+    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false } },
+    yAxis: { ...sharedAxis, type: "value", scale: true, name: "уд/мин", nameTextStyle: { color: colors.muted } },
+    dataZoom: [{ type: "inside", filterMode: "none" }],
+    series: [
+      timeLine("Минимум", points.map((point) => [point.measuredAt, point.minimumHeartRateBpm]), colors.blue, {
+        lineStyle: { width: 1.5, type: "dashed", color: colors.blue },
+      }),
+      timeLine("Средний", points.map((point) => [point.measuredAt, point.averageHeartRateBpm]), colors.coral, {
+        lineStyle: { width: 3, color: colors.coral },
+      }),
+      timeLine("Максимум", points.map((point) => [point.measuredAt, point.maximumHeartRateBpm]), colors.violet, {
+        lineStyle: { width: 1.5, type: "dashed", color: colors.violet },
+      }),
+    ],
+  };
+}
+
 export function weightChartOption(
   points: WeightPoint[],
   detailed = true,

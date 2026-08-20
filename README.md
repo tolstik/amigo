@@ -2,8 +2,10 @@
 
 Personal, public read-only health dashboard for weight-program progress,
 activity, recovery, and descriptive blood-pressure history. Withings remains
-the only source of weight, body composition, blood pressure, and pulse. Xiaomi
-Smart Band 9 Pro data follows `Mi Fitness -> Health Connect -> Amigo Sync`.
+the only source of weight, body composition, blood pressure, and the pulse
+recorded during a blood-pressure session. Xiaomi Smart Band 9 Pro data,
+including ordinary heart-rate samples, follows
+`Mi Fitness -> Health Connect -> Amigo Sync`.
 
 The weight program starts on 2026-08-15, while a separate view preserves the
 complete earlier weight history. Amigo also sends immediate measurement
@@ -78,6 +80,10 @@ Amigo Sync reads the history that Health Connect actually makes available for
 steps, distance, calories, active minutes, workouts, sleep, heart/resting heart
 rate, HRV, SpO2, and VO2 max. Availability varies by device and Mi Fitness.
 The app never requests weight, blood pressure, location, or exercise routes.
+The recovery dashboard, CSV export, Telegram digests, and minimized AI snapshot
+use daily average/minimum/maximum watch heart rate. Resting heart rate remains a
+separate metric and is shown only when Health Connect supplies its dedicated
+record type.
 
 Each installation creates a non-exportable P-256 key in Android Keystore.
 Registration requires explicit server-side pairing approval; every batch is

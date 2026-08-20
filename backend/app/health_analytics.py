@@ -482,6 +482,36 @@ def weekly_recovery(
             item[f"average_{metric}"] = (
                 round(statistics.fmean(values), 2) if values else None
             )
+        heart_rows = [
+            by_day[day]
+            for day in days
+            if day in by_day and "heart_rate" in by_day[day]["_present"]
+        ]
+        item["coverage_days"]["heart_rate"] = len(heart_rows)
+        daily_averages = [
+            float(row["average_heart_rate_bpm"])
+            for row in heart_rows
+            if row.get("average_heart_rate_bpm") is not None
+        ]
+        daily_minimums = [
+            float(row["minimum_heart_rate_bpm"])
+            for row in heart_rows
+            if row.get("minimum_heart_rate_bpm") is not None
+        ]
+        daily_maximums = [
+            float(row["maximum_heart_rate_bpm"])
+            for row in heart_rows
+            if row.get("maximum_heart_rate_bpm") is not None
+        ]
+        item["average_heart_rate_bpm"] = (
+            round(statistics.fmean(daily_averages), 2) if daily_averages else None
+        )
+        item["minimum_heart_rate_bpm"] = (
+            round(min(daily_minimums), 2) if daily_minimums else None
+        )
+        item["maximum_heart_rate_bpm"] = (
+            round(max(daily_maximums), 2) if daily_maximums else None
+        )
         result.append(item)
         monday += timedelta(days=7)
     return result
@@ -690,6 +720,9 @@ def _recovery_summary(
             "latest_date": None,
             "sleep_minutes": None,
             "baseline_sleep_minutes": None,
+            "average_heart_rate_bpm": None,
+            "minimum_heart_rate_bpm": None,
+            "maximum_heart_rate_bpm": None,
             "resting_heart_rate_bpm": None,
             "baseline_resting_heart_rate_bpm": None,
             "hrv_rmssd_ms": None,
@@ -716,6 +749,9 @@ def _recovery_summary(
         "latest_date": latest["date"],
         "sleep_minutes": latest["sleep_minutes"],
         "baseline_sleep_minutes": baseline("sleep_minutes", "sleep"),
+        "average_heart_rate_bpm": latest["average_heart_rate_bpm"],
+        "minimum_heart_rate_bpm": latest["minimum_heart_rate_bpm"],
+        "maximum_heart_rate_bpm": latest["maximum_heart_rate_bpm"],
         "resting_heart_rate_bpm": latest["resting_heart_rate_bpm"],
         "baseline_resting_heart_rate_bpm": baseline(
             "resting_heart_rate_bpm", "resting_heart_rate"

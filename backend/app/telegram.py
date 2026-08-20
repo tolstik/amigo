@@ -437,6 +437,20 @@ class TelegramNotifier:
                     f"Средний сон за неделю: {int(sleep_value // 60)} ч "
                     f"{int(round(sleep_value % 60))} мин"
                 )
+            heart_average = recovery_week.get("average_heart_rate_bpm")
+            if heart_average is not None:
+                heart_line = (
+                    f"Пульс с часов за неделю: средний "
+                    f"{float(heart_average):.0f} уд/мин"
+                )
+                heart_minimum = recovery_week.get("minimum_heart_rate_bpm")
+                heart_maximum = recovery_week.get("maximum_heart_rate_bpm")
+                if heart_minimum is not None and heart_maximum is not None:
+                    heart_line += (
+                        f" · диапазон {float(heart_minimum):.0f}–"
+                        f"{float(heart_maximum):.0f}"
+                    )
+                lines.append(heart_line)
             resting = recovery_week.get("average_resting_heart_rate_bpm")
             if resting is not None:
                 lines.append(f"Средний пульс покоя за неделю: {float(resting):.0f} уд/мин")
@@ -465,6 +479,20 @@ class TelegramNotifier:
                     f"Сон за {recovery_label}: {int(sleep_value // 60)} ч "
                     f"{int(round(sleep_value % 60))} мин"
                 )
+            heart_average = recovery_summary.get("average_heart_rate_bpm")
+            if heart_average is not None:
+                heart_line = (
+                    f"Пульс с часов за {recovery_label}: средний "
+                    f"{float(heart_average):.0f} уд/мин"
+                )
+                heart_minimum = recovery_summary.get("minimum_heart_rate_bpm")
+                heart_maximum = recovery_summary.get("maximum_heart_rate_bpm")
+                if heart_minimum is not None and heart_maximum is not None:
+                    heart_line += (
+                        f" · диапазон {float(heart_minimum):.0f}–"
+                        f"{float(heart_maximum):.0f}"
+                    )
+                lines.append(heart_line)
             resting = recovery_summary.get("resting_heart_rate_bpm")
             if resting is not None:
                 lines.append(f"Пульс покоя за {recovery_label}: {float(resting):.0f} уд/мин")

@@ -9,12 +9,26 @@ readonly SCRIPT_DIR
 source "${SCRIPT_DIR}/lib/common.sh"
 
 usage() {
-    printf 'Usage: %s /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ\n' "${0##*/}" >&2
+    printf 'Usage: %s [--verification-passed] /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ\n' \
+        "${0##*/}" >&2
     exit 2
 }
 
-[[ $# -eq 1 ]] || usage
-readonly SNAPSHOT=$1
+VERIFICATION_PASSED=0
+case $# in
+    1)
+        SNAPSHOT=$1
+        ;;
+    2)
+        [[ $1 == "--verification-passed" ]] || usage
+        VERIFICATION_PASSED=1
+        SNAPSHOT=$2
+        ;;
+    *)
+        usage
+        ;;
+esac
+readonly VERIFICATION_PASSED SNAPSHOT
 
 amigo_require_root
 amigo_require_commands \
@@ -39,8 +53,12 @@ git -C "${AMIGO_APP_DIR}" diff --quiet -- \
     ':(exclude)docs/production-checkpoint.md' \
     || amigo_die "non-checkpoint tracked files are dirty; reconcile them first"
 
-amigo_log "running the complete verification suite before recording the checkpoint"
-bash "${SCRIPT_DIR}/verify-production.sh"
+if [[ ${VERIFICATION_PASSED} -eq 1 ]]; then
+    amigo_log "using the complete verification suite that passed immediately before checkpoint"
+else
+    amigo_log "running the complete verification suite before recording the checkpoint"
+    bash "${SCRIPT_DIR}/verify-production.sh"
+fi
 
 GIT_SHA="$(amigo_current_release)"
 CHECKED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

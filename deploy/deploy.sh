@@ -391,7 +391,7 @@ amigo_record_current_release "${RELEASE_SHA}"
 CUTOVER_COMMITTED=1
 
 amigo_log "runtime cutover passed; writing mandatory documentation and memory checkpoint"
-bash "${SCRIPT_DIR}/checkpoint.sh" "${SNAPSHOT}"
+bash "${SCRIPT_DIR}/checkpoint.sh" --verification-passed "${SNAPSHOT}"
 
 trap - ERR HUP INT TERM
 amigo_log "DEPLOYMENT COMPLETE: ${AMIGO_PUBLIC_URL}"

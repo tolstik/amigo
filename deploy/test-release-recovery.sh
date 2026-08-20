@@ -87,6 +87,13 @@ grep --quiet --fixed-strings "if [[ \${ai_attempt} -lt 4 ]]" "${SCRIPT_DIR}/depl
 grep --quiet --fixed-strings 'candidate SHA is already the recorded release' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not reject a mutable same-SHA rebuild"
+grep --quiet --fixed-strings \
+    'checkpoint.sh" --verification-passed "${SNAPSHOT}"' \
+    "${SCRIPT_DIR}/deploy.sh" \
+    || amigo_die "deploy checkpoint does not reuse its immediately successful verification"
+grep --quiet --fixed-strings 'bash "${SCRIPT_DIR}/verify-production.sh"' \
+    "${SCRIPT_DIR}/checkpoint.sh" \
+    || amigo_die "standalone checkpoint no longer runs the complete verification suite"
 pull_line=$(grep --line-number --fixed-strings 'amigo_compose pull db' \
     "${SCRIPT_DIR}/deploy.sh" | cut -d: -f1)
 cutover_line=$(grep --line-number --fixed-strings 'CUTOVER_STARTED=1' \

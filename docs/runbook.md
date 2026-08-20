@@ -631,6 +631,10 @@ sudo bash /srv/amigo/deploy/checkpoint.sh \
 Скрипт повторяет verification и записывает production URL, UTC/MSK время, Git SHA,
 image refs/IDs всех семи services, SHA-256 Compose/nginx/Codex, результаты
 проверок и точный rollback path. Он не читает и не записывает секреты.
+Штатный `deploy.sh` вызывает checkpoint с внутренним флагом
+`--verification-passed` сразу после полного успешного прогона и не повторяет
+тот же mutation/upload-набор второй раз; при отдельном ручном вызове без флага
+checkpoint по-прежнему самостоятельно выполняет полную verification.
 Изменённые `AGENTS.md`, runbook и `production-checkpoint.md` нужно закоммитить в
 канонический репозиторий до сообщения о завершении. Documentation-only commit
 можно перенести в production checkout без rebuild; source of truth для runtime SHA остаётся

@@ -485,9 +485,19 @@ payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 if payload != expected:
     raise SystemExit("assetlinks contract differs from the signed Amigo release")
 PY
+ORIGIN_ASSETLINKS_POST_STATUS="$(
+    curl --silent --show-error --max-time 10 \
+        --request POST \
+        --header 'Host: amigo.tolstik.ru' \
+        --output /dev/null \
+        --write-out '%{http_code}' \
+        http://127.0.0.1/.well-known/assetlinks.json
+)"
+[[ "${ORIGIN_ASSETLINKS_POST_STATUS}" == "405" ]] \
+    || amigo_die "origin assetlinks POST returned ${ORIGIN_ASSETLINKS_POST_STATUS}, expected 405"
 ASSETLINKS_POST_STATUS="$(public_status "/.well-known/assetlinks.json" POST)"
-[[ "${ASSETLINKS_POST_STATUS}" == "405" ]] \
-    || amigo_die "assetlinks POST returned ${ASSETLINKS_POST_STATUS}, expected 405"
+[[ "${ASSETLINKS_POST_STATUS}" == "403" || "${ASSETLINKS_POST_STATUS}" == "405" ]] \
+    || amigo_die "public assetlinks POST returned ${ASSETLINKS_POST_STATUS}, expected 403 or 405"
 amigo_log "PASS verified Android App Links association"
 
 curl --fail --silent --show-error --max-time 20 \

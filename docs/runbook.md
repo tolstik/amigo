@@ -484,7 +484,8 @@ sudo bash /srv/amigo/deploy/verify-production.sh
 - direct health, origin nginx, public TLS, relative `308`, defensive headers и
   immutable JavaScript/CSS assets;
 - exact public `/.well-known/assetlinks.json`, package
-  `ru.tolstik.amigo.sync` и release signing certificate;
+  `ru.tolstik.amigo.sync` и release signing certificate, а также origin `405`
+  и public `403`/`405` для POST;
 - explicit named-capture upstream URI для dynamic labs/assistant routes без
   capture-unsafe generic rewrite;
 - explicit `429` для каждого managed rate-limit; upload допускает bounded burst

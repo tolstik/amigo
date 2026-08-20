@@ -131,7 +131,8 @@
       `Location: /amigo/`; login shell/assets работают через валидный TLS.
 - [ ] Public `GET /.well-known/assetlinks.json` имеет JSON/nosniff/cache
       headers и exact package/certificate contract для
-      `ru.tolstik.amigo.sync`; POST и другие mutations возвращают exact `405`.
+      `ru.tolstik.amigo.sync`; origin возвращает exact `405` для POST, а
+      public edge безопасно отклоняет его с `403` или `405`.
 - [ ] Без cookie auth session, overview, CSV, labs и assistant возвращают exact
       `401` при проверке реальных HTTP-методов route; signed Android ingest
       остаётся независимым.

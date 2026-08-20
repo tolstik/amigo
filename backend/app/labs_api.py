@@ -1,23 +1,34 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+import asyncio
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from pathlib import Path
+import json
 from typing import Annotated, Literal
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from .ai_snapshot import enqueue_current_analysis
+from .background_wait import wait_for_queue_event
 from .auth import AI_DATA_CONSENT_VERSION, AuthContext, require_csrf
 from .auth_models import UserProfile
 from .config import Settings, get_settings
-from .db import get_db
-from .lab_models import LabDocument, LabProcessingJob, LabReferenceRange, LabResult, LabResultEdit
+from .db import SessionLocal, get_db
+from .lab_models import (
+    LabDocument,
+    LabProcessingJob,
+    LabReferenceRange,
+    LabResult,
+    LabResultEdit,
+    StoredFile,
+    StudyDocument,
+)
 from .labs import (
     LabFileError,
     calculate_status,
@@ -25,6 +36,8 @@ from .labs import (
     enqueue_document,
     resolve_catalog_range,
     safe_filename,
+    original_bytes,
+    preview_bytes,
     store_upload,
 )
 
@@ -109,13 +122,16 @@ def _result(row: LabResult) -> dict:
     }
 
 
-def _document(row: LabDocument, detail: bool = False) -> dict:
+def _document(row: LabDocument, detail: bool = False, queue_position: int | None = None) -> dict:
     payload = {
         "id": row.id,
         "filename": row.original_filename,
         "media_type": row.media_type,
         "size_bytes": row.size_bytes,
         "status": row.status,
+        "processing_stage": row.processing_stage,
+        "progress_percent": row.progress_percent,
+        "queue_position": queue_position,
         "verified": row.verified,
         "page_count": row.page_count,
         "error_code": row.error_code,
@@ -130,7 +146,8 @@ def _document(row: LabDocument, detail: bool = False) -> dict:
     return payload
 
 
-@router.post("/documents", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/documents", status_code=status.HTTP_202_ACCEPTED, include_in_schema=False)
+@router.post("/uploads", status_code=status.HTTP_202_ACCEPTED)
 def upload_document(
     file: UploadFile = File(...),
     _context: AuthContext = Depends(require_csrf),
@@ -140,7 +157,7 @@ def upload_document(
     _consent_required(db)
     filename = safe_filename(file.filename)
     try:
-        path, storage_key, media_type, size_bytes, digest = store_upload(
+        path, storage_key, media_type, size_bytes, digest, content = store_upload(
             file.file, filename, settings.lab_storage_dir
         )
     except LabFileError as exc:
@@ -157,6 +174,7 @@ def upload_document(
             file_sha256=digest,
             media_type=media_type,
             size_bytes=size_bytes,
+            content=content,
         )
     except Exception:
         path.unlink(missing_ok=True)
@@ -173,7 +191,60 @@ def list_documents(db: Session = Depends(get_db)) -> dict:
             .order_by(LabDocument.created_at.desc())
         )
     )
-    return {"items": [_document(row) for row in rows]}
+    active_jobs = list(
+        db.scalars(
+            select(LabProcessingJob)
+            .where(LabProcessingJob.status.in_(["pending", "processing"]))
+            .order_by(LabProcessingJob.id)
+        )
+    )
+    positions = {job.document_id: index + 1 for index, job in enumerate(active_jobs)}
+    return {"items": [_document(row, queue_position=positions.get(row.id)) for row in rows]}
+
+
+@router.get("/events")
+async def document_events(settings: Settings = Depends(get_settings)) -> StreamingResponse:
+    """Emit compact queue changes without spending the upload rate-limit budget."""
+
+    async def stream():
+        previous = ""
+        deadline = datetime.now(timezone.utc) + timedelta(hours=1)
+        while datetime.now(timezone.utc) < deadline:
+            with SessionLocal() as event_db:
+                rows = list(
+                    event_db.execute(
+                        select(
+                            LabDocument.id,
+                            LabDocument.status,
+                            LabDocument.processing_stage,
+                            LabDocument.progress_percent,
+                            LabDocument.updated_at,
+                        ).order_by(LabDocument.updated_at.desc()).limit(100)
+                    )
+                )
+            payload = json.dumps(
+                [
+                    [row.id, row.status, row.processing_stage, row.progress_percent, row.updated_at.isoformat()]
+                    for row in rows
+                ],
+                separators=(",", ":"),
+            )
+            if payload != previous:
+                yield f"event: queue\ndata: {payload}\n\n"
+                previous = payload
+            else:
+                yield ": heartbeat\n\n"
+            await asyncio.to_thread(
+                wait_for_queue_event,
+                settings.database_url,
+                30,
+            )
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/documents/{document_id}")
@@ -193,14 +264,42 @@ def download_document(
     document_id: str,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> FileResponse:
+) -> StreamingResponse:
     row = db.get(LabDocument, document_id)
     if row is None:
         raise HTTPException(status_code=404, detail="document_not_found")
-    path = settings.lab_storage_dir / row.storage_key
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="original_not_found")
-    return FileResponse(path, media_type=row.media_type, filename=row.original_filename)
+    try:
+        data = original_bytes(db, row, settings.lab_storage_dir)
+    except LabFileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    disposition = f"attachment; filename*=UTF-8''{quote(row.original_filename)}"
+    return StreamingResponse(
+        iter([data]),
+        media_type=row.media_type,
+        headers={"Content-Disposition": disposition, "Content-Length": str(len(data))},
+    )
+
+
+@router.get("/documents/{document_id}/view")
+def view_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> StreamingResponse:
+    row = db.get(LabDocument, document_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="document_not_found")
+    try:
+        data = original_bytes(db, row, settings.lab_storage_dir)
+        data, preview_type = preview_bytes(data, row.media_type)
+    except LabFileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    disposition = f"inline; filename*=UTF-8''{quote(row.original_filename)}"
+    return StreamingResponse(
+        iter([data]),
+        media_type=preview_type,
+        headers={"Content-Disposition": disposition, "Content-Length": str(len(data))},
+    )
 
 
 @router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -214,9 +313,18 @@ def delete_document(
     if row is None:
         raise HTTPException(status_code=404, detail="document_not_found")
     path = settings.lab_storage_dir / row.storage_key
+    stored_file_id = row.stored_file_id
     db.delete(row)
     db.commit()
     path.unlink(missing_ok=True)
+    if stored_file_id:
+        in_labs = db.scalar(select(LabDocument.id).where(LabDocument.stored_file_id == stored_file_id))
+        in_studies = db.scalar(select(StudyDocument.id).where(StudyDocument.stored_file_id == stored_file_id))
+        if in_labs is None and in_studies is None:
+            stored = db.get(StoredFile, stored_file_id)
+            if stored is not None:
+                db.delete(stored)
+                db.commit()
     enqueue_current_analysis(db, settings, trigger="manual", debounce_seconds=0)
     return Response(status_code=204)
 
@@ -244,6 +352,8 @@ def retry_document(
         job.error_code = None
         job.finished_at = None
     row.status = "queued"
+    row.processing_stage = "queued"
+    row.progress_percent = 0
     row.error_code = None
     db.commit()
     return _document(row)

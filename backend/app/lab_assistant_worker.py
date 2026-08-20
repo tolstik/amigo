@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from hashlib import sha256
 import json
-from pathlib import Path
 
 import httpx
 from sqlalchemy import delete, select
@@ -11,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from .ai_contracts import AI_MODEL
 from .ai_snapshot import enqueue_current_analysis
-from .assistant_api import build_chat_context
+from .assistant_api import ChatContextTooLarge, build_chat_context
 from .config import Settings
 from .lab_contracts import (
     ChatAnswer,
@@ -33,6 +31,8 @@ from .lab_models import (
     LabReport,
     LabResult,
     LabTextChunk,
+    StudyDocument,
+    StudyProcessingJob,
 )
 from .labs import (
     LAB_EXTRACTION_CHUNK_CHARS,
@@ -40,7 +40,9 @@ from .labs import (
     claim_lab_job,
     persist_extraction,
     replace_text_chunks,
+    original_bytes,
 )
+from .studies import claim_study_job, structure_study_text
 
 
 class WorkError(RuntimeError):
@@ -50,6 +52,7 @@ class WorkError(RuntimeError):
             "parser_unavailable", "parser_rejected", "gateway_busy", "gateway_unavailable",
             "gateway_rejected", "timeout", "invalid_response", "original_missing",
             "original_changed", "internal",
+            "context_too_large",
         } else "internal"
 
 
@@ -63,15 +66,14 @@ class LabAssistantGateway:
         if self._owns_http:
             self.http.close()
 
-    def parse(self, document: LabDocument, path: Path) -> dict:
+    def parse(self, document: LabDocument, content: bytes) -> dict:
         try:
-            with path.open("rb") as stream:
-                response = self.http.post(
-                    f"{self.settings.lab_parser_url}/parse",
-                    files={"file": (document.original_filename, stream, document.media_type)},
-                    timeout=httpx.Timeout(self.settings.lab_parser_timeout_seconds, connect=10),
-                )
-        except (OSError, httpx.TimeoutException) as exc:
+            response = self.http.post(
+                f"{self.settings.lab_parser_url}/parse",
+                files={"file": (document.original_filename, content, document.media_type)},
+                timeout=httpx.Timeout(self.settings.lab_parser_timeout_seconds, connect=10),
+            )
+        except httpx.TimeoutException as exc:
             raise WorkError("parser_unavailable") from exc
         except httpx.HTTPError as exc:
             raise WorkError("parser_unavailable") from exc
@@ -147,14 +149,6 @@ class LabAssistantGateway:
             raise WorkError("gateway_unavailable") from exc
 
 
-def _file_sha256(path: Path) -> str:
-    digest = sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _fail_lab(db: Session, job: LabProcessingJob, document: LabDocument | None, error: WorkError, now: datetime) -> None:
     job.lease_until = None
     job.error_code = error.code
@@ -163,11 +157,14 @@ def _fail_lab(db: Session, job: LabProcessingJob, document: LabDocument | None, 
         job.available_at = now + timedelta(seconds=30 * (2 ** (job.attempts - 1)))
         if document:
             document.status = "queued"
+            document.processing_stage = "queued"
+            document.progress_percent = 0
     else:
         job.status = "failed"
         job.finished_at = now
         if document:
             document.status = "failed"
+            document.processing_stage = "failed"
             document.error_code = error.code
     db.commit()
 
@@ -180,12 +177,15 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
     try:
         if document is None:
             raise WorkError("original_missing")
-        path = settings.lab_storage_dir / document.storage_key
-        if not path.is_file():
-            raise WorkError("original_missing")
-        if _file_sha256(path) != document.file_sha256:
-            raise WorkError("original_changed")
-        parsed = gateway.parse(document, path)
+        try:
+            content = original_bytes(db, document, settings.lab_storage_dir)
+        except Exception as exc:
+            code = str(exc) if str(exc) in {"original_missing", "original_changed"} else "original_missing"
+            raise WorkError(code) from exc
+        parsed = gateway.parse(document, content)
+        document.processing_stage = "extracting"
+        document.progress_percent = 40
+        db.commit()
         pages = parsed["pages"]
         extraction_chunks: list[tuple[int, GatewayLabResponse]] = []
         chunks = bounded_page_chunks(pages, LAB_EXTRACTION_CHUNK_CHARS)
@@ -200,6 +200,9 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
                 model=AI_MODEL,
             )
             extraction_chunks.append((index, gateway.extract(request)))
+            document.processing_stage = "extracting"
+            document.progress_percent = 40 + round(45 * (index + 1) / max(1, len(chunks)))
+            db.commit()
 
         db.execute(delete(LabResult).where(LabResult.document_id == document.id))
         db.execute(delete(LabReport).where(LabReport.document_id == document.id))
@@ -223,6 +226,8 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
                 source_offset=source_offset,
             )
         document.status = "complete"
+        document.processing_stage = "complete"
+        document.progress_percent = 100
         document.completed_at = now
         job.status = "success"
         job.lease_until = None
@@ -243,6 +248,79 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
         return True
 
 
+def _fail_study(
+    db: Session,
+    job: StudyProcessingJob,
+    document: StudyDocument | None,
+    error: WorkError,
+    now: datetime,
+) -> None:
+    job.lease_until = None
+    job.error_code = error.code
+    if job.attempts < 3 and error.code not in {"parser_rejected", "original_missing", "original_changed"}:
+        job.status = "pending"
+        job.available_at = now + timedelta(seconds=30 * (2 ** (job.attempts - 1)))
+        if document is not None:
+            document.status = "queued"
+            document.processing_stage = "queued"
+            document.progress_percent = 0
+    else:
+        job.status = "failed"
+        job.finished_at = now
+        if document is not None:
+            document.status = "failed"
+            document.processing_stage = "failed"
+            document.error_code = error.code
+    db.commit()
+
+
+def process_study_job(
+    db: Session, settings: Settings, gateway: LabAssistantGateway, now: datetime
+) -> bool:
+    job = claim_study_job(db, now, lease_seconds=max(300, settings.ai_lease_seconds))
+    if job is None:
+        return False
+    document = db.get(StudyDocument, job.document_id)
+    try:
+        if document is None:
+            raise WorkError("original_missing")
+        try:
+            content = original_bytes(db, document, settings.lab_storage_dir)  # type: ignore[arg-type]
+        except Exception as exc:
+            code = str(exc) if str(exc) in {"original_missing", "original_changed"} else "original_missing"
+            raise WorkError(code) from exc
+        parsed = gateway.parse(document, content)  # type: ignore[arg-type]
+        document.processing_stage = "structuring"
+        document.progress_percent = 70
+        db.commit()
+        findings, conclusion = structure_study_text(parsed["text"])
+        document.extracted_text = parsed["text"]
+        document.page_count = int(parsed.get("page_count") or len(parsed.get("pages") or []))
+        document.findings = findings
+        document.conclusion = conclusion
+        document.status = "complete"
+        document.processing_stage = "complete"
+        document.progress_percent = 100
+        document.verified = False
+        document.error_code = None
+        document.completed_at = now
+        job.status = "success"
+        job.lease_until = None
+        job.finished_at = now
+        job.error_code = None
+        db.commit()
+        enqueue_current_analysis(db, settings, trigger="manual", debounce_seconds=0)
+        return True
+    except WorkError as exc:
+        _fail_study(db, job, document, exc, now)
+        return True
+    except Exception:
+        db.rollback()
+        job = db.get(StudyProcessingJob, job.id)
+        document = db.get(StudyDocument, job.document_id) if job else None
+        if job is not None:
+            _fail_study(db, job, document, WorkError("internal"), now)
+        return True
 def _claim_assistant_job(db: Session, now: datetime, lease_seconds: int) -> AssistantJob | None:
     expired = list(db.scalars(select(AssistantJob).where(AssistantJob.status == "processing", AssistantJob.lease_until < now)))
     for job in expired:
@@ -305,7 +383,7 @@ def process_assistant_job(db: Session, settings: Settings, gateway: LabAssistant
         prompt, evidence = build_chat_context(db, settings, user.content)
         request = GatewayChatRequest(
             model=AI_MODEL,
-            contract_version="amigo-health-chat-v1",
+            contract_version="amigo-health-chat-v2",
             message_id=assistant.id,
             attempt=min(2, max(1, job.attempts)),
             prompt=prompt,
@@ -332,6 +410,8 @@ def process_assistant_job(db: Session, settings: Settings, gateway: LabAssistant
         _update_summary(db)
         db.commit()
         return True
+    except ChatContextTooLarge:
+        error = WorkError("context_too_large")
     except WorkError as exc:
         error = exc
     except Exception:
@@ -341,7 +421,7 @@ def process_assistant_job(db: Session, settings: Settings, gateway: LabAssistant
         error = WorkError("internal")
     if job is not None:
         job.lease_until, job.error_code = None, error.code
-        if job.attempts < settings.assistant_max_attempts:
+        if error.code != "context_too_large" and job.attempts < settings.assistant_max_attempts:
             job.status = "pending"
             job.available_at = now + timedelta(seconds=10 * job.attempts)
             if assistant:

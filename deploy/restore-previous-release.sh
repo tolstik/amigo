@@ -18,7 +18,8 @@ readonly SNAPSHOT=$1
 
 amigo_require_root
 amigo_require_commands \
-    awk bash chmod crontab curl date docker flock grep install mktemp nginx realpath rm sha256sum sleep stat
+    awk bash chmod crontab curl date dirname docker flock grep install mktemp mv nginx realpath rm \
+    sha256sum sleep stat
 amigo_require_production_layout
 amigo_assert_snapshot "${SNAPSHOT}"
 amigo_acquire_deploy_lock
@@ -62,12 +63,16 @@ PREVIOUS_CRON_STATE="$(
 PREVIOUS_COMPOSE_SHA256="$(
     amigo_snapshot_metadata_value "${SNAPSHOT}" previous_compose_sha256
 )"
+PREVIOUS_ANDROID_APK_PRESENT="$(
+    amigo_snapshot_metadata_optional "${SNAPSHOT}" previous_android_apk_present
+)"
 CANDIDATE_RELEASE_SHA="$(amigo_snapshot_metadata_value "${SNAPSHOT}" candidate_git_sha)"
 readonly PREVIOUS_RELEASE_SHA PREVIOUS_IMAGE_REFERENCE PREVIOUS_IMAGE_ID
 readonly PREVIOUS_IMAGE_ROLLBACK_REFERENCE PREVIOUS_DATABASE_IMAGE_REFERENCE
 readonly PREVIOUS_DATABASE_IMAGE_ID PREVIOUS_DATABASE_ROLLBACK_REFERENCE
 readonly PREVIOUS_AI_MODEL PREVIOUS_AI_PROMPT_VERSION PREVIOUS_AUTH_FLOOR
 readonly PREVIOUS_ROUTE_STATE PREVIOUS_CRON_STATE PREVIOUS_COMPOSE_SHA256 CANDIDATE_RELEASE_SHA
+readonly PREVIOUS_ANDROID_APK_PRESENT
 
 [[ "${PREVIOUS_RELEASE_SHA}" =~ ^[0-9a-f]{40,64}$ ]] \
     || amigo_die "snapshot previous release SHA is invalid"
@@ -99,6 +104,15 @@ readonly PREVIOUS_ROUTE_STATE PREVIOUS_CRON_STATE PREVIOUS_COMPOSE_SHA256 CANDID
     || amigo_die "snapshot previous Compose hash is invalid"
 [[ "${CANDIDATE_RELEASE_SHA}" =~ ^[0-9a-f]{40,64}$ ]] \
     || amigo_die "snapshot candidate release SHA is invalid"
+[[ -z "${PREVIOUS_ANDROID_APK_PRESENT}" \
+    || "${PREVIOUS_ANDROID_APK_PRESENT}" == "true" \
+    || "${PREVIOUS_ANDROID_APK_PRESENT}" == "false" ]] \
+    || amigo_die "snapshot previous Android APK state is invalid"
+if [[ "${PREVIOUS_ANDROID_APK_PRESENT}" == "true" ]]; then
+    [[ -f "${SNAPSHOT}/data/amigo-sync.apk" \
+        && ! -L "${SNAPSHOT}/data/amigo-sync.apk" ]] \
+        || amigo_die "snapshot Android APK is missing or is a symlink"
+fi
 [[ "$(sha256sum "${PREVIOUS_COMPOSE}" | awk '{ print $1 }')" \
     == "${PREVIOUS_COMPOSE_SHA256}" ]] \
     || amigo_die "snapshot previous Compose file does not match its metadata"
@@ -196,6 +210,18 @@ done
 [[ ${#CANDIDATE_STOP_SERVICES[@]} -gt 0 ]] \
     || amigo_die "candidate Compose has no recoverable application services"
 amigo_compose_release "${CANDIDATE_RELEASE_SHA}" stop "${CANDIDATE_STOP_SERVICES[@]}"
+
+if [[ -n "${PREVIOUS_ANDROID_APK_PRESENT}" ]]; then
+    install -d -o root -g root -m 0700 "$(dirname -- "${AMIGO_ANDROID_APK}")"
+    if [[ "${PREVIOUS_ANDROID_APK_PRESENT}" == "true" ]]; then
+        restored_apk_candidate="${AMIGO_ANDROID_APK}.restore.$$"
+        install -o root -g root -m 0600 \
+            "${SNAPSHOT}/data/amigo-sync.apk" "${restored_apk_candidate}"
+        mv -- "${restored_apk_candidate}" "${AMIGO_ANDROID_APK}"
+    else
+        rm -f -- "${AMIGO_ANDROID_APK}"
+    fi
+fi
 
 amigo_log "restoring exact application and PostgreSQL image references from protected rollback tags"
 docker image tag "${PREVIOUS_IMAGE_ROLLBACK_REFERENCE}" "${PREVIOUS_IMAGE_REFERENCE}"

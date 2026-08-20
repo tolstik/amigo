@@ -394,6 +394,7 @@ def _normalise_record(
             if not isinstance(samples, list) or not samples or len(samples) > 5_000:
                 raise HealthIngestError(422, "invalid_heart_rate_samples")
             sample_values: list[float] = []
+            hourly_values: dict[datetime, list[float]] = defaultdict(list)
             assert record.start_time is not None
             record_start = _iso_utc(record.start_time)
             record_end = _iso_utc(record.end_time or record.start_time)
@@ -411,12 +412,24 @@ def _normalise_record(
                 if not record_start - timedelta(seconds=1) <= sample_time <= record_end + timedelta(seconds=1):
                     raise HealthIngestError(422, "invalid_heart_rate_sample_time")
                 sample_values.append(bpm)
+                hour = sample_time.replace(minute=0, second=0, microsecond=0)
+                hourly_values[hour].append(bpm)
             primary = statistics.fmean(sample_values)
             metrics = {
                 "average_bpm": round(primary, 3),
                 "minimum_bpm": round(min(sample_values), 3),
                 "maximum_bpm": round(max(sample_values), 3),
                 "sample_count": len(sample_values),
+                "hourly": [
+                    {
+                        "at": hour.isoformat().replace("+00:00", "Z"),
+                        "average_bpm": round(statistics.fmean(values), 3),
+                        "minimum_bpm": round(min(values), 3),
+                        "maximum_bpm": round(max(values), 3),
+                        "sample_count": len(values),
+                    }
+                    for hour, values in sorted(hourly_values.items())
+                ],
             }
         elif len(values) == 1 and set(values) <= {"bpm", "beats_per_minute"}:
             primary = _number(values, ("bpm", "beats_per_minute"), 20, 300, "heart_rate")
@@ -425,6 +438,17 @@ def _normalise_record(
                 "minimum_bpm": round(primary, 3),
                 "maximum_bpm": round(primary, 3),
                 "sample_count": 1,
+                "hourly": [
+                    {
+                        "at": _iso_utc(record.start_time).replace(
+                            minute=0, second=0, microsecond=0
+                        ).isoformat().replace("+00:00", "Z"),
+                        "average_bpm": round(primary, 3),
+                        "minimum_bpm": round(primary, 3),
+                        "maximum_bpm": round(primary, 3),
+                        "sample_count": 1,
+                    }
+                ],
             }
         else:
             raise HealthIngestError(422, "invalid_heart_rate_values")

@@ -30,6 +30,10 @@ data class LocalStatus(
     val dataAsOf: Instant?,
     val lastError: String?,
     val completedTypes: Int,
+    val backgroundLastStarted: Instant?,
+    val backgroundLastFinished: Instant?,
+    val backgroundResult: String?,
+    val backgroundRunAttempt: Int,
 )
 
 class AppPreferences(context: Context) : SyncStateStore {
@@ -47,7 +51,40 @@ class AppPreferences(context: Context) : SyncStateStore {
         dataAsOf = dataAsOf(),
         lastError = values.getString(KEY_LAST_ERROR, null),
         completedTypes = RecordType.entries.count(::isSnapshotComplete),
+        backgroundLastStarted = instant(KEY_BACKGROUND_STARTED),
+        backgroundLastFinished = instant(KEY_BACKGROUND_FINISHED),
+        backgroundResult = values.getString(KEY_BACKGROUND_RESULT, null),
+        backgroundRunAttempt = values.getInt(KEY_BACKGROUND_ATTEMPT, 0),
     )
+
+    @Synchronized
+    fun prepareHourlyHeartRateReplay() {
+        if (values.getInt(KEY_HEART_RATE_AGGREGATE_VERSION, 0) >= 1) return
+        val editor = values.edit().putInt(KEY_HEART_RATE_AGGREGATE_VERSION, 1)
+        if (registration() != null) {
+            val type = RecordType.HEART_RATE
+            editor.remove(syncKey(type, "cursor"))
+                .remove(syncKey(type, "target"))
+                .putBoolean(syncKey(type, "complete"), false)
+                .putBoolean(syncKey(type, "reconcile"), true)
+        }
+        editor.apply()
+    }
+
+    fun markBackgroundStarted(attempt: Int, at: Instant = Instant.now()) {
+        values.edit()
+            .putString(KEY_BACKGROUND_STARTED, at.toString())
+            .putInt(KEY_BACKGROUND_ATTEMPT, attempt)
+            .putString(KEY_BACKGROUND_RESULT, "running")
+            .apply()
+    }
+
+    fun markBackgroundFinished(result: String, at: Instant = Instant.now()) {
+        values.edit()
+            .putString(KEY_BACKGROUND_FINISHED, at.toString())
+            .putString(KEY_BACKGROUND_RESULT, result.take(80))
+            .apply()
+    }
 
     fun setServerUrl(value: String) {
         values.edit().putString(KEY_SERVER_URL, value.trim()).apply()
@@ -279,6 +316,11 @@ class AppPreferences(context: Context) : SyncStateStore {
         private const val KEY_DATA_AS_OF = "data_as_of"
         private const val KEY_LAST_ERROR = "last_error"
         private const val KEY_FIRST_HEALTH_PERMISSION_AT = "first_health_permission_at"
+        private const val KEY_HEART_RATE_AGGREGATE_VERSION = "heart_rate_aggregate_version"
+        private const val KEY_BACKGROUND_STARTED = "background_started"
+        private const val KEY_BACKGROUND_FINISHED = "background_finished"
+        private const val KEY_BACKGROUND_RESULT = "background_result"
+        private const val KEY_BACKGROUND_ATTEMPT = "background_attempt"
     }
 }
 

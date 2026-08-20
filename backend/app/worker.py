@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import logging
 import signal
+import threading
 import time
 
 from sqlalchemy import or_, select, update
@@ -154,9 +155,11 @@ class Worker:
         self.settings = settings or get_settings()
         self.running = True
         self.next_sync_at = 0.0
+        self.stop_event = threading.Event()
 
     def stop(self, *_: object) -> None:
         self.running = False
+        self.stop_event.set()
 
     def _recorded_job(self, db: Session, job_name: str, run_key: str, action) -> None:
         if db.scalar(select(JobRun.id).where(JobRun.run_key == run_key)) is not None:
@@ -234,24 +237,12 @@ class Worker:
             schedule_weekly_digest(db, self.settings, now)
             schedule_daily_digest(db, self.settings, now)
             processor.drain()
-            heartbeat_key = f"worker-heartbeat:{now.strftime('%Y%m%dT%H%M')}"
-            if db.scalar(select(JobRun.id).where(JobRun.run_key == heartbeat_key)) is None:
-                db.add(
-                    JobRun(
-                        job_name="worker-heartbeat",
-                        run_key=heartbeat_key,
-                        status="success",
-                        finished_at=utcnow(),
-                    )
-                )
-                db.commit()
-
     def run(self) -> None:
         while self.running:
             self.run_once()
             if self.settings.worker_once:
                 break
-            time.sleep(self.settings.outbox_poll_seconds)
+            self.stop_event.wait(self.settings.outbox_poll_seconds)
 
 
 def main() -> None:

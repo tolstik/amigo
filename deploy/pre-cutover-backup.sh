@@ -209,6 +209,16 @@ tar \
     -czf "${STAGING_DIR}/data/lab-files.tar.gz" \
     "lab-files"
 
+PREVIOUS_ANDROID_APK_PRESENT="false"
+if [[ -e "${AMIGO_ANDROID_APK}" ]]; then
+    [[ -f "${AMIGO_ANDROID_APK}" && ! -L "${AMIGO_ANDROID_APK}" ]] \
+        || amigo_die "installed Android APK is not a regular file"
+    cp --preserve=mode,timestamps -- "${AMIGO_ANDROID_APK}" \
+        "${STAGING_DIR}/data/amigo-sync.apk"
+    PREVIOUS_ANDROID_APK_PRESENT="true"
+fi
+readonly PREVIOUS_ANDROID_APK_PRESENT
+
 amigo_log "capturing crontabs"
 crontab -u "${AMIGO_LEGACY_CRON_USER}" -l \
     >"${STAGING_DIR}/crontab/${AMIGO_LEGACY_CRON_USER}.crontab" \
@@ -296,6 +306,7 @@ nginx -T >"${STAGING_DIR}/nginx/nginx-T.txt" 2>&1
     printf 'previous_compose_sha256=%s\n' \
         "$(sha256sum "${STAGING_DIR}/release/compose.yaml" | awk '{ print $1 }')"
     printf 'postgres_dump_created=%s\n' "${POSTGRES_DUMP_CREATED}"
+    printf 'previous_android_apk_present=%s\n' "${PREVIOUS_ANDROID_APK_PRESENT}"
 } >"${STAGING_DIR}/metadata.txt"
 
 amigo_log "verifying archives and database dump"

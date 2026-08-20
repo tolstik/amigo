@@ -42,6 +42,7 @@ export function RecoveryPage() {
   const load = useCallback((signal: AbortSignal) => api.recovery(period, signal), [period]);
   const series = useApi(load);
   const points = series.data?.points ?? [];
+  const hourlyHeartRate = series.data?.heartRateHourly ?? [];
   const summary = series.data?.summary;
 
   return (
@@ -67,8 +68,8 @@ export function RecoveryPage() {
       ) : points.length ? (
         <>
           <ChartCard title="Сон" subtitle="Общая продолжительность и доступные стадии" option={sleepChartOption(points)} ariaLabel="График продолжительности и стадий сна" height={390} />
-          {points.some((point) => point.averageHeartRateBpm !== null || point.minimumHeartRateBpm !== null || point.maximumHeartRateBpm !== null) && (
-            <ChartCard title="Пульс с часов" subtitle="Дневные среднее, минимум и максимум — без подмены показателя пульса покоя" option={heartRateChartOption(points)} ariaLabel="График среднего, минимального и максимального пульса с часов" height={390} />
+          {hourlyHeartRate.length > 0 && (
+            <ChartCard title="Пульс с часов" subtitle="Почасовые среднее, минимум и максимум; исходные замеры часов не показываются и не сохраняются" option={heartRateChartOption(hourlyHeartRate)} ariaLabel="Почасовой график среднего, минимального и максимального пульса с часов" height={390} />
           )}
           {(points.some((point) => point.restingHeartRateBpm !== null) || points.some((point) => point.hrvRmssdMs !== null)) && (
             <ChartCard title="Пульс покоя и HRV" subtitle="Два независимых показателя относительно собственной динамики" option={recoveryChartOption(points)} ariaLabel="График пульса покоя и вариабельности ритма" height={390} />

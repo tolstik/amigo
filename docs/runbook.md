@@ -1,6 +1,6 @@
-# Amigo v3: production runbook
+# Amigo v5: production runbook
 
-Этот документ описывает безопасное развёртывание Amigo v3 на
+Этот документ описывает безопасное развёртывание Amigo v5 на
 `192.168.31.3`. Все команды изменения состояния выполняются на
 origin-сервере от `root`. Пароли, OAuth-токены, Telegram-токены,
 chat ID, Codex `auth.json` и значения из медицинских payload не копируются
@@ -17,6 +17,10 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
 - Точный SHA запущенного image хранится в root-only
   `/var/lib/amigo/current-release`. Verification использует его, а не HEAD
   checkout после documentation-checkpoint commit.
+- GitHub Actions после всех backend/frontend/E2E/Android/release-gate проверок
+  публикует immutable `ghcr.io/tolstik/amigo:GIT_SHA`. Production только
+  загружает этот image и сверяет OCI revision; сборка приложения на слабом
+  сервере запрещена.
 - `web`, `ingest` и `ai-worker` получают только PostgreSQL secret.
   `worker` получает ровно восемь DB/Withings/Fernet/Telegram secret files.
   `ai-gateway` и `lab-parser` не получают Docker secrets и доступ к БД.
@@ -37,6 +41,11 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
 - Prompt contract `amigo-health-v3` требует для каждой рекомендации конкретное
   действие, cadence или review period и ссылки на существующие evidence keys.
   На overview и в Telegram рекомендации идут раньше общих наблюдений.
+- Assistant contract `amigo-health-chat-v2` получает полную структурированную
+  историю здоровья, лабораторных результатов и исследований, но не originals,
+  filenames, study titles или OCR pages. Он может разбирать evidence-backed
+  гипотезы и альтернативы, но не утверждать диагноз и не назначать лечение,
+  лекарства/дозировки или фиксированную калорийность.
 - Ни дашборд, ни Telegram не показывают шаблонную подмену AI-текста.
   При недоступном AI графики и факты остаются рабочими.
 - Исторические AI jobs/results сохраняются в PostgreSQL, но authenticated cache и
@@ -44,20 +53,29 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
   просроченные jobs становятся `superseded`; явный deployment `ai-enqueue`
   может повторно поставить active failed/superseded same-key job без ожидания
   backoff, обычный background enqueue terminal history не оживляет.
-- Dashboard, health API, CSV, laboratory archive/originals и assistant закрыты
+- Dashboard, health API, CSV, laboratory/study archive/originals, app update и assistant закрыты
   одним локальным Argon2id-аккаунтом: opaque server sessions живут 90 дней,
   cookies имеют `Secure`/`SameSite=Strict`, мутации требуют exact Origin и CSRF.
   Signed Android ingest остаётся отдельным. Health Connect показывается только
   как агрегаты без device/pairing metadata, signatures, nonces, raw provider
   payload и raw heart-rate samples.
-- Оригиналы анализов находятся только в root-owned
+- PostgreSQL `stored_files` — источник истины для оригиналов анализов и
+  исследований. Для совместимости с предыдущим release лабораторные файлы
+  временно dual-write сохраняются также в root-owned
   `/srv/amigo/data/lab-files`: каталог `0700`, файлы `0600`. `web` монтирует его
   read-write, `ai-worker` read-only, `lab-parser` не монтирует вообще. Parser
   работает non-root/read-only без внешней сети; PDF/JPG/PNG/HEIC ограничены 20
-  МиБ, PDF — 50 страницами.
+  МиБ, PDF — 50 страницами, одна UI-выборка — 25 файлами. Исследования v1
+  принимают отчёты УЗИ/МРТ/КТ/рентген/ЭКГ/other; DICOM не принимается.
+- Очереди анализов и исследований обновляются через PostgreSQL
+  `LISTEN/NOTIFY` и SSE. AI worker использует bounded notification wait с
+  60-секундным fallback, healthchecks облегчены, minute heartbeat JobRun удалён.
 - Withings — единственный источник веса, состава тела и давления. Mi Fitness
   передаёт только allowlisted activity/recovery records через Health Connect;
   weight, pressure, location и exercise routes из Health Connect не принимаются.
+  Raw heart-rate samples не сохраняются; дневные агрегаты используются в
+  CSV/Telegram/AI, а почасовые min/avg/max — только для временной шкалы графика
+  пульса с часов.
 - Одинаковая Withings group, повторно пришедшая из overlap-window, считается
   неизменной и не запускает AI повторно. Measurement-trigger создаётся только
   для новой или структурно изменившейся provider group.
@@ -89,6 +107,24 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
 - Ошибка repeat deployment автоматически возвращает immutable image предыдущего
   Amigo-релиза. Legacy PHP никогда не включается автоматически: это отдельный
   явно подтверждаемый disaster fallback.
+
+## Почему прошлые deploy были долгими и откатывались
+
+История релизов 2026-08-20 показывает не одну общую неисправность, а цепочку
+release-gate расхождений: dynamic nginx captures, auth-floor maintenance status,
+явный `429`, assistant SSE buffering, transient assistant smoke, runtime source
+permissions и App Links проверялись уже около cutover. Fail-closed recovery
+делал правильный откат, но каждая следующая небольшая поправка требовала нового
+полного цикла.
+
+Время дополнительно тратили сборка application image на слабом production host,
+отдельный `migrate` перед уже мигрирующим `bootstrap`, full Withings sync и
+перезапись неизменившегося legacy TSV. В v5 эти операции вынесены или удалены:
+image строится после всех CI gates и только скачивается production, выполняется
+один bootstrap, затем incremental sync и compare-before-replace TSV. Route/SSE/
+auth-floor/App Links контракты остаются в pre-cutover recovery test и полном
+verification. Это сокращает нормальный cutover, не ослабляя snapshot и
+automatic recovery.
 
 ## Подготовка релиза
 
@@ -142,11 +178,15 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
    Его дважды вводят только в скрытом prompt `deploy.sh` через `/dev/tty`; пароль
    не помещают в shell history, `.env`, secret file, командные аргументы или
    Markdown. На повторных deploy prompt отсутствует, пока аккаунт настроен.
-8. Для Android `1.1.0` (`versionCode 4`) использовать signed
-   [`Amigo-1.1.0.apk`](https://github.com/tolstik/amigo/releases/download/v4.0.0/Amigo-1.1.0.apk)
+8. Убедиться, что anonymous pull точного candidate
+   `ghcr.io/tolstik/amigo:GIT_SHA` доступен production или root Docker уже
+   авторизован только для чтения package. OCI label
+   `org.opencontainers.image.revision` должен совпадать с `GIT_SHA`.
+9. Для Android `1.2.0` (`versionCode 5`) использовать signed
+   [`Amigo-1.2.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk)
    из GitHub release
-   [`v4.0.0`](https://github.com/tolstik/amigo/releases/tag/v4.0.0) и сверить SHA-256
-   `6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`.
+   [`v5.0.0`](https://github.com/tolstik/amigo/releases/tag/v5.0.0) и сверить SHA-256
+   `38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd`.
    Signing certificate SHA-256 должен быть
    `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
    Keystore и его пароли не хранятся в Git или Markdown.
@@ -166,7 +206,9 @@ PostgreSQL/Fernet значения и отказывается перезапи�
 
 ## Backup и rollback snapshot
 
-`deploy.sh` всегда запускает backup до сборки и cutover. Отдельная проверка:
+`deploy.sh` сначала скачивает и проверяет immutable candidate image и signed APK,
+но всегда запускает backup до остановки сервисов, миграции и cutover. Отдельная
+проверка:
 
 ```bash
 sudo bash /srv/amigo/deploy/pre-cutover-backup.sh
@@ -180,6 +222,8 @@ sudo bash /srv/amigo/deploy/pre-cutover-backup.sh
 - PostgreSQL custom-format dump, если текущий `db` уже запущен; его каталог
   проверяется через `pg_restore --list`;
 - архив защищённых лабораторных originals из `/srv/amigo/data/lab-files`;
+- установленный `/srv/amigo/data/android/amigo-sync.apk` либо явная отметка,
+  что до cutover APK отсутствовал;
 - crontab `tolstik` и `root`;
 - полный `/etc/nginx`, `my.conf` и `nginx -T`;
 - previous release SHA, exact application и PostgreSQL image IDs, защищённые
@@ -242,19 +286,24 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
 Фиксированная последовательность:
 
 1. Проверка layout, прав secret files, чистого Git SHA, Compose и nginx.
-2. Проверенный legacy/PostgreSQL snapshot и подготовка pinned Codex runtime.
-3. После создания защищённых rollback image tags включается automatic recovery,
-   затем выполняются pull PostgreSQL image и сборка одного Git-SHA image для
-   шести application services. Повторная сборка того же SHA запрещена.
+2. Подготовка pinned Codex runtime, pull точного CI-built
+   `ghcr.io/tolstik/amigo:GIT_SHA`, проверка OCI revision, pull PostgreSQL image
+   и скачивание signed Android APK с проверкой pinned SHA-256. Production image
+   не собирается на сервере.
+3. Проверенный legacy/PostgreSQL snapshot с rollback image tags и предыдущим
+   состоянием APK; после snapshot включается automatic recovery.
 4. Остановка уже работающих `worker`, `ai-worker`, `ingest` и `lab-parser` (`ai-worker`
    получает до 120 секунд на штатное завершение), запуск `db`,
-   migrations и bootstrap. Если локальный аккаунт ещё не создан, deploy скрыто
+   один idempotent bootstrap с migrations, затем `backfill-files`, который
+   копирует и проверяет legacy laboratory originals в PostgreSQL. Если локальный аккаунт ещё не создан, deploy скрыто
    запрашивает пароль дважды и передаёт одну строку в root-only CLI через stdin.
    Затем, только в выбранном режиме, выполняется Telegram smoke.
-5. Отключение только точной legacy Withings cron-строки, full sync без
+5. Отключение только точной legacy Withings cron-строки, incremental sync без
    historical notifications, немедленный OAuth token handback в одну legacy
-   MariaDB строку и импорт legacy-only весов из root-only TSV.
-6. Запуск `web` без workers и direct health на `127.0.0.1:18181`.
+   MariaDB строку и импорт legacy-only весов из root-only TSV. Неизменившийся
+   TSV не переписывается.
+6. Запуск `web` без workers, direct health на `127.0.0.1:18181` и атомарная
+   установка проверенного APK `1.2.0` в root-only Android directory.
 7. Запуск изолированных `ai-gateway` и `lab-parser`; synthetic smoke через
    `ai-worker` последовательно проверяет live-контракты analysis, laboratory
    extraction и assistant turn, включая auth, sandbox, model, strict JSON schema
@@ -269,7 +318,8 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    между неуспешными попытками 1–3 вызывается `ai-enqueue` для снятия backoff.
    Тройной gateway smoke/retry не повторяется.
 9. Запуск `ingest`, затем атомарная установка nginx route. Общий prefix
-   разрешает только `GET`/`HEAD`/`OPTIONS`; exact auth/profile/labs/assistant
+   разрешает только `GET`/`HEAD`/`OPTIONS`; exact
+   auth/profile/labs/studies/assistant
    mutation routes имеют отдельные rate/body limits, upload — 21 МиБ, SSE —
    отключённый buffering. Ingest имеет точные rate-limited routes и body limit
    1 МиБ. Сразу после nginx reload origin получает до
@@ -339,7 +389,7 @@ logging или обсуждения устойчивого паттерна с �
 требует минимум одну bounded medical/measurement рекомендацию. В Telegram и
 overview рекомендации показываются до наблюдений.
 
-## Локальный аккаунт, лаборатория и assistant
+## Локальный аккаунт, лаборатория, исследования и assistant
 
 Пароль меняется только интерактивной root-only командой; аргумент с паролем не
 используется. Операция отзывает все действующие sessions:
@@ -353,41 +403,56 @@ sudo env AMIGO_IMAGE_TAG="${release_sha}" \
 unset release_sha
 ```
 
-До первой загрузки или вопроса владелец заполняет дату рождения/биологический
+До первой загрузки анализа или вопроса владелец заполняет дату рождения/биологический
 пол в `/amigo/profile` и подтверждает disclosure `amigo-ai-data-v1`: Codex CLI
 запускается на origin, но полный извлечённый текст и вопросы передаются в OpenAI
 inference. Отзыв consent запрещает новые uploads/turns, но не удаляет историю.
 
-Uploads принимают PDF/JPG/PNG/HEIC до 20 МиБ и PDF до 50 страниц. `lab-parser`
+Одна UI-выборка принимает до 25 PDF/JPG/PNG/HEIC, каждый файл до 20 МиБ и
+PDF до 50 страниц. Web сначала сохраняет оригинал в PostgreSQL и временно
+dual-write пишет лабораторный файл в root-only каталог для previous-release
+recovery. `lab-parser`
 получает байты только на время внутреннего HTTP request, извлекает текст/OCR и
 возвращает его `ai-worker`; оригиналы parser не монтирует. Codex extraction
 `amigo-lab-extraction-v1` публикуется как `unverified`. Пользователь сверяет
 текст/страницу, исправляет строки и подтверждает документ. Диапазон бланка
-приоритетнее versioned catalog; статус считает backend. Удаление документа
-удаляет его БД-историю и конкретный оригинал.
+приоритетнее versioned catalog; статус считает backend. Очередь показывает
+позицию, этап и прогресс через SSE; новый batch можно добавлять во время
+обработки предыдущего. Удаление документа удаляет его БД-историю и конкретный
+database original.
 
-Один persistent chat использует `amigo-health-chat-v1`, структурированную
-историю, последние 12 сообщений, детерминированную сводку старых сообщений и
-до восьми OCR chunks, найденных локальным PostgreSQL FTS. Gateway запускает
+Раздел «Исследования» использует ту же очередь для отчётов
+УЗИ/МРТ/КТ/рентген/ЭКГ/other; DICOM отклоняется. Оригинал, findings и conclusion
+хранятся в PostgreSQL, доступны view/edit/confirm/retry/delete. Очевидные строки
+с ФИО, датой рождения, адресом и другими идентификаторами исключаются из
+структурированных study facts.
+
+Один persistent chat использует `amigo-health-chat-v2`, полную
+структурированную историю здоровья, анализов и исследований, последние 12
+сообщений и детерминированную сводку старых сообщений. Originals, filenames,
+study titles и OCR pages в assistant context не попадают. Gateway запускает
 ephemeral `codex app-server` по stdio с `turn/start.outputSchema`; draft-сегменты
 попадают в PostgreSQL/SSE, а финал публикуется только после validation. Raw
 events, reasoning, prompts и validation details не сохраняются и не логируются.
+Ассистенту разрешены evidence-backed hypotheses, альтернативы и способы их
+различить; validator по-прежнему отклоняет definitive diagnosis, treatment,
+medication/dosage instructions и fixed calorie target.
 Официальный turn/event contract:
 [Codex app-server](https://learn.chatgpt.com/docs/app-server#turns).
 
 ## Android APK, pairing и backfill
 
-1. Установить проверенный signed Android `1.1.0` (`versionCode 4`) —
-   [`Amigo-1.1.0.apk`](https://github.com/tolstik/amigo/releases/download/v4.0.0/Amigo-1.1.0.apk)
-   из release [`v4.0.0`](https://github.com/tolstik/amigo/releases/tag/v4.0.0) —
-   или обновить `1.0.2`:
+1. Установить проверенный signed Android `1.2.0` (`versionCode 5`) —
+   [`Amigo-1.2.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk)
+   из release [`v5.0.0`](https://github.com/tolstik/amigo/releases/tag/v5.0.0) —
+   или обновить `1.1.0`:
 
    ```bash
    adb install -r <PATH_TO_SIGNED_APK>
    ```
 
-   SHA-256 asset `Amigo-1.1.0.apk`:
-   `6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`.
+   SHA-256 asset `Amigo-1.2.0.apk`:
+   `38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd`.
    Upgrade через `adb install -r` сохраняет pairing state, non-exportable
    Android Keystore key, выбранный Mi Fitness origin и resumable sync cursors.
 
@@ -422,16 +487,25 @@ events, reasoning, prompts и validation details не сохраняются и 
    читать; без extended-history permission безопасный fallback начинается за 30 дней
    до первого выданного permission.
 6. Дождаться успешного status в приложении и проверить «Активность»/
-   «Восстановление». WorkManager продолжит best-effort sync примерно раз в час.
+   «Восстановление». WorkManager запускает immediate best-effort sync, продолжает
+   незавершённый bounded backfill через минуту и сохраняет hourly job. Экран
+   показывает время/результат последнего фонового запуска. Upgrade один раз
+   переигрывает heart-rate history, чтобы заполнить только hourly aggregates;
+   raw samples сервер не сохраняет.
+7. Во вкладке «Синхронизация» нажать «Проверить обновление». Metadata и APK
+   доступны только в authenticated session. Клиент обязан сверить exact-origin
+   URL, size, SHA-256, package, более высокий versionCode и текущий signing
+   certificate; установка начинается только после системного подтверждения.
 
 Вкладка «Дашборд» использует тот же local account и 90-дневную session, что и
 браузер. Login/logout не меняет Android pairing. Проверить, что verified App
 Link на `https://amigo.tolstik.ru/amigo/labs` открывает приложение; неизвестный
-route/origin блокируется. Upload выбирает один PDF/JPG/PNG/HEIC/HEIF до 20 МиБ
-через Files/Photos. CSV и лабораторный оригинал сохраняются через системный
+route/origin блокируется. Upload выбирает до 25 PDF/JPG/PNG/HEIC/HEIF по 20 МиБ
+через Files/Photos. CSV и загруженный оригинал сохраняются через системный
 «Сохранить как»; приложение не следует redirect и не передаёт cookie вне
-allowlisted same-origin routes. Камера, встроенный viewer и offline medical
-cache намеренно отсутствуют.
+allowlisted same-origin routes. После 30 секунд в фоне WebView автоматически
+reload показывает свежие данные. Камера и offline medical cache намеренно
+отсутствуют; документы просматриваются защищённым web viewer.
 
 Кнопка «Сбросить сопряжение» сначала удаляет и немедленно создаёт новый
 non-exportable P-256 key, а уже затем очищает pairing и sync cursors. После неё
@@ -449,7 +523,7 @@ client/server idempotency и snapshot reconciliation уже предусмотр
 Health Connect step record принимается до документированного значения
 `1 000 000` включительно. При отклонении сервер пишет только стабильный
 `detail.code`, без payload, headers, device ID, batch ID и validation details;
-Android `1.1.0` показывает только allowlisted code рядом с HTTP status и не
+Android `1.2.0` показывает только allowlisted code рядом с HTTP status и не
 отражает произвольное тело ответа.
 
 ## Telegram schedule
@@ -490,16 +564,21 @@ sudo bash /srv/amigo/deploy/verify-production.sh
 - exact public `/.well-known/assetlinks.json`, package
   `ru.tolstik.amigo.sync` и release signing certificate, а также origin `405`
   и public `403`/`405` для POST;
-- explicit named-capture upstream URI для dynamic labs/assistant routes без
+- explicit named-capture upstream URI для dynamic labs/studies/assistant routes без
   capture-unsafe generic rewrite;
 - explicit `429` для каждого managed rate-limit; upload допускает bounded burst
-  из пяти запросов при сохранении лимита 6 запросов в минуту;
-- public login shell и method-correct `401` для health JSON/CSV/labs/assistant
+  из 25 запросов при сохранении лимита 30 запросов в минуту;
+- public login shell и method-correct `401` для
+  health JSON/CSV/labs/studies/updater/assistant
   без session;
 - short-lived root-only verification session, authenticated overview/activity/
-  recovery/AI-v3/labs/assistant/CSV, exact Origin+CSRF, безопасное отклонение
-  пустого upload и no-buffer SSE без создания chat turn;
-- root-only lab storage, web RW/ai-worker RO/parser no-mount и внутренний parser health;
+  recovery/AI-v3/labs/studies/updater/assistant/CSV, exact Origin+CSRF,
+  безопасное отклонение пустого upload и no-buffer assistant/lab/study SSE без
+  создания chat turn;
+- database-owned originals после проверенного backfill, root-only dual-write lab
+  storage, web RW/ai-worker RO/parser no-mount и внутренний parser health;
+- root-only signed APK `1.2.0`, точный hash, read-only web mount,
+  authenticated metadata и повторно скачанный APK с тем же hash;
 - точный ingest route: unsigned empty batch отклоняется до создания записи;
 - закрытые health endpoints, legacy assets и обе cron-строки.
 
@@ -554,7 +633,8 @@ Recovery проверяет текущие managed route и disabled legacy cron
 previous SHA/application и PostgreSQL image IDs/Compose hash, останавливает
 candidate, оставляет legacy Withings cron выключенным, запускает предыдущие
 `web`, `worker`, `ingest`, `ai-worker`, `ai-gateway`, optional `lab-parser` и
-PostgreSQL на сохранённом volume. Для auth-capable previous release возвращаются
+PostgreSQL на сохранённом volume и возвращает точное предыдущее состояние APK.
+Для auth-capable previous release возвращаются
 его exact managed snippets и shell `200`. Для release без auth ставится текущий
 maintenance snippet: `/amigo/` стабилизируется на `503`, unsigned ingest всё ещё
 точно отклоняется его backend-контрактом. Shared `my.conf` вне markers сохраняется;

@@ -12,17 +12,23 @@ android {
         applicationId = "ru.tolstik.amigo.sync"
         minSdk = 28
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.1.0"
+        versionCode = 5
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
 
     val keystorePath = providers.environmentVariable("AMIGO_ANDROID_KEYSTORE")
-    val keystorePassword = providers.environmentVariable("AMIGO_ANDROID_KEYSTORE_PASSWORD")
+    val keystorePassword = providers.environmentVariable("AMIGO_ANDROID_KEYSTORE_PASSWORD").orElse(
+        providers.environmentVariable("AMIGO_ANDROID_KEYSTORE_PASSWORD_FILE")
+            .map { file(it).readText().trimEnd('\r', '\n') },
+    )
     val keyAliasValue = providers.environmentVariable("AMIGO_ANDROID_KEY_ALIAS")
-    val keyPasswordValue = providers.environmentVariable("AMIGO_ANDROID_KEY_PASSWORD")
+    val keyPasswordValue = providers.environmentVariable("AMIGO_ANDROID_KEY_PASSWORD").orElse(
+        providers.environmentVariable("AMIGO_ANDROID_KEY_PASSWORD_FILE")
+            .map { file(it).readText().trimEnd('\r', '\n') },
+    )
     val hasReleaseSigning = listOf(
         keystorePath,
         keystorePassword,

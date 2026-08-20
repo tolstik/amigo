@@ -6,40 +6,19 @@ import { PageHeader } from "../components/PageHeader";
 import { useApi } from "../hooks/useApi";
 import { formatDate } from "../lib/format";
 import type { LabResult } from "../api/types";
+import { labHistoryChartOption } from "../charts/options";
+import { ChartCard } from "../components/ChartCard";
 import { labReference, labValue } from "./LabsPage";
 
 function HistoryChart({ unit, rows }: { unit: string; rows: LabResult[] }) {
   const numeric = rows.filter((row) => row.value_numeric !== null);
-  const scaleValues = numeric.flatMap((row) => [
-    row.value_numeric!,
-    ...(row.reference_low !== null ? [row.reference_low] : []),
-    ...(row.reference_high !== null ? [row.reference_high] : []),
-  ]);
-  const min = Math.min(...scaleValues);
-  const max = Math.max(...scaleValues);
-  const span = max > min ? max - min : 1;
-  const x = (index: number) => numeric.length === 1 ? 50 : (index / (numeric.length - 1)) * 100;
-  const y = (value: number) => 90 - ((value - min) / span) * 80;
-  const points = numeric.map((row, index) => `${x(index)},${y(row.value_numeric!)}`).join(" ");
-
-  return <section className="panel lab-history-chart">
-    <div className="panel__head"><div><h2>{unit}</h2><p>{numeric.length} числовых значений</p></div></div>
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Динамика показателя в единицах ${unit}`}>
-      <line x1="0" y1="90" x2="100" y2="90" />
-      {numeric.map((row, index) => {
-        if (row.reference_low === null || row.reference_high === null) return null;
-        const center = x(index);
-        const left = index === 0 ? 0 : (x(index - 1) + center) / 2;
-        const right = index === numeric.length - 1 ? 100 : (center + x(index + 1)) / 2;
-        const top = y(Math.max(row.reference_low, row.reference_high));
-        const bottom = y(Math.min(row.reference_low, row.reference_high));
-        return <rect key={`range-${row.id}`} className="lab-reference-band" x={left} y={top} width={right - left} height={bottom - top} />;
-      })}
-      <polyline points={points} />
-      {numeric.map((row, index) => <circle key={row.id} className="lab-history-point" cx={x(index)} cy={y(row.value_numeric!)} r="1.7" />)}
-    </svg>
-    <div className="lab-history-chart__axis"><span>{formatDate(numeric[0].observed_on)}</span><span>{formatDate(numeric.at(-1)?.observed_on)}</span></div>
-  </section>;
+  return <ChartCard
+    title={unit}
+    subtitle={`${numeric.length} числовых значений; референсы показаны отдельными линиями`}
+    option={labHistoryChartOption(numeric, unit)}
+    ariaLabel={`Динамика показателя в единицах ${unit}`}
+    height={340}
+  />;
 }
 
 export function LabAnalytePage() {

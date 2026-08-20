@@ -6,17 +6,17 @@ second tab. The sync client reads Mi Fitness data and sends signed, idempotent
 batches to the Amigo server. It never requests write access, weight, blood
 pressure, location, or exercise routes.
 
-Current signed release `1.1.0` (`versionCode 4`) for project release
-[`v4.0.0`](https://github.com/tolstik/amigo/releases/tag/v4.0.0):
-[`Amigo-1.1.0.apk`](https://github.com/tolstik/amigo/releases/download/v4.0.0/Amigo-1.1.0.apk),
+Current signed release `1.2.0` (`versionCode 5`) for project release
+[`v5.0.0`](https://github.com/tolstik/amigo/releases/tag/v5.0.0):
+[`Amigo-1.2.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk),
 SHA-256
-`6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`.
+`38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd`.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
-The previous published release is `1.0.2`:
-[`Amigo-Sync-1.0.2.apk`](https://github.com/tolstik/amigo/releases/download/v3.1.0/Amigo-Sync-1.0.2.apk),
-SHA-256 `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`.
+The previous published release is `1.1.0`:
+[`Amigo-1.1.0.apk`](https://github.com/tolstik/amigo/releases/download/v4.0.0/Amigo-1.1.0.apk),
+SHA-256 `6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`.
 
 ## Dashboard tab
 
@@ -27,13 +27,28 @@ SHA-256 `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`.
 - Enables JavaScript and DOM storage required by the React dashboard, but has no
   JavaScript bridge and rejects third-party cookies, mixed content, TLS errors,
   external origins, unsafe schemes, and unknown main-frame routes.
-- Uses Android Files/Photos to choose one PDF/JPG/PNG/HEIC/HEIF up to 20 MiB.
+- Uses Android Files/Photos to choose up to 25 PDF/JPG/PNG/HEIC/HEIF files, each
+  up to 20 MiB.
   Camera capture is intentionally not requested.
 - Handles only exact authenticated CSV and laboratory-original download routes.
   The session cookie stays in memory, redirects are disabled, the response is
   capped at 25 MiB, and the destination is selected through system “Save as”.
 - Keeps no offline medical archive. A failed connection or renderer shows a
   native retry screen.
+- Reloads a dashboard that returns to the foreground after at least 30 seconds,
+  so server-side processing and background synchronization become visible
+  without a forced refresh.
+
+## In-app update
+
+The synchronization tab exposes **Проверить обновление**. It reads authenticated
+metadata from the exact production origin, downloads only
+`/amigo/api/v1/app-update/apk`, caps the file at 150 MiB, and verifies exact
+length and SHA-256. It then verifies package `ru.tolstik.amigo.sync`, a strictly
+higher version code, and the same signing-certificate set as the installed app.
+Only after every check passes is the APK handed to the Android system installer;
+the user must still explicitly confirm installation. Redirects and alternate
+origins are rejected.
 
 ## Build and test
 
@@ -85,7 +100,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 5. Approve the displayed pairing code on the server, then tap **Проверить**.
 6. Tap **Синхронизировать сейчас**. WorkManager continues best-effort sync about
    once an hour when networking and background Health Connect reads are
-   available.
+   available. It also starts one immediate run when the app process is created
+   and schedules a one-minute continuation while the bounded backfill remains
+   incomplete. The screen shows the last background start, result, and finish.
 
 The full backfill is resumable and may require several runs. A newly paired
 device skips the provider-confirmed empty prefix and starts at the first real
@@ -123,8 +140,8 @@ heart-rate record at 5,000 evenly sampled points while preserving the first and
 last point. Batch starts are separated by at least 1,100 ms to remain below the
 production 60 requests/minute limit. A failed upload leaves the cursor/token
 unchanged, so the same deterministic batch ID and body are retried. No raw
-health payload or private key is written to logs. Release 1.1.0 retains the
-1.0.2 behavior that displays a
+health payload or private key is written to logs. Release 1.2.0 retains the
+1.1.0 behavior that displays a
 server rejection's allowlisted `detail.code` next to the HTTP status; arbitrary
-response bodies are never reflected. Installing it over 1.0.2 preserves the
+response bodies are never reflected. Installing it over 1.1.0 preserves the
 pairing key, selected origin, and resumable sync cursors.

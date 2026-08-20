@@ -4,14 +4,13 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
-import re
 from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, StringConstraints
-from sqlalchemy import delete, func, literal_column, select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,10 +21,17 @@ from .auth import AI_DATA_CONSENT_VERSION, AuthContext, require_csrf
 from .auth_models import UserProfile
 from .config import Settings, get_settings
 from .db import SessionLocal, get_db
-from .lab_models import AssistantJob, AssistantMessage, AssistantSummary, LabTextChunk
+from .health_analytics import activity_series, recovery_series
+from .lab_models import AssistantJob, AssistantMessage, AssistantSummary, LabResult, StudyDocument
+from .service import pressure_series, weight_series
 
 
 router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
+MAX_CHAT_CONTEXT_BYTES = 560_000
+
+
+class ChatContextTooLarge(ValueError):
+    pass
 
 
 class StrictModel(BaseModel):
@@ -57,22 +63,6 @@ def _require_consent(db: Session) -> None:
         raise HTTPException(status_code=409, detail="ai_data_consent_required")
 
 
-def _retrieval_terms(question: str) -> set[str]:
-    terms = {
-        token for token in re.findall(r"[a-zа-яё0-9]{4,}", question.casefold())
-        if token not in {"который", "какие", "почему", "когда", "этого", "меня", "моих"}
-    }
-    return terms | {token[:6] for token in terms if len(token) >= 7}
-
-
-def _chunk_evidence_key(chunk: LabTextChunk) -> str:
-    identity = (
-        f"{chunk.document_id}:{chunk.chunk_index}:{chunk.page_from}:{chunk.page_to}:"
-        f"{sha256(chunk.content.encode('utf-8')).hexdigest()}"
-    )
-    return f"lab.text.{sha256(identity.encode('utf-8')).hexdigest()[:24]}"
-
-
 def build_chat_context(db: Session, settings: Settings, question: str) -> tuple[str, list[str]]:
     snapshot = build_analysis_snapshot(db, settings.tz, user_height_cm=settings.user_height_cm)
     known = sorted(snapshot_evidence_keys(snapshot))
@@ -86,32 +76,72 @@ def build_chat_context(db: Session, settings: Settings, question: str) -> tuple[
     )
     previous.reverse()
     summary = db.get(AssistantSummary, 1)
-    terms = _retrieval_terms(question)
-    if db.bind is not None and db.bind.dialect.name == "postgresql":
-        language = literal_column("'russian'::regconfig")
-        vector = func.to_tsvector(language, LabTextChunk.content)
-        query = func.websearch_to_tsquery(language, question)
-        candidates = list(
-            db.scalars(
-                select(LabTextChunk)
-                .where(vector.op("@@")(query))
-                .order_by(func.ts_rank_cd(vector, query).desc(), LabTextChunk.id.desc())
-                .limit(8)
-            )
+    lab_rows = list(
+        db.scalars(
+            select(LabResult)
+            .where(LabResult.deleted.is_(False))
+            .order_by(LabResult.observed_on, LabResult.created_at, LabResult.id)
         )
-    else:
-        candidates = list(
-            db.scalars(select(LabTextChunk).order_by(LabTextChunk.id.desc()).limit(500))
+    )
+    laboratory: list[dict] = []
+    for row in lab_rows:
+        key = f"lab.{sha256(row.id.encode()).hexdigest()[:20]}"
+        known.append(key)
+        laboratory.append(
+            {
+                "evidence_key": key,
+                "analyte": row.analyte_name,
+                "value_numeric": float(row.value_numeric) if row.value_numeric is not None else None,
+                "value_text": row.value_text,
+                "comparator": row.comparator,
+                "unit": row.unit,
+                "observed_on": row.observed_on.isoformat() if row.observed_on else None,
+                "specimen": row.specimen,
+                "method": row.method,
+                "reference_low": float(row.reference_low) if row.reference_low is not None else None,
+                "reference_high": float(row.reference_high) if row.reference_high is not None else None,
+                "reference_text": row.reference_text,
+                "status": row.status,
+                "verified": row.verification_status == "verified",
+            }
         )
-    ranked: list[tuple[int, LabTextChunk]] = []
-    for chunk in candidates:
-        folded = chunk.content.casefold()
-        score = sum(folded.count(term) for term in terms)
-        if score:
-            ranked.append((score, chunk))
-    relevant = [item for _, item in sorted(ranked, key=lambda pair: (-pair[0], pair[1].id))[:8]]
-    chunk_evidence = {chunk.id: _chunk_evidence_key(chunk) for chunk in relevant}
-    known.extend(chunk_evidence.values())
+    study_rows = list(
+        db.scalars(
+            select(StudyDocument)
+            .where(StudyDocument.status == "complete")
+            .order_by(StudyDocument.observed_on, StudyDocument.created_at, StudyDocument.id)
+        )
+    )
+    studies: list[dict] = []
+    for row in study_rows:
+        base = f"study.{sha256(row.id.encode()).hexdigest()[:20]}"
+        finding_items = []
+        for index, finding in enumerate(row.findings or []):
+            key = f"{base}.finding.{index + 1}"
+            known.append(key)
+            finding_items.append({"evidence_key": key, "text": finding})
+        conclusion = None
+        if row.conclusion:
+            conclusion_key = f"{base}.conclusion"
+            known.append(conclusion_key)
+            conclusion = {"evidence_key": conclusion_key, "text": row.conclusion}
+        studies.append(
+            {
+                "modality": row.modality,
+                "observed_on": row.observed_on.isoformat() if row.observed_on else None,
+                "verified": row.verified,
+                "findings": finding_items,
+                "conclusion": conclusion,
+            }
+        )
+    history = {
+        "weight": weight_series(db, settings.tz, "all").get("points") or [],
+        "pressure": pressure_series(db, settings.tz, "all").get("points") or [],
+        "activity_daily": activity_series(db, settings.tz, "all").get("daily") or [],
+        "recovery_daily": recovery_series(db, settings.tz, "all").get("daily") or [],
+    }
+    for family in history:
+        known.append(f"history.{family}")
     analysis = latest_analysis(db)
     payload = {
         "health_snapshot": json.loads(canonical_snapshot_json(snapshot)),
@@ -119,17 +149,18 @@ def build_chat_context(db: Session, settings: Settings, question: str) -> tuple[
         if analysis.status == "ready" and analysis.analysis is not None else None,
         "older_conversation_summary": summary.content if summary else "",
         "recent_messages": [{"role": row.role, "content": row.content} for row in previous],
-        "relevant_document_text": [
-            {
-                "evidence_key": chunk_evidence[chunk.id],
-                "pages": [chunk.page_from, chunk.page_to],
-                "text": chunk.content,
-            }
-            for chunk in relevant
-        ],
+        "all_structured_laboratory_results": laboratory,
+        "all_structured_study_findings": studies,
+        "aggregate_health_history": {
+            family: {"evidence_key": f"history.{family}", "items": rows}
+            for family, rows in history.items()
+        },
         "user_question": question,
     }
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")), sorted(set(known))
+    prompt = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
+    if len(prompt.encode("utf-8")) > MAX_CHAT_CONTEXT_BYTES:
+        raise ChatContextTooLarge("context_too_large")
+    return prompt, sorted(set(known))
 
 
 def _response_for_request(db: Session, client_request_id: str) -> dict | None:

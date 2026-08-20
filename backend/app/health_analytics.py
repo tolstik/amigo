@@ -421,6 +421,58 @@ def aggregate_recovery_records(
     return result
 
 
+def aggregate_hourly_heart_rate(
+    records: Iterable[HealthConnectRecord], tz: ZoneInfo, start: date | None = None
+) -> list[dict[str, Any]]:
+    """Combine only persisted hourly aggregates; raw watch samples never leave ingest."""
+
+    grouped: dict[datetime, dict[str, float | int]] = {}
+    for row in records:
+        if row.record_type != "heart_rate":
+            continue
+        hourly = (row.metrics or {}).get("hourly")
+        if not isinstance(hourly, list):
+            continue
+        for bucket in hourly:
+            if not isinstance(bucket, dict):
+                continue
+            try:
+                at = _aware(datetime.fromisoformat(str(bucket["at"]).replace("Z", "+00:00")))
+                count = int(bucket["sample_count"])
+                average_bpm = float(bucket["average_bpm"])
+                minimum_bpm = float(bucket["minimum_bpm"])
+                maximum_bpm = float(bucket["maximum_bpm"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            local_hour = at.astimezone(tz).replace(minute=0, second=0, microsecond=0)
+            if start is not None and local_hour.date() < start:
+                continue
+            item = grouped.setdefault(
+                local_hour,
+                {
+                    "weighted_sum": 0.0,
+                    "sample_count": 0,
+                    "minimum_bpm": minimum_bpm,
+                    "maximum_bpm": maximum_bpm,
+                },
+            )
+            item["weighted_sum"] = float(item["weighted_sum"]) + average_bpm * count
+            item["sample_count"] = int(item["sample_count"]) + count
+            item["minimum_bpm"] = min(float(item["minimum_bpm"]), minimum_bpm)
+            item["maximum_bpm"] = max(float(item["maximum_bpm"]), maximum_bpm)
+    return [
+        {
+            "measured_at": hour.isoformat(),
+            "average_bpm": round(float(item["weighted_sum"]) / int(item["sample_count"]), 1),
+            "minimum_bpm": round(float(item["minimum_bpm"]), 1),
+            "maximum_bpm": round(float(item["maximum_bpm"]), 1),
+            "sample_count": int(item["sample_count"]),
+        }
+        for hour, item in sorted(grouped.items())
+        if int(item["sample_count"]) > 0
+    ]
+
+
 _RECOVERY_WEEKLY_METRICS = (
     "sleep_minutes",
     "time_in_bed_minutes",
@@ -812,7 +864,8 @@ def recovery_series(
     start = _range_start(range_name, today)
     # Correlations deliberately use all available recovery history. Public
     # daily points are still restricted to the requested range below.
-    all_daily = aggregate_recovery_records(_records(db, RECOVERY_TYPES, tz), tz)
+    recovery_records = _records(db, RECOVERY_TYPES, tz)
+    all_daily = aggregate_recovery_records(recovery_records, tz)
     visible = _public_daily(all_daily, start)
     available = sorted(
         {
@@ -828,6 +881,7 @@ def recovery_series(
         "available_metrics": available,
         "summary": _recovery_summary(all_daily, data_as_of),
         "daily": visible,
+        "heart_rate_hourly": aggregate_hourly_heart_rate(recovery_records, tz, start),
         "weekly": weekly_recovery(all_daily, output_start=start, today=today),
         "correlations": _recovery_correlations(db, all_daily, tz, today),
         "correlation_policy": {

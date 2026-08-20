@@ -126,6 +126,13 @@ def test_recovery_exposes_watch_heart_rate_without_resting_heart_rate(db):
             "minimum_bpm": 47,
             "maximum_bpm": 71,
             "sample_count": 2,
+            "hourly": [{
+                "at": "2026-08-19T06:00:00Z",
+                "average_bpm": 59,
+                "minimum_bpm": 47,
+                "maximum_bpm": 71,
+                "sample_count": 2,
+            }],
         },
     )
     add_record(
@@ -141,6 +148,13 @@ def test_recovery_exposes_watch_heart_rate_without_resting_heart_rate(db):
             "minimum_bpm": 80,
             "maximum_bpm": 89,
             "sample_count": 1,
+            "hourly": [{
+                "at": "2026-08-19T07:00:00Z",
+                "average_bpm": 85,
+                "minimum_bpm": 80,
+                "maximum_bpm": 89,
+                "sample_count": 1,
+            }],
         },
     )
     db.commit()
@@ -156,6 +170,22 @@ def test_recovery_exposes_watch_heart_rate_without_resting_heart_rate(db):
     assert payload["summary"]["average_heart_rate_bpm"] == 67.7
     assert payload["summary"]["minimum_heart_rate_bpm"] == 47
     assert payload["summary"]["maximum_heart_rate_bpm"] == 89
+    assert payload["heart_rate_hourly"] == [
+        {
+            "measured_at": "2026-08-19T09:00:00+03:00",
+            "average_bpm": 59.0,
+            "minimum_bpm": 47.0,
+            "maximum_bpm": 71.0,
+            "sample_count": 2,
+        },
+        {
+            "measured_at": "2026-08-19T10:00:00+03:00",
+            "average_bpm": 85.0,
+            "minimum_bpm": 80.0,
+            "maximum_bpm": 89.0,
+            "sample_count": 1,
+        },
+    ]
     week = payload["weekly"][0]
     assert week["average_heart_rate_bpm"] == 67.7
     assert week["minimum_heart_rate_bpm"] == 47

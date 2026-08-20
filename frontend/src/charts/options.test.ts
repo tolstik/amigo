@@ -1,5 +1,5 @@
-import type { RecoveryPoint, WeeklyWeightPoint } from "../api/types";
-import { heartRateChartOption, weeklyChangeChartOption, weeklyWeightChartOption } from "./options";
+import type { ActivityPoint, HeartRateHourlyPoint, RecoveryPoint, WeeklyWeightPoint } from "../api/types";
+import { activityDailyChartOption, heartRateChartOption, recoveryChartOption, sleepChartOption, weeklyChangeChartOption, weeklyWeightChartOption } from "./options";
 import { chartOptionForTheme, chartPalettes } from "./theme";
 
 function week(index: number, overrides: Partial<WeeklyWeightPoint> = {}): WeeklyWeightPoint {
@@ -79,24 +79,56 @@ describe("weekly chart options", () => {
 
 describe("watch heart-rate chart", () => {
   it("renders daily minimum, average and maximum without treating them as resting heart rate", () => {
-    const point: RecoveryPoint = {
-      measuredAt: "2026-08-20",
-      sleepMinutes: 420,
-      deepSleepMinutes: 90,
-      remSleepMinutes: 80,
-      awakeMinutes: 30,
-      averageHeartRateBpm: 59,
-      minimumHeartRateBpm: 47,
-      maximumHeartRateBpm: 89,
-      restingHeartRateBpm: null,
-      hrvRmssdMs: null,
-      spo2Pct: 97,
-      vo2Max: null,
+    const point: HeartRateHourlyPoint = {
+      measuredAt: "2026-08-20T12:00:00+03:00",
+      averageBpm: 59,
+      minimumBpm: 47,
+      maximumBpm: 89,
+      sampleCount: 12,
     };
 
     const series = heartRateChartOption([point]).series as any[];
 
     expect(series.map((item) => item.name)).toEqual(["Минимум", "Средний", "Максимум"]);
     expect(series.map((item) => item.data[0][1])).toEqual([47, 59, 89]);
+    expect((heartRateChartOption([point]).xAxis as any).type).toBe("time");
+  });
+});
+
+describe("daily charts", () => {
+  it("uses date categories for activity, sleep, resting heart rate and HRV", () => {
+    const activity: ActivityPoint = {
+      measuredAt: "2026-08-20",
+      steps: 8_000,
+      distanceKm: 5.5,
+      activeCaloriesKcal: 400,
+      totalCaloriesKcal: 2_200,
+      activeMinutes: 55,
+      workoutMinutes: 30,
+      workouts: 1,
+    };
+    const recovery: RecoveryPoint = {
+      measuredAt: "2026-08-20",
+      sleepMinutes: 420,
+      deepSleepMinutes: 90,
+      remSleepMinutes: 80,
+      awakeMinutes: 30,
+      restingHeartRateBpm: 58,
+      averageHeartRateBpm: 65,
+      minimumHeartRateBpm: 48,
+      maximumHeartRateBpm: 90,
+      hrvRmssdMs: 42,
+      spo2Pct: 97,
+      vo2Max: 35,
+    };
+
+    for (const option of [
+      activityDailyChartOption([activity]),
+      sleepChartOption([recovery]),
+      recoveryChartOption([recovery]),
+    ]) {
+      expect((option.xAxis as any).type).toBe("category");
+      expect((option.xAxis as any).data).toEqual(["2026-08-20"]);
+    }
   });
 });

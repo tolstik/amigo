@@ -22,7 +22,9 @@ class AmigoSyncApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        container.preferences.prepareHourlyHeartRateReplay()
         SyncScheduler.scheduleHourly(this)
+        SyncScheduler.scheduleImmediate(this)
     }
 }
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from hashlib import sha256
 from io import BytesIO
 
 import fitz
@@ -11,19 +12,23 @@ import pytest
 from app.lab_contracts import ExtractedLabReport, ExtractedLabResult, LabExtraction
 from app.auth_models import UserProfile
 from app.config import Settings
-from app.lab_models import LabDocument, LabReferenceRange, LabResult
+from app.lab_models import LabDocument, LabReferenceRange, LabResult, StoredFile
 from app.lab_parser import MAX_COORDINATE_BLOCKS, ParserError, _ocr, parse_document
 from app.labs_api import ResultCreate, ResultPatch, create_result, patch_result
 from app.labs import (
     LAB_EXTRACTION_CHUNK_CHARS,
     LAB_RETRIEVAL_CHUNK_CHARS,
     LabFileError,
+    backfill_stored_files,
     bounded_page_chunks,
     calculate_status,
     detect_media_type,
+    enqueue_document,
+    original_bytes,
     persist_extraction,
     seed_reference_catalog,
 )
+from app.studies import enqueue_study, structure_study_text
 
 
 def test_magic_detection_rejects_extension_spoofing():
@@ -37,6 +42,47 @@ def test_magic_detection_rejects_extension_spoofing():
         assert str(exc) == "file_type_mismatch"
     else:
         raise AssertionError("spoofed extension was accepted")
+
+
+def test_originals_are_database_owned_and_deduplicated_across_document_types(db, tmp_path):
+    content = b"%PDF-1.7\nverified fixture"
+    digest = sha256(content).hexdigest()
+    laboratory = enqueue_document(
+        db,
+        storage_key="laboratory.bin",
+        filename="laboratory.pdf",
+        file_sha256=digest,
+        media_type="application/pdf",
+        size_bytes=len(content),
+        content=content,
+    )
+    study = enqueue_study(
+        db,
+        storage_key="study.bin",
+        filename="study.pdf",
+        file_sha256=digest,
+        media_type="application/pdf",
+        size_bytes=len(content),
+        content=content,
+        modality="mri",
+        title="МРТ",
+        observed_on=date(2026, 8, 20),
+    )
+
+    assert laboratory.stored_file_id == study.stored_file_id
+    assert db.query(StoredFile).count() == 1
+    assert original_bytes(db, laboratory, tmp_path) == content
+    assert backfill_stored_files(db, tmp_path) == (0, 0)
+
+
+def test_study_text_structure_preserves_report_facts_without_interpretation():
+    findings, conclusion = structure_study_text(
+        "Пациент: Иванов Иван.\n\nОписание: Размер без изменений.\n\nКонтуры ровные.\n\nЗаключение: Признаков патологии не выявлено."
+    )
+
+    assert findings == ["Описание: Размер без изменений.", "Контуры ровные."]
+    assert conclusion == "Признаков патологии не выявлено."
+    assert "Иванов" not in " ".join(findings)
 
 
 def test_text_pdf_is_extracted_without_codex():

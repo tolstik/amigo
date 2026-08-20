@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, labDownloadUrl } from "../api/client";
+import { api, labDownloadUrl, labEventsUrl } from "../api/client";
 import type { LabResult, LabResultInput } from "../api/types";
 import { ErrorState, LoadingState } from "../components/AsyncState";
 import { PageHeader } from "../components/PageHeader";
@@ -108,16 +108,15 @@ export function LabDocumentPage() {
   const loader = useCallback((signal: AbortSignal) => api.labDocument(id, signal), [id]);
   const document = useApi(loader);
   useEffect(() => {
-    if (!document.data || ["queued", "processing"].includes(document.data.status)) {
-      const timer = window.setInterval(document.reload, 3_000);
-      return () => window.clearInterval(timer);
-    }
-  }, [document.data?.status, document.reload]);
+    const events = new EventSource(labEventsUrl(), { withCredentials: true });
+    events.addEventListener("queue", document.reload);
+    return () => events.close();
+  }, [document.reload]);
   const row = document.data;
   async function confirm() { await api.confirmLab(id); document.reload(); }
   async function retry() { await api.retryLab(id); document.reload(); }
   return <>
-    <PageHeader eyebrow="Документ" title={row?.filename ?? "Результаты распознавания"} description="Сверьте каждую строку с оригиналом. Исправленные данные сразу перестраивают историю и рекомендации." actions={<><Link className="button button--secondary" to="/labs/upload">К списку</Link>{row && <a className="button button--secondary" href={labDownloadUrl(row.id)}>Оригинал</a>}{row?.status === "complete" && !row.verified && <button className="button button--primary" onClick={confirm}>Всё проверено</button>}{row?.status === "failed" && <button className="button button--primary" onClick={retry}>Повторить</button>}</>} />
+    <PageHeader eyebrow="Документ" title={row?.filename ?? "Результаты распознавания"} description="Сверьте каждую строку с оригиналом. Исправленные данные сразу перестраивают историю и рекомендации." actions={<><Link className="button button--secondary" to="/labs/upload">К списку</Link>{row && <Link className="button button--secondary" to={`/labs/documents/${row.id}/view`}>Посмотреть</Link>}{row && <a className="button button--ghost" href={labDownloadUrl(row.id)}>Скачать</a>}{row?.status === "complete" && !row.verified && <button className="button button--primary" onClick={confirm}>Всё проверено</button>}{row?.status === "failed" && <button className="button button--primary" onClick={retry}>Повторить</button>}</>} />
     {document.loading && <LoadingState />}
     {document.error && <ErrorState onRetry={document.reload} />}
     {row && <>

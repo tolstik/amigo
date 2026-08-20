@@ -6,6 +6,7 @@ import type {
   AiNarrativeItem,
   CompositionPoint,
   HealthCorrelation,
+  HeartRateHourlyPoint,
   Insight,
   InsightTone,
   Overview,
@@ -30,6 +31,8 @@ import type {
   LabResult,
   LabResultInput,
   UserProfile,
+  StudyDocument,
+  StudyModality,
 } from "./types";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -523,8 +526,22 @@ export function normalizeRecoverySeries(payload: unknown, range: Period): Recove
     .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
   const summary = record(record(body).summary);
   const latest = points.at(-1);
+  const heartRateHourly = list(body, "heart_rate_hourly", "heartRateHourly")
+    .map((value): HeartRateHourlyPoint | null => {
+      const measuredAt = string(value, "measured_at", "measuredAt");
+      const averageBpm = number(value, "average_bpm", "averageBpm");
+      const minimumBpm = number(value, "minimum_bpm", "minimumBpm");
+      const maximumBpm = number(value, "maximum_bpm", "maximumBpm");
+      const sampleCount = number(value, "sample_count", "sampleCount");
+      return measuredAt && averageBpm !== null && minimumBpm !== null && maximumBpm !== null && sampleCount !== null
+        ? { measuredAt, averageBpm, minimumBpm, maximumBpm, sampleCount }
+        : null;
+    })
+    .filter((value): value is HeartRateHourlyPoint => value !== null)
+    .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
   return {
     points,
+    heartRateHourly,
     summary: {
       latestDate: string(summary, "latest_date", "latestDate") ?? latest?.measuredAt ?? null,
       sleepMinutes: number(summary, "sleep_minutes", "sleepMinutes") ?? latest?.sleepMinutes ?? null,
@@ -589,12 +606,19 @@ async function requestJson(path: string, init: RequestInit = {}, signal?: AbortS
     const csrf = csrfToken();
     if (csrf) headers.set("X-CSRF-Token", csrf);
   }
-  const response = await fetch(`${API_ROOT}${path}`, {
-    ...init,
-    signal,
-    credentials: "same-origin",
-    headers,
-  });
+  const blocking = !["GET", "HEAD", "OPTIONS"].includes(method);
+  if (blocking) window.dispatchEvent(new Event("amigo:loading:start"));
+  let response: Response;
+  try {
+    response = await fetch(`${API_ROOT}${path}`, {
+      ...init,
+      signal,
+      credentials: "same-origin",
+      headers,
+    });
+  } finally {
+    if (blocking) window.dispatchEvent(new Event("amigo:loading:end"));
+  }
   if (response.status === 401) window.dispatchEvent(new Event("amigo:unauthorized"));
   if (!response.ok) {
     let detail = `Сервер вернул ${response.status}`;
@@ -655,8 +679,26 @@ export const api = {
   uploadLab: async (file: File) => {
     const form = new FormData();
     form.set("file", file);
-    return requestJson("/labs/documents", { method: "POST", body: form }) as Promise<LabDocument>;
+    return requestJson("/labs/uploads", { method: "POST", body: form }) as Promise<LabDocument>;
   },
+  studies: async (signal?: AbortSignal) => {
+    const body = await fetchJson("/studies/documents", signal) as { items: StudyDocument[] };
+    return body.items;
+  },
+  study: async (id: string, signal?: AbortSignal) => fetchJson(`/studies/documents/${id}`, signal) as Promise<StudyDocument>,
+  uploadStudy: async (file: File, modality: StudyModality, title?: string, observedOn?: string) => {
+    const form = new FormData();
+    form.set("file", file);
+    form.set("modality", modality);
+    if (title) form.set("title", title);
+    if (observedOn) form.set("observed_on", observedOn);
+    return requestJson("/studies/uploads", { method: "POST", body: form }) as Promise<StudyDocument>;
+  },
+  patchStudy: async (id: string, patch: Record<string, unknown>) =>
+    requestJson(`/studies/documents/${id}`, { ...jsonBody(patch), method: "PATCH" }) as Promise<StudyDocument>,
+  confirmStudy: async (id: string) => requestJson(`/studies/documents/${id}/confirm`, { method: "POST" }) as Promise<StudyDocument>,
+  retryStudy: async (id: string) => requestJson(`/studies/documents/${id}/retry`, { method: "POST" }) as Promise<StudyDocument>,
+  deleteStudy: async (id: string) => requestJson(`/studies/documents/${id}`, { method: "DELETE" }),
   confirmLab: async (id: string) => requestJson(`/labs/documents/${id}/confirm`, { method: "POST" }) as Promise<LabDocument>,
   retryLab: async (id: string) => requestJson(`/labs/documents/${id}/retry`, { method: "POST" }) as Promise<LabDocument>,
   deleteLab: async (id: string) => requestJson(`/labs/documents/${id}`, { method: "DELETE" }),
@@ -682,6 +724,26 @@ export function assistantEventsUrl(messageId: string): string {
 
 export function labDownloadUrl(documentId: string): string {
   return `${API_ROOT}/labs/documents/${documentId}/download`;
+}
+
+export function labViewUrl(documentId: string): string {
+  return `${API_ROOT}/labs/documents/${documentId}/view`;
+}
+
+export function labEventsUrl(): string {
+  return `${API_ROOT}/labs/events`;
+}
+
+export function studyEventsUrl(): string {
+  return `${API_ROOT}/studies/events`;
+}
+
+export function studyViewUrl(documentId: string): string {
+  return `${API_ROOT}/studies/documents/${documentId}/view`;
+}
+
+export function studyDownloadUrl(documentId: string): string {
+  return `${API_ROOT}/studies/documents/${documentId}/download`;
 }
 
 export function csvUrl(kind: "weight" | "pressure" | "composition" | "activity" | "recovery", range: Period): string {

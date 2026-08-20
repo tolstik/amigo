@@ -30,6 +30,7 @@ from .ai_models import AiAnalysisJob
 from .ai_queue import enqueue_analysis, latest_analysis
 from .ai_snapshot import build_analysis_snapshot, enqueue_current_analysis
 from .legacy import import_legacy, import_legacy_weight_file
+from .labs import backfill_stored_files
 from .models import ProviderCredential
 from .crypto import SecretCipher
 from .service import ensure_default_plan
@@ -150,6 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verification.add_argument("--directory", required=True)
     commands.add_parser("bootstrap", help="migrate, seed the plan, and import OAuth tokens from secrets")
+    commands.add_parser("backfill-files", help="verify and copy legacy laboratory originals into PostgreSQL")
     commands.add_parser("telegram-test", help="send an explicitly marked non-health test message")
     commands.add_parser("ai-enqueue", help="enqueue an immediate minimized AI snapshot")
     commands.add_parser(
@@ -263,6 +265,14 @@ def execute(args: argparse.Namespace) -> int:
             CredentialStore(db, settings).bootstrap()
             db.commit()
         print("bootstrap complete")
+        return 0
+    if args.command == "backfill-files":
+        with SessionLocal() as db:
+            copied, missing = backfill_stored_files(db, settings.lab_storage_dir)
+        if missing:
+            print(f"file backfill incomplete: missing={missing}", file=sys.stderr)
+            return 75
+        print(f"file backfill complete: copied={copied}")
         return 0
     if args.command == "telegram-test":
         client = TelegramClient(settings)

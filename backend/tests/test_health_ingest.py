@@ -302,6 +302,22 @@ def test_android_wire_aliases_and_sampled_records_are_normalised(db):
         "minimum_bpm": 60.0,
         "maximum_bpm": 80.0,
         "sample_count": 2,
+        "hourly": [
+            {
+                "at": "2026-08-19T07:00:00Z",
+                "average_bpm": 60.0,
+                "minimum_bpm": 60.0,
+                "maximum_bpm": 60.0,
+                "sample_count": 1,
+            },
+            {
+                "at": "2026-08-19T08:00:00Z",
+                "average_bpm": 80.0,
+                "minimum_bpm": 80.0,
+                "maximum_bpm": 80.0,
+                "sample_count": 1,
+            },
+        ],
     }
 
     sleep_batch_id = "android-sleep-batch"

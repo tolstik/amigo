@@ -135,6 +135,8 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
                 "/api/v1/export/weight.csv?range=all",
                 "/api/v1/labs/documents",
                 "/api/v1/labs/summary",
+                "/api/v1/studies/documents",
+                "/api/v1/app-update",
                 "/api/v1/assistant/messages",
                 "/api/v1/profile",
             ):
@@ -142,5 +144,7 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
             assert client.post(
                 "/api/v1/labs/documents/00000000-0000-0000-0000-000000000000/results"
             ).status_code == 401
+            assert client.post("/api/v1/labs/uploads").status_code == 401
+            assert client.post("/api/v1/studies/uploads").status_code == 401
     finally:
         app.dependency_overrides.clear()

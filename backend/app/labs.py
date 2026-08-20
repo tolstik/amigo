@@ -3,12 +3,16 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from hashlib import sha256
+from io import BytesIO
 import json
 from pathlib import Path
 import re
 import secrets
 import unicodedata
 from uuid import uuid4
+
+from PIL import Image
+from pillow_heif import register_heif_opener
 
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
@@ -24,6 +28,7 @@ from .lab_models import (
     LabReport,
     LabResult,
     LabTextChunk,
+    StoredFile,
 )
 
 
@@ -33,6 +38,7 @@ MAX_IMAGE_PIXELS = 40_000_000
 LAB_EXTRACTION_CHUNK_CHARS = 80_000
 LAB_RETRIEVAL_CHUNK_CHARS = 36_000
 CATALOG_PATH = Path(__file__).parent / "data" / "lab_reference_catalog.v1.json"
+register_heif_opener()
 
 
 class LabFileError(ValueError):
@@ -63,7 +69,7 @@ def safe_filename(value: str | None) -> str:
     return name[:240] or "analysis"
 
 
-def store_upload(stream, filename: str, storage_dir: Path) -> tuple[Path, str, str, int, str]:
+def store_upload(stream, filename: str, storage_dir: Path) -> tuple[Path, str, str, int, str, bytes]:
     storage_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     storage_dir.chmod(0o700)
     storage_key = f"{secrets.token_hex(24)}.bin"
@@ -86,7 +92,8 @@ def store_upload(stream, filename: str, storage_dir: Path) -> tuple[Path, str, s
         descriptor.close()
         target.chmod(0o600)
         media_type = detect_media_type(header, filename)
-        return target, storage_key, media_type, total, digest.hexdigest()
+        content = target.read_bytes()
+        return target, storage_key, media_type, total, digest.hexdigest(), content
     except Exception:
         descriptor.close()
         target.unlink(missing_ok=True)
@@ -101,19 +108,36 @@ def enqueue_document(
     file_sha256: str,
     media_type: str,
     size_bytes: int,
+    content: bytes,
 ) -> LabDocument:
     existing = db.scalar(select(LabDocument).where(LabDocument.file_sha256 == file_sha256))
     if existing is not None:
         return existing
     now = datetime.now(timezone.utc)
+    stored = db.scalar(select(StoredFile).where(StoredFile.file_sha256 == file_sha256))
+    if stored is None:
+        stored = StoredFile(
+            id=str(uuid4()),
+            file_sha256=file_sha256,
+            original_filename=safe_filename(filename),
+            media_type=media_type,
+            size_bytes=size_bytes,
+            content=content,
+            created_at=now,
+        )
+        db.add(stored)
+        db.flush()
     document = LabDocument(
         id=str(uuid4()),
+        stored_file_id=stored.id,
         storage_key=storage_key,
         original_filename=safe_filename(filename),
         file_sha256=file_sha256,
         media_type=media_type,
         size_bytes=size_bytes,
         status="queued",
+        processing_stage="queued",
+        progress_percent=0,
         verified=False,
         created_at=now,
         updated_at=now,
@@ -132,6 +156,98 @@ def enqueue_document(
     db.commit()
     db.refresh(document)
     return document
+
+
+def original_bytes(db: Session, document: LabDocument, storage_dir: Path) -> bytes:
+    """Load the database original, with a temporary legacy-file fallback."""
+
+    if document.stored_file_id:
+        stored = db.get(StoredFile, document.stored_file_id)
+        if stored is not None:
+            data = bytes(stored.content)
+            if (
+                stored.file_sha256 != document.file_sha256
+                or stored.size_bytes != document.size_bytes
+                or len(data) != document.size_bytes
+                or sha256(data).hexdigest() != document.file_sha256
+            ):
+                raise LabFileError("original_changed")
+            return data
+    path = storage_dir / document.storage_key
+    if not path.is_file():
+        raise LabFileError("original_missing")
+    data = path.read_bytes()
+    if len(data) != document.size_bytes or sha256(data).hexdigest() != document.file_sha256:
+        raise LabFileError("original_changed")
+    return data
+
+
+def preview_bytes(content: bytes, media_type: str) -> tuple[bytes, str]:
+    if media_type != "image/heic":
+        return content, media_type
+    try:
+        with Image.open(BytesIO(content)) as image:
+            output = BytesIO()
+            image.convert("RGB").save(output, format="JPEG", quality=92, optimize=True)
+            return output.getvalue(), "image/jpeg"
+    except Exception as exc:
+        raise LabFileError("preview_unavailable") from exc
+
+
+def backfill_stored_files(db: Session, storage_dir: Path) -> tuple[int, int]:
+    """Copy and verify legacy originals into PostgreSQL without deleting rollback files."""
+
+    copied = 0
+    missing = 0
+    rows = list(db.scalars(select(LabDocument).order_by(LabDocument.created_at, LabDocument.id)))
+    for document in rows:
+        if document.stored_file_id:
+            existing_stored = db.get(StoredFile, document.stored_file_id)
+            if existing_stored is not None:
+                existing_content = bytes(existing_stored.content)
+                if (
+                    len(existing_content) != existing_stored.size_bytes
+                    or existing_stored.size_bytes != document.size_bytes
+                    or existing_stored.file_sha256 != document.file_sha256
+                    or sha256(existing_content).hexdigest() != document.file_sha256
+                ):
+                    raise LabFileError("original_changed")
+                db.expunge(existing_stored)
+                continue
+        path = storage_dir / document.storage_key
+        if not path.is_file():
+            missing += 1
+            continue
+        content = path.read_bytes()
+        if len(content) != document.size_bytes or sha256(content).hexdigest() != document.file_sha256:
+            raise LabFileError("original_changed")
+        stored = db.scalar(
+            select(StoredFile).where(StoredFile.file_sha256 == document.file_sha256)
+        )
+        if stored is None:
+            stored = StoredFile(
+                id=str(uuid4()),
+                file_sha256=document.file_sha256,
+                original_filename=document.original_filename,
+                media_type=document.media_type,
+                size_bytes=document.size_bytes,
+                content=content,
+            )
+            db.add(stored)
+            db.flush()
+        document.stored_file_id = stored.id
+        copied += 1
+    stored_rows = select(StoredFile).order_by(StoredFile.id).execution_options(yield_per=1)
+    for stored in db.scalars(stored_rows):
+        content = bytes(stored.content)
+        if (
+            len(content) != stored.size_bytes
+            or sha256(content).hexdigest() != stored.file_sha256
+        ):
+            raise LabFileError("original_changed")
+        db.expunge(stored)
+    db.commit()
+    return copied, missing
 
 
 def _fold(value: str | None) -> str:
@@ -429,6 +545,8 @@ def claim_lab_job(db: Session, now: datetime, lease_seconds: int = 300) -> LabPr
     document = db.get(LabDocument, job.document_id)
     if document:
         document.status = "processing"
+        document.processing_stage = "reading"
+        document.progress_percent = 10
         document.error_code = None
     db.commit()
     return job

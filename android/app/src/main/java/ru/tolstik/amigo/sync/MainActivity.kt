@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.content.pm.PackageManager
 import android.provider.OpenableColumns
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -65,17 +66,20 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.core.content.FileProvider
 import java.io.File
 import java.io.IOException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import org.json.JSONObject
 import ru.tolstik.amigo.sync.dashboard.DashboardDownloadRequest
 import ru.tolstik.amigo.sync.dashboard.DashboardFilePolicy
 import ru.tolstik.amigo.sync.dashboard.DashboardUrlPolicy
@@ -90,6 +94,14 @@ private data class SelectedDocument(
     val sizeBytes: Long?,
 )
 
+private data class AppUpdate(
+    val versionCode: Int,
+    val versionName: String,
+    val sizeBytes: Long,
+    val sha256: String,
+    val downloadUrl: String,
+)
+
 private class DashboardAuthenticationRequired : IOException()
 
 class MainActivity : ComponentActivity() {
@@ -101,6 +113,7 @@ class MainActivity : ComponentActivity() {
     private var dashboardGeneration by mutableIntStateOf(0)
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingDownload: DashboardDownloadRequest? = null
+    private var lastDashboardRefreshMs: Long = 0
 
     private val permissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract(),
@@ -112,18 +125,28 @@ class MainActivity : ComponentActivity() {
         val callback = fileChooserCallback
         fileChooserCallback = null
         if (callback == null) return@registerForActivityResult
-        val uri = result.data?.data?.takeIf { result.resultCode == Activity.RESULT_OK }
-        if (uri == null) {
+        val uris = if (result.resultCode == Activity.RESULT_OK) {
+            val clip = result.data?.clipData
+            when {
+                clip != null -> (0 until minOf(clip.itemCount, 25)).map { clip.getItemAt(it).uri }
+                result.data?.data != null -> listOf(result.data!!.data!!)
+                else -> emptyList()
+            }
+        } else emptyList()
+        if (uris.isEmpty()) {
             callback.onReceiveValue(null)
             return@registerForActivityResult
         }
-        val document = selectedDocument(uri)
-        if (!DashboardFilePolicy.isAllowedUpload(document.displayName, document.mimeType, document.sizeBytes)) {
+        val allowed = uris.all { uri ->
+            val document = selectedDocument(uri)
+            DashboardFilePolicy.isAllowedUpload(document.displayName, document.mimeType, document.sizeBytes)
+        }
+        if (!allowed) {
             Toast.makeText(this, "Выберите PDF, JPG, PNG или HEIC до 20 МиБ", Toast.LENGTH_LONG).show()
             callback.onReceiveValue(null)
             return@registerForActivityResult
         }
-        callback.onReceiveValue(arrayOf(uri))
+        callback.onReceiveValue(uris.toTypedArray())
     }
 
     private val saveDocumentLauncher = registerForActivityResult(
@@ -185,6 +208,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         if (selectedDestination == AppDestination.DASHBOARD) {
             dashboardWebView.onResume()
+            refreshDashboardIfStale()
         } else {
             viewModel.setSyncScreenVisible(true)
         }
@@ -257,6 +281,7 @@ class MainActivity : ComponentActivity() {
                     onCheckPairing = viewModel::checkPairing,
                     onResetPairing = viewModel::resetPairing,
                     onSync = viewModel::syncNow,
+                    onCheckUpdate = ::checkForAppUpdate,
                 )
             }
         }
@@ -299,6 +324,7 @@ class MainActivity : ComponentActivity() {
         DashboardWebViewCallbacks(
             onLoadingChanged = { loading ->
                 dashboardLoading = loading
+                if (!loading) lastDashboardRefreshMs = android.os.SystemClock.elapsedRealtime()
                 if (loading) dashboardError = false
             },
             onLoadError = {
@@ -321,6 +347,14 @@ class MainActivity : ComponentActivity() {
             dashboardWebView.onPause()
         } else {
             dashboardWebView.onResume()
+            refreshDashboardIfStale()
+        }
+    }
+
+    private fun refreshDashboardIfStale() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (lastDashboardRefreshMs > 0 && now - lastDashboardRefreshMs >= 30_000) {
+            dashboardWebView.reload()
         }
     }
 
@@ -356,7 +390,7 @@ class MainActivity : ComponentActivity() {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, DashboardFilePolicy.allowedUploadMimeTypes)
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         fileChooserLauncher.launch(intent)
     }
@@ -514,6 +548,138 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
+    private fun checkForAppUpdate() {
+        val cookies = CookieManager.getInstance().getCookie(DashboardUrlPolicy.ROOT_URL)
+            ?.takeIf(String::isNotBlank)
+        if (cookies == null) {
+            Toast.makeText(this, "Войдите в дашборд перед проверкой обновления", Toast.LENGTH_LONG).show()
+            return
+        }
+        lifecycleScope.launch {
+            Toast.makeText(this@MainActivity, "Проверяем обновление…", Toast.LENGTH_SHORT).show()
+            val result = runCatching { withContext(Dispatchers.IO) { fetchUpdate(cookies) } }
+            result.onSuccess { update ->
+                if (update.versionCode <= BuildConfig.VERSION_CODE) {
+                    Toast.makeText(this@MainActivity, "Установлена актуальная версия ${BuildConfig.VERSION_NAME}", Toast.LENGTH_LONG).show()
+                } else {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Доступна версия ${update.versionName}")
+                        .setMessage("APK будет скачан, проверен по SHA-256 и подписи, после чего Android покажет обязательное системное подтверждение установки.")
+                        .setNegativeButton("Позже", null)
+                        .setPositiveButton("Скачать и установить") { _, _ -> downloadAndInstallUpdate(update, cookies) }
+                        .show()
+                }
+            }.onFailure {
+                Toast.makeText(this@MainActivity, "Обновление сейчас недоступно", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun fetchUpdate(cookies: String): AppUpdate {
+        val request = Request.Builder()
+            .url("${DashboardUrlPolicy.ORIGIN}/amigo/api/v1/app-update")
+            .header("Accept", "application/json")
+            .header("Cookie", cookies)
+            .get()
+            .build()
+        (application as AmigoSyncApplication).container.http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful || response.isRedirect) throw IOException("Update metadata failed")
+            val body = response.body?.string() ?: throw IOException("Update metadata is empty")
+            val json = JSONObject(body)
+            val path = json.getString("download_url")
+            check(path == "/amigo/api/v1/app-update/apk")
+            val digest = json.getString("sha256").lowercase()
+            check(Regex("^[0-9a-f]{64}$").matches(digest))
+            return AppUpdate(
+                versionCode = json.getInt("version_code"),
+                versionName = json.getString("version_name"),
+                sizeBytes = json.getLong("size_bytes"),
+                sha256 = digest,
+                downloadUrl = DashboardUrlPolicy.ORIGIN + path,
+            )
+        }
+    }
+
+    private fun downloadAndInstallUpdate(update: AppUpdate, cookies: String) {
+        lifecycleScope.launch {
+            Toast.makeText(this@MainActivity, "Скачиваем обновление…", Toast.LENGTH_LONG).show()
+            val result = runCatching { withContext(Dispatchers.IO) { downloadVerifiedApk(update, cookies) } }
+            result.onSuccess(::openSystemInstaller).onFailure {
+                Toast.makeText(this@MainActivity, "APK не прошёл проверку или не загрузился", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun downloadVerifiedApk(update: AppUpdate, cookies: String): File {
+        check(update.downloadUrl == "${DashboardUrlPolicy.ORIGIN}/amigo/api/v1/app-update/apk")
+        check(update.sizeBytes in 1..150L * 1024 * 1024)
+        val directory = File(cacheDir, "updates").apply { mkdirs() }
+        val target = File(directory, "amigo-sync-${update.versionCode}.apk")
+        val digest = MessageDigest.getInstance("SHA-256")
+        val request = Request.Builder()
+            .url(update.downloadUrl)
+            .header("Accept", "application/vnd.android.package-archive")
+            .header("Cookie", cookies)
+            .get()
+            .build()
+        try {
+            (application as AmigoSyncApplication).container.http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful || response.isRedirect) throw IOException("APK download failed")
+                val body = response.body ?: throw IOException("APK body is empty")
+                if (body.contentLength() !in -1..update.sizeBytes) throw IOException("APK length mismatch")
+                var total = 0L
+                body.byteStream().use { input ->
+                    target.outputStream().buffered().use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            if (total > update.sizeBytes) throw IOException("APK too large")
+                            digest.update(buffer, 0, count)
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
+                if (total != update.sizeBytes) throw IOException("APK size mismatch")
+            }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            if (actual != update.sha256 || !hasCurrentAppSigner(target, update.versionCode)) {
+                throw IOException("APK verification failed")
+            }
+            return target
+        } catch (error: Exception) {
+            target.delete()
+            throw error
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun hasCurrentAppSigner(apk: File, expectedVersionCode: Int): Boolean {
+        val flags = PackageManager.GET_SIGNING_CERTIFICATES
+        val archive = packageManager.getPackageArchiveInfo(apk.absolutePath, flags) ?: return false
+        if (
+            archive.packageName != packageName ||
+            archive.longVersionCode != expectedVersionCode.toLong() ||
+            archive.longVersionCode <= BuildConfig.VERSION_CODE
+        ) return false
+        val installed = packageManager.getPackageInfo(packageName, flags)
+        fun digests(info: android.content.pm.PackageInfo): Set<String> =
+            info.signingInfo?.apkContentsSigners.orEmpty().map { signature ->
+                MessageDigest.getInstance("SHA-256").digest(signature.toByteArray()).joinToString("") { "%02x".format(it) }
+            }.toSet()
+        return digests(archive).isNotEmpty() && digests(archive) == digests(installed)
+    }
+
+    private fun openSystemInstaller(apk: File) {
+        val uri = FileProvider.getUriForFile(this, "$packageName.updates", apk)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
+    }
+
     companion object {
         private const val STATE_DESTINATION = "amigo.destination"
         private const val STATE_WEB_VIEW = "amigo.web_view"
@@ -533,6 +699,7 @@ private fun SyncScreen(
     onCheckPairing: () -> Unit,
     onResetPairing: () -> Unit,
     onSync: () -> Unit,
+    onCheckUpdate: () -> Unit,
 ) {
     val local = state.local
     LazyColumn(
@@ -668,6 +835,9 @@ private fun SyncScreen(
                 Text("История: ${local?.completedTypes ?: 0}/11 типов")
                 Text("Последняя отправка: ${formatInstant(local?.lastSync)}")
                 Text("Данные актуальны на: ${formatInstant(local?.dataAsOf)}")
+                Text("Последний фоновый запуск: ${formatInstant(local?.backgroundLastStarted)}")
+                Text("Фоновый результат: ${local?.backgroundResult ?: "—"}")
+                Text("Фоновый запуск завершён: ${formatInstant(local?.backgroundLastFinished)}")
                 local?.lastError?.let { Text("Ошибка: $it", color = MaterialTheme.colorScheme.error) }
                 Button(
                     onClick = onSync,
@@ -679,6 +849,12 @@ private fun SyncScreen(
                         Text(" Выполняется…")
                     }
                 }
+            }
+        }
+        item {
+            SectionCard("4. Обновление приложения") {
+                Text("Текущая версия: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                OutlinedButton(onClick = onCheckUpdate, enabled = !state.busy) { Text("Проверить обновление") }
             }
         }
         item {

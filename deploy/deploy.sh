@@ -47,7 +47,8 @@ readonly AUTO_RECOVERY
 
 amigo_require_root
 amigo_require_commands \
-    bash chmod curl date docker flock git install mariadb mktemp mv nginx realpath sleep stat
+    awk bash chmod cmp curl date docker flock git install mariadb mktemp mv nginx realpath rm \
+    sha256sum sleep stat
 amigo_require_production_layout
 amigo_acquire_deploy_lock
 
@@ -100,21 +101,36 @@ bash "${SCRIPT_DIR}/test-release-recovery.sh" "${PREVIOUS_RELEASE_SHA}"
     || amigo_die "recorded previous release image is unavailable"
 bash "${SCRIPT_DIR}/install-release-wrapper.sh"
 export AMIGO_IMAGE_TAG="${RELEASE_SHA}"
+CANDIDATE_IMAGE_SOURCE="ghcr.io/tolstik/amigo:${RELEASE_SHA}"
+readonly CANDIDATE_IMAGE_SOURCE
+readonly ANDROID_APK_URL="https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk"
+readonly ANDROID_APK_SHA256="38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd"
 amigo_log "candidate Git SHA: ${RELEASE_SHA}"
 amigo_log "automatic recovery target: ${PREVIOUS_RELEASE_SHA}"
 
 [[ ! -L "${AMIGO_APP_DIR}/data" && ! -L "${AMIGO_IMPORT_DIR}" ]] \
     || amigo_die "application data/import paths must not be symlinks"
 install -d -o root -g root -m 0700 \
-    "${AMIGO_APP_DIR}/data" "${AMIGO_IMPORT_DIR}" "${AMIGO_LAB_FILES_DIR}"
+    "${AMIGO_APP_DIR}/data" "${AMIGO_IMPORT_DIR}" "${AMIGO_LAB_FILES_DIR}" \
+    "${AMIGO_APP_DIR}/data/android"
 
 amigo_compose config --quiet
 nginx -t >/dev/null
+
+amigo_log "preparing the pinned AI runtime and downloading immutable release images"
+bash "${SCRIPT_DIR}/prepare-ai-runtime.sh"
+docker pull "${CANDIDATE_IMAGE_SOURCE}"
+amigo_assert_image_revision "${CANDIDATE_IMAGE_SOURCE}" "${RELEASE_SHA}"
+docker image tag "${CANDIDATE_IMAGE_SOURCE}" "amigo:${RELEASE_SHA}"
+amigo_assert_image_revision "amigo:${RELEASE_SHA}" "${RELEASE_SHA}"
+amigo_compose pull db
 
 SNAPSHOT=""
 CUTOVER_STARTED=0
 CUTOVER_COMMITTED=0
 CANDIDATE_RUNTIME_ACTIVE=0
+ANDROID_APK_DOWNLOAD=""
+ANDROID_APK_INSTALL_CANDIDATE=""
 EXISTING_WORKER_STOPPED=0
 EXISTING_WORKER_WAS_RUNNING=0
 EXISTING_AI_WORKER_STOPPED=0
@@ -130,6 +146,9 @@ deploy_error() {
     trap - ERR
     trap '' HUP INT TERM
     set +e
+    [[ -z "${ANDROID_APK_DOWNLOAD}" ]] || rm -f -- "${ANDROID_APK_DOWNLOAD}"
+    [[ -z "${ANDROID_APK_INSTALL_CANDIDATE}" ]] \
+        || rm -f -- "${ANDROID_APK_INSTALL_CANDIDATE}"
     amigo_log "deployment failed at line ${line} (status ${status})"
     if [[ ${CUTOVER_COMMITTED} -eq 1 ]]; then
         amigo_log "runtime cutover remains healthy; finish the release-state/checkpoint step manually"
@@ -184,6 +203,14 @@ trap 'deploy_error 129 "${LINENO}"' HUP
 trap 'deploy_error 130 "${LINENO}"' INT
 trap 'deploy_error 143 "${LINENO}"' TERM
 
+ANDROID_APK_DOWNLOAD="$(mktemp /run/amigo-android-apk.XXXXXX)"
+chmod 0600 "${ANDROID_APK_DOWNLOAD}"
+curl --fail --location --silent --show-error --max-time 180 \
+    --output "${ANDROID_APK_DOWNLOAD}" "${ANDROID_APK_URL}"
+[[ "$(sha256sum "${ANDROID_APK_DOWNLOAD}" | awk '{ print $1 }')" \
+    == "${ANDROID_APK_SHA256}" ]] \
+    || amigo_die "downloaded Android APK hash differs from the signed release"
+
 SNAPSHOT="$(AMIGO_DEPLOY_LOCK_HELD=1 bash "${SCRIPT_DIR}/pre-cutover-backup.sh")"
 amigo_assert_snapshot "${SNAPSHOT}"
 [[ "$(amigo_snapshot_metadata_value "${SNAPSHOT}" previous_release_sha)" \
@@ -192,12 +219,7 @@ amigo_assert_snapshot "${SNAPSHOT}"
 [[ -n "$(amigo_snapshot_metadata_value "${SNAPSHOT}" previous_application_rollback_image)" ]]
 [[ -n "$(amigo_snapshot_metadata_value "${SNAPSHOT}" previous_database_image_id)" ]]
 [[ -n "$(amigo_snapshot_metadata_value "${SNAPSHOT}" previous_database_rollback_image)" ]]
-bash "${SCRIPT_DIR}/prepare-ai-runtime.sh"
-
-amigo_log "pulling PostgreSQL and building immutable application images"
 CUTOVER_STARTED=1
-amigo_compose pull db
-amigo_compose build --pull web
 
 existing_worker_container=$(amigo_compose ps -q worker)
 if [[ -n "${existing_worker_container}" ]] \
@@ -242,9 +264,13 @@ for attempt in {1..60}; do
     sleep 2
 done
 
-amigo_log "running schema migration and idempotent bootstrap"
-amigo_compose run --rm --no-deps worker python -m app.cli migrate
+amigo_log "running the idempotent bootstrap, including schema migrations"
 amigo_compose run --rm --no-deps worker python -m app.cli bootstrap
+
+amigo_log "copying and verifying legacy laboratory originals in PostgreSQL"
+amigo_compose run --rm --no-deps \
+    --volume "${AMIGO_LAB_FILES_DIR}:/lab-files:ro" \
+    worker python -m app.cli backfill-files
 
 if amigo_compose run --rm --no-deps --user 0 worker python -m app.cli auth-status; then
     amigo_log "local authentication is already configured"
@@ -279,9 +305,9 @@ fi
 amigo_log "confirming Withings collection ownership remains with Amigo"
 bash "${SCRIPT_DIR}/cron-control.sh" disable
 
-amigo_log "performing full import with historical notifications suppressed"
+amigo_log "performing incremental import with notifications suppressed"
 amigo_compose run --rm --no-deps worker \
-    python -m app.cli sync --full --suppress-notifications
+    python -m app.cli sync --suppress-notifications
 
 amigo_log "refreshing the rollback collector with the current OAuth token pair"
 amigo_handback_withings_tokens
@@ -295,15 +321,22 @@ mariadb --batch --skip-column-names "${AMIGO_LEGACY_DB}" \
     >"${LEGACY_IMPORT_CANDIDATE}"
 [[ -s "${LEGACY_IMPORT_CANDIDATE}" ]] \
     || amigo_die "legacy MariaDB weight export is empty"
-if [[ -e "${AMIGO_LEGACY_WEIGHT_IMPORT}" ]]; then
+if [[ -e "${AMIGO_LEGACY_WEIGHT_IMPORT}" ]] \
+    && cmp --silent "${LEGACY_IMPORT_CANDIDATE}" "${AMIGO_LEGACY_WEIGHT_IMPORT}"; then
+    amigo_log "legacy weight export is unchanged; keeping the existing rollback import"
+    rm -- "${LEGACY_IMPORT_CANDIDATE}"
+elif [[ -e "${AMIGO_LEGACY_WEIGHT_IMPORT}" ]]; then
     PRESERVED_IMPORT="${AMIGO_LEGACY_WEIGHT_IMPORT}.previous.$(date -u +%Y%m%dT%H%M%SZ)"
     readonly PRESERVED_IMPORT
     [[ ! -e "${PRESERVED_IMPORT}" ]] \
         || amigo_die "refusing to overwrite preserved legacy TSV: ${PRESERVED_IMPORT}"
     mv -- "${AMIGO_LEGACY_WEIGHT_IMPORT}" "${PRESERVED_IMPORT}"
+    mv -- "${LEGACY_IMPORT_CANDIDATE}" "${AMIGO_LEGACY_WEIGHT_IMPORT}"
+    chmod 0600 "${AMIGO_LEGACY_WEIGHT_IMPORT}"
+else
+    mv -- "${LEGACY_IMPORT_CANDIDATE}" "${AMIGO_LEGACY_WEIGHT_IMPORT}"
+    chmod 0600 "${AMIGO_LEGACY_WEIGHT_IMPORT}"
 fi
-mv -- "${LEGACY_IMPORT_CANDIDATE}" "${AMIGO_LEGACY_WEIGHT_IMPORT}"
-chmod 0600 "${AMIGO_LEGACY_WEIGHT_IMPORT}"
 
 amigo_log "merging legacy-only weight rows without creating notifications"
 amigo_compose run --rm --no-deps --user 0 worker \
@@ -316,6 +349,17 @@ amigo_log "starting web without worker and checking the loopback-only endpoint"
 amigo_compose up -d web
 amigo_wait_for_http "${AMIGO_DIRECT_HEALTH_URL}" 60 \
     || amigo_die "web health endpoint did not become ready"
+
+amigo_log "installing the verified signed Android 1.2.0 update"
+ANDROID_APK_INSTALL_CANDIDATE="${AMIGO_ANDROID_APK}.candidate.$$"
+install -o root -g root -m 0600 \
+    "${ANDROID_APK_DOWNLOAD}" "${ANDROID_APK_INSTALL_CANDIDATE}"
+[[ "$(sha256sum "${ANDROID_APK_INSTALL_CANDIDATE}" | awk '{ print $1 }')" \
+    == "${ANDROID_APK_SHA256}" ]]
+mv -- "${ANDROID_APK_INSTALL_CANDIDATE}" "${AMIGO_ANDROID_APK}"
+ANDROID_APK_INSTALL_CANDIDATE=""
+rm -f -- "${ANDROID_APK_DOWNLOAD}"
+ANDROID_APK_DOWNLOAD=""
 
 amigo_log "starting isolated Codex gateway and laboratory parser"
 amigo_compose up -d --wait --wait-timeout 180 ai-gateway lab-parser

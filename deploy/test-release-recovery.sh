@@ -96,10 +96,64 @@ grep --quiet --fixed-strings "bash \"\${SCRIPT_DIR}/verify-production.sh\"" \
     || amigo_die "standalone checkpoint no longer runs the complete verification suite"
 pull_line=$(grep --line-number --fixed-strings 'amigo_compose pull db' \
     "${SCRIPT_DIR}/deploy.sh" | cut -d: -f1)
+# Literal shell-variable syntax is the deploy source pattern being required.
+# shellcheck disable=SC2016
+image_pull_line=$(grep --line-number --fixed-strings 'docker pull "${CANDIDATE_IMAGE_SOURCE}"' \
+    "${SCRIPT_DIR}/deploy.sh" | cut -d: -f1)
+# Literal command substitution is the deploy source pattern being required.
+# shellcheck disable=SC2016
+snapshot_line=$(grep --line-number --fixed-strings \
+    'SNAPSHOT="$(AMIGO_DEPLOY_LOCK_HELD=1 bash "${SCRIPT_DIR}/pre-cutover-backup.sh")"' \
+    "${SCRIPT_DIR}/deploy.sh" | cut -d: -f1)
 cutover_line=$(grep --line-number --fixed-strings 'CUTOVER_STARTED=1' \
     "${SCRIPT_DIR}/deploy.sh" | head -n 1 | cut -d: -f1)
-[[ -n "${pull_line}" && -n "${cutover_line}" && ${cutover_line} -lt ${pull_line} ]] \
-    || amigo_die "mutable PostgreSQL pull is outside automatic previous-release recovery"
+[[ -n "${pull_line}" && -n "${image_pull_line}" && -n "${snapshot_line}" \
+    && -n "${cutover_line}" && ${pull_line} -lt ${snapshot_line} \
+    && ${image_pull_line} -lt ${snapshot_line} && ${snapshot_line} -lt ${cutover_line} ]] \
+    || amigo_die "release images must be prepared before the verified cutover snapshot"
+if grep --quiet --fixed-strings 'amigo_compose build' "${SCRIPT_DIR}/deploy.sh"; then
+    amigo_die "production deploy still builds the application image on the weak server"
+fi
+# Literal shell-variable syntax is the deploy source pattern being required.
+# shellcheck disable=SC2016
+grep --quiet --fixed-strings 'ghcr.io/tolstik/amigo:${RELEASE_SHA}' \
+    "${SCRIPT_DIR}/deploy.sh" \
+    || amigo_die "production deploy does not pull the immutable CI image"
+[[ "$(grep --count --fixed-strings 'python -m app.cli bootstrap' "${SCRIPT_DIR}/deploy.sh")" -eq 1 ]] \
+    || amigo_die "deploy must run exactly one bootstrap/migration pass"
+if grep --quiet --fixed-strings 'python -m app.cli migrate' "${SCRIPT_DIR}/deploy.sh"; then
+    amigo_die "deploy redundantly runs migrate before bootstrap"
+fi
+grep --quiet --fixed-strings 'python -m app.cli backfill-files' "${SCRIPT_DIR}/deploy.sh" \
+    || amigo_die "deploy does not verify database-owned laboratory originals"
+grep --quiet --fixed-strings 'python -m app.cli sync --suppress-notifications' \
+    "${SCRIPT_DIR}/deploy.sh" \
+    || amigo_die "deploy does not use the bounded incremental synchronization"
+if grep --quiet --fixed-strings 'sync --full' "${SCRIPT_DIR}/deploy.sh"; then
+    amigo_die "deploy still performs an expensive full Withings synchronization"
+fi
+# Literal shell-variable syntax is the deploy source pattern being required.
+# shellcheck disable=SC2016
+grep --quiet --fixed-strings 'cmp --silent "${LEGACY_IMPORT_CANDIDATE}"' \
+    "${SCRIPT_DIR}/deploy.sh" \
+    || amigo_die "deploy rewrites unchanged legacy rollback exports"
+grep --quiet --fixed-strings \
+    'https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk' \
+    "${SCRIPT_DIR}/deploy.sh" \
+    || amigo_die "deploy does not fetch the published signed Android update"
+grep --quiet --fixed-strings \
+    '38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd' \
+    "${SCRIPT_DIR}/deploy.sh" \
+    || amigo_die "deploy does not pin the signed Android update hash"
+grep --quiet --fixed-strings \
+    'needs: [backend, frontend, frontend-e2e, android, release-gates]' \
+    "${PROJECT_ROOT}/.github/workflows/ci.yml" \
+    || amigo_die "CI image publication is not gated by every test job"
+# Literal GitHub Actions variable syntax is the workflow source pattern being required.
+# shellcheck disable=SC2016
+grep --quiet --fixed-strings 'docker push "ghcr.io/tolstik/amigo:${GITHUB_SHA}"' \
+    "${PROJECT_ROOT}/.github/workflows/ci.yml" \
+    || amigo_die "CI does not publish an immutable SHA-tagged production image"
 
 rollback_output="$(mktemp)"
 trap 'rm -f -- "${rollback_output}"' EXIT
@@ -127,7 +181,8 @@ for metadata_key in \
     previous_ai_prompt_version \
     previous_auth_floor \
     previous_managed_route_state \
-    previous_compose_sha256; do
+    previous_compose_sha256 \
+    previous_android_apk_present; do
     grep --quiet --fixed-strings "${metadata_key}" "${SCRIPT_DIR}/pre-cutover-backup.sh" \
         || amigo_die "snapshot producer is missing metadata key: ${metadata_key}"
     grep --quiet --fixed-strings "${metadata_key}" "${SCRIPT_DIR}/restore-previous-release.sh" \
@@ -186,9 +241,13 @@ fi
 # shellcheck disable=SC2016
 for explicit_dynamic_proxy in \
     'api/v1/labs/documents/$amigo_lab_action_document_id/$amigo_lab_document_action' \
+    'api/v1/labs/documents/$amigo_lab_view_document_id/view' \
     'api/v1/labs/documents/$amigo_lab_create_document_id/results' \
     'api/v1/labs/documents/$amigo_lab_detail_document_id' \
     'api/v1/labs/results/$amigo_lab_patch_result_id' \
+    'api/v1/studies/documents/$amigo_study_action_document_id/$amigo_study_document_action' \
+    'api/v1/studies/documents/$amigo_study_view_document_id/view' \
+    'api/v1/studies/documents/$amigo_study_document_id' \
     'api/v1/assistant/messages/$amigo_chat_retry_id/retry' \
     'api/v1/assistant/messages/$amigo_chat_events_id/events'; do
     grep --quiet --fixed-strings "${explicit_dynamic_proxy}" \
@@ -201,9 +260,20 @@ managed_rate_status_count="$(grep --count --fixed-strings 'limit_req_status 429;
     "${SCRIPT_DIR}/nginx/amigo.locations.conf")"
 [[ "${managed_rate_limit_count}" -eq "${managed_rate_status_count}" ]] \
     || amigo_die "every managed rate limit must return explicit HTTP 429"
-grep --quiet --fixed-strings 'limit_req zone=amigo_upload burst=5 nodelay;' \
+grep --quiet --fixed-strings 'limit_req zone=amigo_upload burst=25 nodelay;' \
     "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
-    || amigo_die "laboratory upload burst does not cover the bounded UI/verification sequence"
+    || amigo_die "upload burst does not cover one bounded 25-file UI batch"
+for queue_route in \
+    'location = /amigo/api/v1/labs/uploads {' \
+    'location = /amigo/api/v1/labs/events {' \
+    'location = /amigo/api/v1/studies/uploads {' \
+    'location = /amigo/api/v1/studies/events {'; do
+    grep --quiet --fixed-strings "${queue_route}" "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
+        || amigo_die "managed route is missing: ${queue_route}"
+done
+[[ "$(grep --count --fixed-strings 'proxy_pass_header X-Accel-Buffering;' \
+    "${SCRIPT_DIR}/nginx/amigo.locations.conf")" -eq 3 ]] \
+    || amigo_die "assistant, laboratory, and study SSE routes must pass no-buffer headers"
 grep --quiet --fixed-strings 'proxy_pass_header X-Accel-Buffering;' \
     "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
     || amigo_die "assistant SSE route does not pass its no-buffer response contract"
@@ -226,8 +296,8 @@ grep --quiet --fixed-strings '"${SSE_ORIGIN_HEADERS}"' \
     || amigo_die "production verification does not inspect the origin SSE headers"
 [[ "$(grep --count --fixed-strings \
     "require_header '^x-accel-buffering:[[:space:]]*no'" \
-    "${SCRIPT_DIR}/verify-production.sh")" -eq 1 ]] \
-    || amigo_die "X-Accel-Buffering must be required exactly once at the origin boundary"
+    "${SCRIPT_DIR}/verify-production.sh")" -eq 2 ]] \
+    || amigo_die "assistant plus shared queue verification must require origin no-buffer headers"
 grep --quiet --fixed-strings 'lab-parser' "${SCRIPT_DIR}/rollback.sh" \
     || amigo_die "legacy disaster fallback does not stop the isolated laboratory parser"
 # Literal variable syntax is the unsafe source pattern being rejected.

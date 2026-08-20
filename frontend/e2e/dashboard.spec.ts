@@ -88,6 +88,27 @@ const labDocument = {
   completed_at: "2026-08-28T09:01:00Z",
   result_count: 1,
 };
+const studyDocument = {
+  id: "40000000-0000-0000-0000-000000000001",
+  filename: "mri-report.pdf",
+  media_type: "application/pdf",
+  size_bytes: 125000,
+  modality: "mri",
+  title: "МРТ коленного сустава",
+  observed_on: "2026-08-30",
+  status: "complete",
+  processing_stage: "complete",
+  progress_percent: 100,
+  queue_position: null,
+  verified: true,
+  page_count: 2,
+  error_code: null,
+  created_at: "2026-08-30T09:00:00Z",
+  completed_at: "2026-08-30T09:01:00Z",
+  findings: ["Суставные поверхности без видимых изменений."],
+  conclusion: "Значимых изменений не выявлено.",
+  extracted_text: "Описание исследования без идентификаторов.",
+};
 const assistantRecommendation = {
   id: "lab-review",
   title: "Сверить динамику",
@@ -109,7 +130,9 @@ test.beforeEach(async ({ page }) => {
       counts: { within_reference: 1, below_reference: 0, above_reference: 0, outside_reference: 0, indeterminate: 0 },
     } });
     if (path.endsWith("/labs/documents") && method === "GET") return route.fulfill({ json: { items: [labDocument] } });
-    if (path.endsWith("/labs/documents") && method === "POST") return route.fulfill({ status: 202, json: { ...labDocument, status: "queued", verified: false } });
+    if (path.endsWith("/labs/uploads") && method === "POST") return route.fulfill({ status: 202, json: { ...labDocument, status: "queued", verified: false } });
+    if (path.endsWith("/studies/documents") && method === "GET") return route.fulfill({ json: { items: [studyDocument] } });
+    if (path.endsWith(`/studies/documents/${studyDocument.id}`)) return route.fulfill({ json: studyDocument });
     if (path.includes("/export/") && path.endsWith(".csv")) return route.fulfill({
       status: 200,
       contentType: "text/csv; charset=utf-8",
@@ -289,10 +312,10 @@ test("shows laboratory summary and upload queue", async ({ page }) => {
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.4 synthetic e2e fixture"),
   });
-  await expect(page.getByRole("status")).toContainText("Файл принят и поставлен в очередь");
+  await expect(page.getByRole("status")).toContainText("1 из 1 файлов приняты и поставлены в очередь");
   await expect(page.getByText("анализы.pdf")).toBeVisible();
 
-  await page.getByText("анализы.pdf").click();
+  await page.locator("article.document-row").filter({ hasText: "анализы.pdf" }).getByRole("link", { name: "Результаты" }).click();
   await page.getByRole("button", { name: "Добавить показатель" }).click();
   const form = page.locator("form.add-result-form");
   await form.getByLabel("Показатель").fill("Трансферрин");
@@ -315,8 +338,7 @@ test("downloads authenticated CSV and a laboratory original", async ({ page }) =
   expect(csv.suggestedFilename()).toBe("amigo-weight.csv");
 
   await page.goto(`./labs/documents/${labDocument.id}`);
-  const originalLink = page.getByRole("link", { name: "Оригинал" });
-  await originalLink.evaluate((element) => element.removeAttribute("download"));
+  const originalLink = page.getByRole("link", { name: "Скачать", exact: true });
   const originalPromise = page.waitForEvent("download");
   await originalLink.click();
   const original = await originalPromise;
@@ -338,7 +360,17 @@ test("separates laboratory history charts by unit", async ({ page }) => {
 
   await expect(page.getByRole("img", { name: "Динамика показателя в единицах нг/мл" })).toBeVisible();
   await expect(page.getByRole("img", { name: "Динамика показателя в единицах мкмоль/л" })).toBeVisible();
-  await expect(page.locator(".lab-reference-band")).toHaveCount(2);
+});
+
+test("opens the structured studies archive", async ({ page }) => {
+  await page.goto("./studies");
+  await expect(page.getByRole("heading", { name: "Исследования", exact: true })).toBeVisible();
+  const row = page.locator("article.document-row").filter({ hasText: "МРТ коленного сустава" });
+  await expect(row).toContainText("МРТ");
+  await row.getByRole("link", { name: "Заключение" }).click();
+  await expect(page.getByRole("heading", { name: "МРТ коленного сустава" })).toBeVisible();
+  await expect(page.getByText("Значимых изменений не выявлено.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Посмотреть оригинал" })).toBeVisible();
 });
 
 test("edits privacy profile and renders the persistent assistant", async ({ page }) => {

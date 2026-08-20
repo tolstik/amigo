@@ -2,6 +2,8 @@ import type { BarSeriesOption, EChartsOption, LineSeriesOption } from "echarts";
 import type {
   ActivityPoint,
   CompositionPoint,
+  HeartRateHourlyPoint,
+  LabResult,
   PressurePoint,
   RecoveryPoint,
   WeeklyActivityPoint,
@@ -151,6 +153,20 @@ function weeklyCategoryAxis(points: WeeklyWeightPoint[]) {
   };
 }
 
+function dailyCategoryAxis(points: Array<{ measuredAt: string }>) {
+  return {
+    ...sharedAxis,
+    type: "category" as const,
+    data: points.map((point) => point.measuredAt),
+    boundaryGap: true,
+    splitLine: { show: false },
+    axisLabel: {
+      ...sharedAxis.axisLabel,
+      formatter: (value: string) => formatDate(value, false),
+    },
+  };
+}
+
 function weeklyBar(name: string, data: Array<number | null>, color: string): BarSeriesOption {
   return {
     name,
@@ -264,7 +280,7 @@ export function activityDailyChartOption(points: ActivityPoint[]): EChartsOption
       borderWidth: 0,
       textStyle: { color: "#fff" },
     },
-    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false } },
+    xAxis: dailyCategoryAxis(points),
     yAxis: [
       { ...sharedAxis, type: "value", name: "шаги", nameTextStyle: { color: colors.muted }, min: 0 },
       { ...sharedAxis, type: "value", name: "мин", nameTextStyle: { color: colors.muted }, min: 0, splitLine: { show: false } },
@@ -328,7 +344,7 @@ export function sleepChartOption(points: RecoveryPoint[]): EChartsOption {
       borderWidth: 0,
       textStyle: { color: "#fff" },
     },
-    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false } },
+    xAxis: dailyCategoryAxis(points),
     yAxis: { ...sharedAxis, type: "value", min: 0, name: "минуты", nameTextStyle: { color: colors.muted } },
     dataZoom: [{ type: "inside", filterMode: "none" }],
     series: [
@@ -359,7 +375,7 @@ export function recoveryChartOption(points: RecoveryPoint[]): EChartsOption {
       borderWidth: 0,
       textStyle: { color: "#fff" },
     },
-    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false } },
+    xAxis: dailyCategoryAxis(points),
     yAxis: [
       { ...sharedAxis, type: "value", scale: true, name: "пульс", nameTextStyle: { color: colors.muted } },
       { ...sharedAxis, type: "value", scale: true, name: "HRV, мс", nameTextStyle: { color: colors.muted }, splitLine: { show: false } },
@@ -372,7 +388,7 @@ export function recoveryChartOption(points: RecoveryPoint[]): EChartsOption {
   };
 }
 
-export function heartRateChartOption(points: RecoveryPoint[]): EChartsOption {
+export function heartRateChartOption(points: HeartRateHourlyPoint[]): EChartsOption {
   return {
     animationDuration: 500,
     color: [colors.blue, colors.coral, colors.violet],
@@ -390,15 +406,86 @@ export function heartRateChartOption(points: RecoveryPoint[]): EChartsOption {
     yAxis: { ...sharedAxis, type: "value", scale: true, name: "уд/мин", nameTextStyle: { color: colors.muted } },
     dataZoom: [{ type: "inside", filterMode: "none" }],
     series: [
-      timeLine("Минимум", points.map((point) => [point.measuredAt, point.minimumHeartRateBpm]), colors.blue, {
+      timeLine("Минимум", points.map((point) => [point.measuredAt, point.minimumBpm]), colors.blue, {
         lineStyle: { width: 1.5, type: "dashed", color: colors.blue },
       }),
-      timeLine("Средний", points.map((point) => [point.measuredAt, point.averageHeartRateBpm]), colors.coral, {
+      timeLine("Средний", points.map((point) => [point.measuredAt, point.averageBpm]), colors.coral, {
         lineStyle: { width: 3, color: colors.coral },
       }),
-      timeLine("Максимум", points.map((point) => [point.measuredAt, point.maximumHeartRateBpm]), colors.violet, {
+      timeLine("Максимум", points.map((point) => [point.measuredAt, point.maximumBpm]), colors.violet, {
         lineStyle: { width: 1.5, type: "dashed", color: colors.violet },
       }),
+    ],
+  };
+}
+
+export function labHistoryChartOption(rows: LabResult[], unit: string): EChartsOption {
+  const numeric = rows.filter((row) => row.value_numeric !== null);
+  const axis = numeric.map((row, index) => `${row.observed_on ?? "Без даты"}#${index}`);
+  return {
+    animationDuration: 450,
+    color: [colors.green, colors.blue, colors.violet],
+    grid: { ...sharedGrid, top: 48 },
+    legend: { top: 4, left: 0, textStyle: { color: colors.muted } },
+    tooltip: {
+      trigger: "axis",
+      confine: true,
+      formatter: (params: any) => {
+        const entries = Array.isArray(params) ? params : [params];
+        const index = Number(entries[0]?.dataIndex ?? 0);
+        const row = numeric[index];
+        if (!row) return "";
+        const values = entries
+          .filter((entry: any) => entry.value !== null && entry.value !== undefined)
+          .map((entry: any) => `<div class="chart-tooltip-row"><span>${entry.marker}${entry.seriesName}</span><b>${formatNumber(Number(entry.value))}</b></div>`)
+          .join("");
+        return `<div class="chart-tooltip"><strong>${formatDate(row.observed_on)}</strong>${values}</div>`;
+      },
+      backgroundColor: "rgba(22,31,25,.95)",
+      borderWidth: 0,
+      textStyle: { color: "#fff" },
+    },
+    xAxis: {
+      ...sharedAxis,
+      type: "category",
+      data: axis,
+      boundaryGap: numeric.length < 2,
+      splitLine: { show: false },
+      axisLabel: {
+        ...sharedAxis.axisLabel,
+        formatter: (value: string) => formatDate(value.split("#", 1)[0], false),
+      },
+    },
+    yAxis: { ...sharedAxis, type: "value", scale: true, name: unit, nameTextStyle: { color: colors.muted } },
+    dataZoom: numeric.length > 12 ? [{ type: "inside", filterMode: "none" }] : undefined,
+    series: [
+      {
+        name: "Значение",
+        type: "line",
+        data: numeric.map((row) => row.value_numeric),
+        showSymbol: true,
+        symbolSize: 8,
+        smooth: false,
+        connectNulls: false,
+        lineStyle: { width: 3, color: colors.green },
+        itemStyle: { color: colors.green, borderColor: "#fff", borderWidth: 1 },
+      },
+      {
+        name: "Нижняя граница",
+        type: "line",
+        data: numeric.map((row) => row.reference_low),
+        showSymbol: false,
+        connectNulls: false,
+        lineStyle: { width: 1.5, type: "dashed", color: colors.blue },
+      },
+      {
+        name: "Верхняя граница",
+        type: "line",
+        data: numeric.map((row) => row.reference_high),
+        showSymbol: false,
+        connectNulls: false,
+        lineStyle: { width: 1.5, type: "dashed", color: colors.violet },
+      },
     ],
   };
 }

@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     lab_parser_url: str = "http://lab-parser:8085"
     lab_parser_timeout_seconds: int = 180
     assistant_max_attempts: int = 2
+    android_apk_path: Path = Path("/android/amigo-sync.apk")
+    android_apk_version_code: int = 5
+    android_apk_version_name: str = "1.2.0"
 
     token_encryption_key: str | None = Field(default=None, repr=False)
     withings_client_id: str | None = None
@@ -51,7 +54,7 @@ class Settings(BaseSettings):
     telegram_api_url: str = "https://api.telegram.org"
 
     sync_interval_seconds: int = 300
-    outbox_poll_seconds: int = 10
+    outbox_poll_seconds: int = 60
     withings_overlap_seconds: int = 900
     new_group_settle_seconds: int = Field(
         default=120,
@@ -70,7 +73,7 @@ class Settings(BaseSettings):
     ai_enabled: bool = False
     ai_gateway_url: str = "http://ai-gateway:8090"
     ai_gateway_timeout_seconds: int = 90
-    ai_poll_seconds: int = 5
+    ai_poll_seconds: int = 60
     ai_debounce_seconds: int = 300
     ai_activity_min_interval_seconds: int = 3600
     ai_stale_seconds: int = 86400
@@ -136,6 +139,7 @@ class Settings(BaseSettings):
         "auth_session_days",
         "lab_parser_timeout_seconds",
         "assistant_max_attempts",
+        "android_apk_version_code",
     )
     @classmethod
     def positive_interval(cls, value: int) -> int:

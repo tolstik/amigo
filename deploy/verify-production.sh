@@ -10,7 +10,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 amigo_require_root
 amigo_require_commands \
-    awk cmp crontab curl docker git grep install mariadb mktemp nginx python3 rm rmdir \
+    awk cmp crontab curl dirname docker git grep install mariadb mktemp nginx python3 rm rmdir \
     sha256sum sleep ss stat visudo
 amigo_require_production_layout
 
@@ -34,6 +34,8 @@ readonly UNSUPPORTED_FILE="${TMP_DIR}/unsupported.txt"
 readonly SSE_ORIGIN_HEADERS="${TMP_DIR}/sse-origin.headers"
 readonly SSE_HEADERS="${TMP_DIR}/sse.headers"
 readonly SSE_BODY="${TMP_DIR}/sse.body"
+readonly APK_HEADERS="${TMP_DIR}/apk.headers"
+readonly APK_BODY="${TMP_DIR}/amigo-sync.apk"
 readonly ASSET_HEADERS="${TMP_DIR}/asset.headers"
 readonly ASSETLINKS_HEADERS="${TMP_DIR}/assetlinks.headers"
 readonly ASSETLINKS_BODY="${TMP_DIR}/assetlinks.json"
@@ -59,6 +61,8 @@ cleanup() {
         "${SSE_ORIGIN_HEADERS}" \
         "${SSE_HEADERS}" \
         "${SSE_BODY}" \
+        "${APK_HEADERS}" \
+        "${APK_BODY}" \
         "${ASSET_HEADERS}" \
         "${ASSETLINKS_HEADERS}" \
         "${ASSETLINKS_BODY}" \
@@ -397,6 +401,43 @@ parser_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destinati
     || amigo_die "isolated parser unexpectedly mounts laboratory originals"
 amigo_log "PASS root-only laboratory originals and least-privilege mounts"
 
+readonly EXPECTED_ANDROID_APK_SHA256="38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd"
+[[ -f "${AMIGO_ANDROID_APK}" && ! -L "${AMIGO_ANDROID_APK}" ]] \
+    || amigo_die "signed Android update is missing or is a symlink"
+[[ "$(stat -c '%a' "${AMIGO_ANDROID_APK}")" == "600" ]] \
+    || amigo_die "signed Android update mode is not exactly 0600"
+[[ "$(stat -c '%U:%G' "${AMIGO_ANDROID_APK}")" == "root:root" ]] \
+    || amigo_die "signed Android update is not owned by root:root"
+[[ "$(sha256sum "${AMIGO_ANDROID_APK}" | awk '{ print $1 }')" \
+    == "${EXPECTED_ANDROID_APK_SHA256}" ]] \
+    || amigo_die "installed Android update hash differs from signed 1.2.0"
+web_android_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/android"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${web_container}")"
+[[ "${web_android_mount}" == "$(dirname -- "${AMIGO_ANDROID_APK}")|false" ]] \
+    || amigo_die "web Android update mount is missing, writable, or sourced unexpectedly"
+
+amigo_compose run --rm --no-deps worker python -m app.cli backfill-files >/dev/null
+FILE_STORAGE_STATE="$(
+    amigo_compose exec -T db psql \
+        --username amigo \
+        --dbname amigo \
+        --no-psqlrc \
+        --quiet \
+        --tuples-only \
+        --no-align \
+        --set=ON_ERROR_STOP=1 \
+        --command "
+            SELECT
+                (SELECT count(*) FROM lab_documents WHERE stored_file_id IS NULL)
+                || '|' ||
+                (SELECT count(*) FROM study_documents WHERE stored_file_id IS NULL)
+                || '|' ||
+                (SELECT count(*) FROM stored_files);
+        "
+)"
+[[ "${FILE_STORAGE_STATE}" =~ ^0\|0\|[0-9]+$ ]] \
+    || amigo_die "uploaded-original database ownership verification failed"
+amigo_log "PASS database-owned originals and signed Android 1.2.0 artifact"
+
 check_loopback_listener() {
     local port=$1
     local service=$2
@@ -546,6 +587,8 @@ for protected_path in \
     api/v1/overview \
     api/v1/export/weight.csv \
     api/v1/labs/documents \
+    api/v1/studies/documents \
+    api/v1/app-update \
     api/v1/assistant/messages; do
     [[ "$(public_status "${protected_path}")" == "401" ]] \
         || amigo_die "unauthenticated protected route did not return 401: ${protected_path}"
@@ -553,7 +596,11 @@ done
 readonly LAB_RESULT_CREATE_PATH="api/v1/labs/documents/00000000-0000-0000-0000-000000000000/results"
 [[ "$(public_status "${LAB_RESULT_CREATE_PATH}" POST)" == "401" ]] \
     || amigo_die "unauthenticated protected POST route did not return 401: ${LAB_RESULT_CREATE_PATH}"
-amigo_log "PASS dashboard JSON, CSV, laboratory, and assistant data require authentication"
+[[ "$(public_status 'api/v1/labs/uploads' POST)" == "401" ]] \
+    || amigo_die "unauthenticated laboratory upload route did not return 401"
+[[ "$(public_status 'api/v1/studies/uploads' POST)" == "401" ]] \
+    || amigo_die "unauthenticated study upload route did not return 401"
+amigo_log "PASS dashboard JSON, CSV, laboratory, studies, updater, and assistant require authentication"
 
 amigo_compose run --rm --no-deps --user 0 \
     --volume "${VERIFICATION_DIR}:/verification" \
@@ -646,6 +693,16 @@ elif contract in {"documents", "lab-summary", "analytes", "assistant"}:
         raise SystemExit("laboratory summary counts are missing")
     if contract == "assistant" and not isinstance(payload.get("recommendations"), list):
         raise SystemExit("assistant recommendations are missing")
+elif contract == "update":
+    if (
+        payload.get("version_code") != 5
+        or payload.get("version_name") != "1.2.0"
+        or payload.get("sha256") != "38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd"
+        or payload.get("download_url") != "/amigo/api/v1/app-update/apk"
+        or not isinstance(payload.get("size_bytes"), int)
+        or payload.get("size_bytes") <= 0
+    ):
+        raise SystemExit("Android update metadata contract is incomplete")
 else:
     raise SystemExit("unknown verification contract")
 PY
@@ -658,9 +715,21 @@ check_authenticated_json_api "api/v1/series/activity?range=30d" activity
 check_authenticated_json_api "api/v1/series/recovery?range=30d" recovery
 check_authenticated_json_api "api/v1/ai-analysis" ai
 check_authenticated_json_api "api/v1/labs/documents" documents
+check_authenticated_json_api "api/v1/studies/documents" documents
 check_authenticated_json_api "api/v1/labs/summary" lab-summary
 check_authenticated_json_api "api/v1/labs/analytes" analytes
 check_authenticated_json_api "api/v1/assistant/messages" assistant
+check_authenticated_json_api "api/v1/app-update" update
+
+curl --config "${AUTH_CURL_CONFIG}" \
+    --dump-header "${APK_HEADERS}" \
+    --output "${APK_BODY}" \
+    "${AMIGO_PUBLIC_URL}api/v1/app-update/apk"
+require_header '^content-type:[[:space:]]*application/vnd.android.package-archive' "${APK_HEADERS}"
+require_header '^cache-control:.*no-store' "${APK_HEADERS}"
+[[ "$(sha256sum "${APK_BODY}" | awk '{ print $1 }')" \
+    == "${EXPECTED_ANDROID_APK_SHA256}" ]] \
+    || amigo_die "authenticated Android update download hash differs from metadata"
 
 curl --config "${AUTH_CURL_CONFIG}" \
     --dump-header "${CSV_HEADERS}" \
@@ -668,7 +737,7 @@ curl --config "${AUTH_CURL_CONFIG}" \
     "${AMIGO_PUBLIC_URL}api/v1/export/weight.csv"
 [[ -s "${CSV_BODY}" ]] || amigo_die "authenticated CSV export is empty"
 require_header '^content-type:[[:space:]]*text/csv' "${CSV_HEADERS}"
-amigo_log "PASS authenticated session/profile, dashboard, lab, assistant, AI-v3, and CSV contracts"
+amigo_log "PASS authenticated dashboard, lab/study, updater, assistant, AI-v3, and CSV contracts"
 
 install -o root -g root -m 0600 /dev/null "${UNSUPPORTED_FILE}"
 CSRF_REJECTION_STATUS="$(
@@ -677,7 +746,7 @@ CSRF_REJECTION_STATUS="$(
         --form "file=@${UNSUPPORTED_FILE};type=text/plain" \
         --output "${UPLOAD_BODY}" \
         --write-out '%{http_code}' \
-        "${AMIGO_PUBLIC_URL}api/v1/labs/documents"
+        "${AMIGO_PUBLIC_URL}api/v1/labs/uploads"
 )"
 [[ "${CSRF_REJECTION_STATUS}" == "403" ]] \
     || amigo_die "authenticated upload without CSRF returned ${CSRF_REJECTION_STATUS}, expected 403"
@@ -724,7 +793,7 @@ UPLOAD_REJECTION_STATUS="$(
         --dump-header "${UPLOAD_HEADERS}" \
         --output "${UPLOAD_BODY}" \
         --write-out '%{http_code}' \
-        "${AMIGO_PUBLIC_URL}api/v1/labs/documents"
+        "${AMIGO_PUBLIC_URL}api/v1/labs/uploads"
 )"
 [[ "${UPLOAD_REJECTION_STATUS}" == "409" || "${UPLOAD_REJECTION_STATUS}" == "422" ]] \
     || amigo_die "safe unsupported upload returned unexpected status ${UPLOAD_REJECTION_STATUS}"
@@ -769,7 +838,37 @@ grep --quiet --fixed-strings 'event: error' "${SSE_BODY}" \
     || amigo_die "authenticated SSE route did not return its bounded not-found event"
 [[ "$(public_status 'api/v1/assistant/messages/00000000-0000-0000-0000-000000000000/events')" == "401" ]] \
     || amigo_die "unauthenticated assistant SSE route did not return 401"
-amigo_log "PASS origin no-buffer contract and authenticated public SSE without creating a chat turn"
+
+check_queue_sse() {
+    local path=$1
+    local curl_status=0
+    if curl --config "${AUTH_CURL_CONFIG}" \
+        --max-time 3 \
+        --proto '=http' \
+        --header 'Host: amigo.tolstik.ru' \
+        --dump-header "${SSE_ORIGIN_HEADERS}" \
+        --output "${SSE_BODY}" \
+        "http://127.0.0.1/amigo/${path}"; then
+        curl_status=0
+    else
+        curl_status=$?
+    fi
+    [[ ${curl_status} -eq 0 || ${curl_status} -eq 28 ]] \
+        || amigo_die "queue SSE check failed for ${path} with curl status ${curl_status}"
+    require_header '^content-type:[[:space:]]*text/event-stream' "${SSE_ORIGIN_HEADERS}"
+    require_header '^cache-control:.*no-store' "${SSE_ORIGIN_HEADERS}"
+    require_header '^x-accel-buffering:[[:space:]]*no' "${SSE_ORIGIN_HEADERS}"
+    grep --quiet --fixed-strings 'event: queue' "${SSE_BODY}" \
+        || amigo_die "queue SSE did not publish its initial state for ${path}"
+}
+
+check_queue_sse "api/v1/labs/events"
+check_queue_sse "api/v1/studies/events"
+[[ "$(public_status 'api/v1/labs/events')" == "401" ]] \
+    || amigo_die "unauthenticated laboratory queue SSE route did not return 401"
+[[ "$(public_status 'api/v1/studies/events')" == "401" ]] \
+    || amigo_die "unauthenticated study queue SSE route did not return 401"
+amigo_log "PASS assistant and queue SSE authentication/no-buffer contracts"
 
 INGEST_REJECTION_STATUS="$(
     curl --disable --silent --show-error --max-time 20 \

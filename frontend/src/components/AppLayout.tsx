@@ -16,6 +16,7 @@ const navItems: Array<{ to: string; label: string; icon: IconName; end?: boolean
   { to: "/activity", label: "Активность", icon: "activity" },
   { to: "/recovery", label: "Восстановление", icon: "clock" },
   { to: "/labs", label: "Анализы", icon: "composition" },
+  { to: "/studies", label: "Исследования", icon: "history" },
   { to: "/assistant", label: "Ассистент", icon: "sparkle" },
 ];
 

@@ -17,6 +17,18 @@ class DashboardUrlPolicyTest {
                     "20000000-0000-0000-0000-000000000001",
             ),
         )
+        assertTrue(
+            DashboardUrlPolicy.isAllowedNavigation(
+                "https://amigo.tolstik.ru/amigo/labs/documents/" +
+                    "20000000-0000-0000-0000-000000000001/view",
+            ),
+        )
+        assertTrue(
+            DashboardUrlPolicy.isAllowedNavigation(
+                "https://amigo.tolstik.ru/amigo/studies/" +
+                    "20000000-0000-0000-0000-000000000001/view",
+            ),
+        )
         assertFalse(DashboardUrlPolicy.isAllowedNavigation("http://amigo.tolstik.ru/amigo/"))
         assertFalse(DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru.evil.test/amigo/"))
         assertFalse(DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru/amigo/api/v1/overview"))
@@ -42,6 +54,12 @@ class DashboardUrlPolicyTest {
         assertTrue(
             DashboardUrlPolicy.isAllowedDownload(
                 "https://amigo.tolstik.ru/amigo/api/v1/export/weight.csv?range=program",
+            ),
+        )
+        assertTrue(
+            DashboardUrlPolicy.isAllowedDownload(
+                "https://amigo.tolstik.ru/amigo/api/v1/studies/documents/" +
+                    "20000000-0000-0000-0000-000000000001/download",
             ),
         )
         assertTrue(

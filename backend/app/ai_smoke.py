@@ -91,7 +91,7 @@ def synthetic_chat_request() -> GatewayChatRequest:
     )
     return GatewayChatRequest(
         model=AI_MODEL,
-        contract_version="amigo-health-chat-v1",
+        contract_version="amigo-health-chat-v2",
         message_id="00000000-0000-0000-0000-000000000002",
         prompt=prompt,
         allowed_evidence_keys=[evidence_key],

@@ -1,8 +1,8 @@
-# Amigo v4
+# Amigo v5
 
 Personal, authenticated health dashboard for weight-program progress, activity,
-recovery, descriptive blood-pressure history, laboratory results, and a
-context-aware assistant. Withings remains
+recovery, descriptive blood-pressure history, laboratory results, study reports,
+and a context-aware assistant. Withings remains
 the only source of weight, body composition, blood pressure, and the pulse
 recorded during a blood-pressure session. Xiaomi Smart Band 9 Pro data,
 including ordinary heart-rate samples, follows
@@ -16,7 +16,8 @@ notifications and scheduled factual/AI-assisted reports to Telegram.
 
 The production Docker Compose stack has seven services:
 
-- `web` — authenticated FastAPI API, laboratory archive, and React dashboard;
+- `web` — authenticated FastAPI API, laboratory/study archive, update endpoint,
+  and React dashboard;
 - `worker` — Withings synchronization, outbox, Telegram, and scheduling;
 - `db` — PostgreSQL 17;
 - `ingest` — signed Health Connect registration, pairing status, and batch
@@ -29,8 +30,8 @@ Only `web` and `ingest` are host-published, on loopback ports `18181` and
 `18182`. Origin nginx exposes the dashboard at
 `https://amigo.tolstik.ru/amigo/` and only the three exact signed-ingest
 routes under `/amigo-ingest/v1/`. The AI gateway and laboratory parser have no
-host ports. The dashboard, JSON APIs, CSV, laboratory originals, and assistant
-require the single local account; Android signed ingest is independent.
+host ports. The dashboard, JSON APIs, CSV, uploaded originals, APK update, and
+assistant require the single local account; Android signed ingest is independent.
 Health Connect appears there only as daily/weekly aggregates, without device or
 pairing metadata.
 Its theme selector offers Light, Dark, Ocean, and Sunset. A fresh browser always
@@ -87,8 +88,11 @@ PostgreSQL for 90 days; only SHA-256 token digests are stored. Cookies are
 Origin and CSRF token. The password is created or rotated only through the
 root-only CLI and is never passed as a process argument.
 
-Laboratory uploads accept PDF, JPG, PNG, and HEIC up to 20 MiB (PDF up to 50
-pages). Originals use random keys in root-only `/srv/amigo/data/lab-files`.
+Laboratory uploads accept up to 25 PDF, JPG, PNG, and HEIC files per selection;
+each file may be up to 20 MiB and each PDF up to 50 pages. PostgreSQL
+`stored_files` owns every original. Laboratory originals are temporarily
+dual-written under random keys in root-only `/srv/amigo/data/lab-files` so the
+immediately previous release remains recoverable.
 `lab-parser` performs text extraction and OCR without database, secrets, Codex
 state, a shared file mount, or a host port. Results initially appear as
 `unverified`. Backend code—not AI—prefers a range from the document and computes
@@ -96,13 +100,26 @@ the status and history. It can use a versioned catalog only when a reviewed
 catalog is explicitly enabled and matches analyte/specimen/unit/profile exactly.
 The initial fallback catalog is disabled, so only report-provided or
 user-entered intervals are evaluated. Original extraction and user edits are
-audited.
+audited. The UI shows sequential queue position/stage/progress over SSE, keeps
+accepting new bounded batches while older files are processed, opens the
+database original, searches/filters results, and charts incompatible units
+separately.
 
-Before the first upload or assistant question, the profile requires explicit
+The “Studies” section accepts the same report formats for ultrasound, MRI, CT,
+X-ray, ECG, and other reports; DICOM is intentionally out of scope. It stores the
+original, extracted findings, and conclusion in PostgreSQL and provides the same
+queue, view, edit, confirmation, retry, and delete flow. Obvious identifier
+header lines are removed before structured study facts can enter AI context.
+
+Before the first laboratory upload or assistant question, the profile requires explicit
 `amigo-ai-data-v1` consent. The disclosure states that Codex CLI runs locally,
 but full extracted text and questions may be sent to OpenAI inference. The one
-persistent chat combines deterministic health/laboratory history, the last 12
-messages, an older local summary, and locally retrieved OCR chunks. Draft
+persistent `amigo-health-chat-v2` chat combines the complete structured
+health/laboratory/study history, the last 12 messages, and an older local
+summary. Assistant context never includes originals, filenames, study titles,
+or OCR pages. It may explain evidence-backed hypotheses and alternatives while
+remaining unable to assert a definitive diagnosis, prescribe treatment,
+medication/dosage changes, or a fixed calorie target. Draft
 segments stream through PostgreSQL/SSE; only a fully validated final answer is
 retained as complete. The gateway uses ephemeral `codex app-server` turns with
 a strict output schema; see the official
@@ -110,24 +127,26 @@ a strict output schema; see the official
 
 ## Android app and Health Connect companion
 
-Amigo `1.1.0` (`versionCode 4`, package `ru.tolstik.amigo.sync`) opens the full
+Amigo `1.2.0` (`versionCode 5`, package `ru.tolstik.amigo.sync`) opens the full
 authenticated dashboard in a top-level WebView. It uses the same local account
 and 90-day server session as a browser, while signed ingest remains independent.
 Only the fixed production origin and known SPA routes are accepted; there is no
 JavaScript bridge, third-party cookie access, mixed content, TLS bypass, or
 medical offline cache. Verified App Links cover `/amigo` and `/amigo/...`.
-Laboratory uploads use the system file picker, and authenticated CSV/original
-downloads use system “Save as” with an exact same-origin allowlist and no
-redirects.
+Laboratory and study uploads use the system file picker with up to 25 selected
+files, and authenticated CSV/original downloads use system “Save as” with an
+exact same-origin allowlist and no redirects. Returning to a WebView that has
+been backgrounded for 30 seconds refreshes it so current server data is shown.
 
 The native synchronization tab reads the history that Health Connect actually makes available for
 steps, distance, calories, active minutes, workouts, sleep, heart/resting heart
 rate, HRV, SpO2, and VO2 max. Availability varies by device and Mi Fitness.
 The app never requests weight, blood pressure, location, or exercise routes.
 The recovery dashboard, CSV export, Telegram digests, and minimized AI snapshot
-use daily average/minimum/maximum watch heart rate. Resting heart rate remains a
-separate metric and is shown only when Health Connect supplies its dedicated
-record type.
+use daily average/minimum/maximum watch heart rate. The watch-pulse chart also
+uses persisted hourly min/average/max aggregates; raw samples are discarded at
+ingest. Resting heart rate remains a separate metric and is shown only when
+Health Connect supplies its dedicated record type.
 
 Each installation creates a non-exportable P-256 key in Android Keystore.
 Registration requires explicit server-side pairing approval; every batch is
@@ -139,19 +158,25 @@ at most 2,000 records and 5,000 heart-rate samples per record, and are started
 at most once every 1.1 seconds to stay below the production ingest limit. A
 pairing reset rotates the Android Keystore identity before clearing local sync
 state, so the replacement registration always has a new public-key fingerprint.
+WorkManager starts an immediate best-effort run, continues incomplete backfill
+after one minute, and keeps the hourly job; the native screen shows bounded
+background-run diagnostics. The in-app updater downloads only the authenticated
+same-origin APK, verifies its declared size and SHA-256 plus package, higher
+version code, and installed signing certificate, then delegates to the Android
+system installer for explicit confirmation.
 
 Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.1.0.apk`](https://github.com/tolstik/amigo/releases/download/v4.0.0/Amigo-1.1.0.apk)
-from release [`v4.0.0`](https://github.com/tolstik/amigo/releases/tag/v4.0.0).
+[`Amigo-1.2.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk)
+from release [`v5.0.0`](https://github.com/tolstik/amigo/releases/tag/v5.0.0).
 Its SHA-256 is
-`6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`, and its
+`38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd`, and its
 signing-certificate SHA-256 is
 `25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
-The previous `1.0.2` APK remains available from `v3.1.0`. Verify the checksum
+The previous `1.1.0` APK remains available from `v4.0.0`. Verify the checksum
 before installing an APK.
 
 ## Telegram schedule
@@ -215,8 +240,11 @@ Markdown, source code, fixtures, command output, or logs.
 
 Follow [docs/runbook.md](docs/runbook.md). It preserves the legacy PHP
 application and shared cron jobs, creates a verified rollback snapshot, checks
-all seven services, authentication, laboratory/AI isolation boundaries, and
-authenticated HTTPS/API/upload/SSE contracts. Before cutover its non-personal
+all seven services, authentication, database-owned originals, the signed update
+artifact, laboratory/AI isolation boundaries, and authenticated
+HTTPS/API/upload/SSE contracts. GitHub Actions builds and publishes the tested
+immutable `ghcr.io/tolstik/amigo:GIT_SHA` image; the weak production server only
+pulls and verifies it. Before cutover the deploy's non-personal
 synthetic smoke exercises live analysis, laboratory-extraction, and assistant-turn
 Codex contracts, then the release records deployed hashes after cutover.
 

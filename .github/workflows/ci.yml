@@ -131,3 +131,27 @@ jobs:
             --tag "amigo:${GITHUB_SHA}" \
             .
           [[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "amigo:${GITHUB_SHA}")" == "${GITHUB_SHA}" ]]
+
+  publish-image:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend, frontend, frontend-e2e, android, release-gates]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Build the immutable production image
+        run: |
+          docker build \
+            --build-arg "AMIGO_BUILD_SHA=${GITHUB_SHA}" \
+            --tag "ghcr.io/tolstik/amigo:${GITHUB_SHA}" \
+            .
+          [[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "ghcr.io/tolstik/amigo:${GITHUB_SHA}")" == "${GITHUB_SHA}" ]]
+      - name: Publish the tested release image
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+          docker push "ghcr.io/tolstik/amigo:${GITHUB_SHA}"
+          docker logout ghcr.io

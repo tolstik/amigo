@@ -13,6 +13,8 @@ from .auth import auth_router, profile_router, require_session
 from .assistant_api import router as assistant_router
 from .health_api import public_router as health_public_router
 from .labs_api import router as labs_router
+from .studies_api import router as studies_router
+from .update_api import router as update_router
 from .config import get_settings
 from .db import SessionLocal
 
@@ -29,6 +31,8 @@ app.include_router(profile_router, dependencies=[Depends(require_session)])
 app.include_router(router, dependencies=[Depends(require_session)])
 app.include_router(health_public_router, dependencies=[Depends(require_session)])
 app.include_router(labs_router, dependencies=[Depends(require_session)])
+app.include_router(studies_router, dependencies=[Depends(require_session)])
+app.include_router(update_router, dependencies=[Depends(require_session)])
 app.include_router(assistant_router, dependencies=[Depends(require_session)])
 
 
@@ -40,7 +44,9 @@ async def privacy_headers(request, call_next):
     else:
         response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Frame-Options"] = (
+        "SAMEORIGIN" if request.url.path.endswith("/view") else "DENY"
+    )
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Robots-Tag"] = "noindex, noarchive"
     return response

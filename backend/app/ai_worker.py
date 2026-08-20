@@ -4,7 +4,7 @@ import argparse
 from datetime import datetime, timezone
 import logging
 import signal
-import time
+import threading
 
 import httpx
 from sqlalchemy import text
@@ -25,8 +25,14 @@ from .ai_queue import (
     recover_expired_leases,
 )
 from .config import Settings, get_settings
+from .background_wait import wait_for_ai_work
 from .db import SessionLocal
-from .lab_assistant_worker import LabAssistantGateway, process_assistant_job, process_lab_job
+from .lab_assistant_worker import (
+    LabAssistantGateway,
+    process_assistant_job,
+    process_lab_job,
+    process_study_job,
+)
 
 
 logger = logging.getLogger("amigo.ai.worker")
@@ -113,11 +119,13 @@ class AiAnalysisWorker:
         self.lab_gateway = lab_gateway or LabAssistantGateway(self.settings)
         self._owns_lab_gateway = lab_gateway is None
         self._consecutive_assistant_jobs = 0
+        self._prefer_study = False
         self.max_attempts = min(
             self.settings.ai_max_attempts,
             MAX_ANALYSIS_REQUEST_ATTEMPT,
         )
         self.running = True
+        self.stop_event = threading.Event()
 
     def close(self) -> None:
         if self._owns_gateway:
@@ -127,6 +135,7 @@ class AiAnalysisWorker:
 
     def stop(self, *_: object) -> None:
         self.running = False
+        self.stop_event.set()
 
     def process_analysis(self, db: Session, now: datetime | None = None) -> bool:
         current = now or datetime.now(timezone.utc)
@@ -178,9 +187,16 @@ class AiAnalysisWorker:
 
     def process_one(self, db: Session, now: datetime | None = None) -> bool:
         current = now or datetime.now(timezone.utc)
-        if process_lab_job(db, self.settings, self.lab_gateway, current):
-            self._consecutive_assistant_jobs = 0
-            return True
+        document_processors = (
+            (process_study_job, process_lab_job)
+            if self._prefer_study
+            else (process_lab_job, process_study_job)
+        )
+        for processor in document_processors:
+            if processor(db, self.settings, self.lab_gateway, current):
+                self._prefer_study = processor is process_lab_job
+                self._consecutive_assistant_jobs = 0
+                return True
         if self._consecutive_assistant_jobs >= 3 and self.process_analysis(db, current):
             self._consecutive_assistant_jobs = 0
             return True
@@ -207,7 +223,10 @@ class AiAnalysisWorker:
                 if self.settings.worker_once:
                     break
                 if not processed:
-                    time.sleep(self.settings.ai_poll_seconds)
+                    wait_for_ai_work(
+                        self.settings.database_url,
+                        timeout_seconds=min(60, max(5, self.settings.ai_poll_seconds)),
+                    )
         finally:
             self.close()
 

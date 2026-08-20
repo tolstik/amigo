@@ -18,6 +18,7 @@ object DashboardUrlPolicy {
         "/amigo/recovery",
         "/amigo/labs",
         "/amigo/labs/upload",
+        "/amigo/studies",
         "/amigo/assistant",
         "/amigo/profile",
     )
@@ -26,11 +27,19 @@ object DashboardUrlPolicy {
             "[0-9a-f]{4}-[0-9a-f]{12}/?$",
     )
     private val labAnalytePath = Regex("^/amigo/labs/analytes/[A-Za-z0-9._~%-]+/?$")
+    private val labViewerPath = Regex(
+        "^/amigo/labs/documents/[0-9a-f-]{36}/view/?$",
+    )
+    private val studyPath = Regex("^/amigo/studies/[0-9a-f-]{36}(?:/view)?/?$")
     private val exportPath = Regex(
         "^/amigo/api/v1/export/(weight|pressure|composition|activity|recovery)\\.csv$",
     )
     private val labDownloadPath = Regex(
         "^/amigo/api/v1/labs/documents/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-" +
+            "[0-9a-f]{4}-[0-9a-f]{12}/download$",
+    )
+    private val studyDownloadPath = Regex(
+        "^/amigo/api/v1/studies/documents/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-" +
             "[0-9a-f]{4}-[0-9a-f]{12}/download$",
     )
     private val allowedRanges = setOf("30d", "90d", "1y", "program", "all")
@@ -54,6 +63,7 @@ object DashboardUrlPolicy {
         val parsed = rawUrl?.toHttpUrlOrNull() ?: return false
         if (!isCanonicalOrigin(parsed) || parsed.fragment != null) return false
         if (labDownloadPath.matches(parsed.encodedPath)) return parsed.encodedQuery == null
+        if (studyDownloadPath.matches(parsed.encodedPath)) return parsed.encodedQuery == null
         if (!exportPath.matches(parsed.encodedPath)) return false
         if (parsed.queryParameterNames.any { it != "range" }) return false
         val ranges = parsed.queryParameterValues("range")
@@ -68,7 +78,9 @@ object DashboardUrlPolicy {
         return path in dashboardPaths ||
             normalized in dashboardPaths ||
             labDocumentPath.matches(path) ||
-            labAnalytePath.matches(path)
+            labAnalytePath.matches(path) ||
+            labViewerPath.matches(path) ||
+            studyPath.matches(path)
     }
 
     private fun isCanonicalOrigin(url: HttpUrl): Boolean =

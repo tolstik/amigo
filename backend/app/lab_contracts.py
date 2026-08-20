@@ -83,27 +83,36 @@ class ChatAnswer(StrictModel):
 
 class GatewayChatRequest(StrictModel):
     model: Literal[AI_MODEL] = AI_MODEL
-    contract_version: Literal["amigo-health-chat-v1"] = "amigo-health-chat-v1"
+    contract_version: Literal["amigo-health-chat-v2"] = "amigo-health-chat-v2"
     message_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f-]{36}$")]
     attempt: int = Field(default=1, ge=1, le=2)
     prompt: Annotated[str, StringConstraints(min_length=1, max_length=600_000)]
     allowed_evidence_keys: list[Annotated[str, StringConstraints(min_length=1, max_length=180)]] = Field(
-        min_length=1, max_length=3000
+        min_length=1, max_length=10_000
     )
 
 
 class GatewayChatResponse(StrictModel):
     model: Literal[AI_MODEL] = AI_MODEL
-    contract_version: Literal["amigo-health-chat-v1"] = "amigo-health-chat-v1"
+    contract_version: Literal["amigo-health-chat-v2"] = "amigo-health-chat-v2"
     answer: ChatAnswer
 
 
-_UNSAFE_CHAT = re.compile(
-    r"(?:диагноз|назнач|отмен|дозиров|лекарств|медикамент|препарат|таблет|"
-    r"лечени|терапи|аспирин|метформин|инсулин|семаглутид|оземпик|"
-    r"срочн|немедлен|неотложн|скорую|diagnos|prescri|medicat|dosage|"
-    r"treatment|therapy|urgent|emergency|ambulance|"
-    r"\b\d{2,5}(?:[.,]\d+)?\s*(?:ккал|kcal|калори(?:й|и|я)|calories?)\b)",
+_DEFINITIVE_DIAGNOSIS = re.compile(
+    r"(?:у\s+вас|это|имеется|подтвержд(?:ен|ена|ено|ается)|вы\s+страдаете)"
+    r"[^.!?\n]{0,60}(?:диабет|гипертони|гипотони|ожирени|анеми|аритми|"
+    r"инфаркт|инсульт|недостаточност|онкологи|рак\b|disease|cancer|diabetes)",
+    re.IGNORECASE,
+)
+_PRESCRIPTION = re.compile(
+    r"(?:начните|принимайте|принимать\s+по|назначаю|вам\s+назначен|измените|"
+    r"увеличьте|уменьшите|снизьте|повышайте|отмените|прекратите\s+при[её]м|"
+    r"start\s+taking|take\s+\d|increase\s+the\s+dose|decrease\s+the\s+dose|stop\s+taking)"
+    r"[^.!?\n]{0,100}(?:мг\b|mg\b|таблет|капсул|лекарств|медикамент|препарат|доз|dose)",
+    re.IGNORECASE,
+)
+_FIXED_CALORIE_TARGET = re.compile(
+    r"\b\d{3,5}(?:[.,]\d+)?\s*(?:ккал|kcal|калори(?:й|и|я)|calories?)\b",
     re.IGNORECASE,
 )
 
@@ -116,5 +125,9 @@ def validate_chat_answer(answer: ChatAnswer, allowed_evidence_keys: set[str]) ->
             raise ValueError("control character")
         if "<" in segment.text or ">" in segment.text or re.search(r"(?:https?://|www\.)", segment.text, re.I):
             raise ValueError("markup or link")
-        if _UNSAFE_CHAT.search(segment.text):
-            raise ValueError("unsafe clinical language")
+        if _DEFINITIVE_DIAGNOSIS.search(segment.text):
+            raise ValueError("definitive diagnosis")
+        if _PRESCRIPTION.search(segment.text):
+            raise ValueError("medication prescription")
+        if _FIXED_CALORIE_TARGET.search(segment.text):
+            raise ValueError("fixed calorie target")

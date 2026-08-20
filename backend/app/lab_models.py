@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -14,16 +14,40 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class StoredFile(Base):
+    """The durable, database-owned copy of an uploaded original.
+
+    Laboratory files are temporarily dual-written to the legacy root-only file
+    directory so the immediately previous release can still be restored.  New
+    code always treats this row as the source of truth.
+    """
+
+    __tablename__ = "stored_files"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    file_sha256: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    original_filename: Mapped[str] = mapped_column(Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class LabDocument(Base):
     __tablename__ = "lab_documents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    stored_file_id: Mapped[str | None] = mapped_column(
+        ForeignKey("stored_files.id", ondelete="RESTRICT"), unique=True
+    )
     storage_key: Mapped[str] = mapped_column(String(96), unique=True, nullable=False)
     original_filename: Mapped[str] = mapped_column(Text, nullable=False)
     file_sha256: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     media_type: Mapped[str] = mapped_column(String(80), nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    processing_stage: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    progress_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     page_count: Mapped[int | None] = mapped_column(Integer)
     extracted_text: Mapped[str | None] = mapped_column(Text)
@@ -36,6 +60,7 @@ class LabDocument(Base):
     reports: Mapped[list["LabReport"]] = relationship(back_populates="document", cascade="all, delete-orphan")
     results: Mapped[list["LabResult"]] = relationship(back_populates="document", cascade="all, delete-orphan")
     chunks: Mapped[list["LabTextChunk"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+    stored_file: Mapped[StoredFile | None] = relationship()
 
 
 class LabProcessingJob(Base):
@@ -200,3 +225,50 @@ class AssistantSummary(Base):
     summarized_through: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class StudyDocument(Base):
+    __tablename__ = "study_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    storage_key: Mapped[str] = mapped_column(String(96), unique=True, nullable=False)
+    stored_file_id: Mapped[str] = mapped_column(
+        ForeignKey("stored_files.id", ondelete="RESTRICT"), unique=True, nullable=False
+    )
+    original_filename: Mapped[str] = mapped_column(Text, nullable=False)
+    file_sha256: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    media_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    modality: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(240))
+    observed_on: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    processing_stage: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    progress_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    extracted_text: Mapped[str | None] = mapped_column(Text)
+    findings: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    conclusion: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    stored_file: Mapped[StoredFile] = relationship()
+
+
+class StudyProcessingJob(Base):
+    __tablename__ = "study_processing_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("study_documents.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

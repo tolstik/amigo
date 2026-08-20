@@ -224,6 +224,14 @@ export interface RecoveryPoint {
   vo2Max: number | null;
 }
 
+export interface HeartRateHourlyPoint {
+  measuredAt: string;
+  averageBpm: number;
+  minimumBpm: number;
+  maximumBpm: number;
+  sampleCount: number;
+}
+
 export interface RecoverySummary {
   latestDate: string | null;
   sleepMinutes: number | null;
@@ -240,6 +248,7 @@ export interface RecoverySummary {
 }
 
 export interface RecoverySeriesResponse extends SeriesResponse<RecoveryPoint> {
+  heartRateHourly: HeartRateHourlyPoint[];
   summary: RecoverySummary;
   availableMetrics: string[];
   correlations: HealthCorrelation[];
@@ -326,6 +335,9 @@ export interface LabDocument {
   media_type: string;
   size_bytes: number;
   status: "queued" | "processing" | "complete" | "failed";
+  processing_stage: "queued" | "reading" | "extracting" | "complete" | "failed";
+  progress_percent: number;
+  queue_position: number | null;
   verified: boolean;
   page_count: number | null;
   error_code: string | null;
@@ -335,6 +347,30 @@ export interface LabDocument {
   extracted_text?: string | null;
   pages?: Array<{ page: number; text: string }> | null;
   results?: LabResult[];
+}
+
+export type StudyModality = "ultrasound" | "mri" | "ct" | "xray" | "ecg" | "other";
+
+export interface StudyDocument {
+  id: string;
+  filename: string;
+  media_type: string;
+  size_bytes: number;
+  modality: StudyModality;
+  title: string | null;
+  observed_on: string | null;
+  status: "queued" | "processing" | "complete" | "failed";
+  processing_stage: "queued" | "reading" | "structuring" | "complete" | "failed";
+  progress_percent: number;
+  queue_position: number | null;
+  verified: boolean;
+  page_count: number | null;
+  error_code: string | null;
+  created_at: string;
+  completed_at: string | null;
+  findings: string[];
+  conclusion: string | null;
+  extracted_text?: string | null;
 }
 
 export interface AssistantSegment {

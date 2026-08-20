@@ -20,6 +20,12 @@
   wrapper accepts exactly the current `origin/main` commit, requires a clean
   root-owned checkout and a descendant of the recorded production release, and
   then invokes `deploy/deploy.sh` with exactly one notification mode.
+- Production application images are built and tested by GitHub Actions, then
+  published as immutable `ghcr.io/tolstik/amigo:GIT_SHA` images. The weak
+  production host must pull and verify that exact revision label and must never
+  build the application image during deployment. The signed Android asset must
+  already exist at the pinned release URL and match the pinned SHA-256 before a
+  cutover snapshot is accepted.
 - Default automatic recovery must call `restore-previous-release.sh` and must never
   activate legacy PHP. Legacy is an explicit disaster fallback requiring
   `rollback.sh --to-legacy SNAPSHOT`. From an already active legacy route/cron,
@@ -78,9 +84,11 @@
   ordinary watch heart rate, arrives only through Health Connect and the signed
   Android companion; never import Health Connect weight, blood pressure,
   GPS/location, or exercise routes. Dashboard, CSV, Telegram, and minimized AI
-  snapshots use daily average/minimum/maximum watch heart rate; resting heart
-  rate remains a distinct metric and must never be inferred from ordinary
-  samples.
+  snapshots use daily average/minimum/maximum watch heart rate, while the watch
+  heart-rate chart may additionally use persisted hourly
+  minimum/average/maximum aggregates. Raw heart-rate samples are never
+  persisted. Resting heart rate remains a distinct metric and must never be
+  inferred from ordinary samples.
 - Identical Withings groups replayed by the overlap window are not updates and
   must not enqueue another AI analysis. Only newly created or structurally
   changed provider groups may trigger measurement-driven regeneration.
@@ -99,6 +107,13 @@
   `/amigo/...`; authenticated CSV and laboratory-original downloads use the
   system document picker and forward in-memory cookies only to exact allowlisted
   same-origin GET routes, without redirects.
+- Android `1.2.0` (`versionCode 5`) accepts up to 25 dashboard uploads from the
+  system picker, refreshes a stale foreground WebView, records allowlisted
+  background-sync diagnostics, and schedules immediate, hourly, and bounded
+  one-minute backfill continuation work. Its in-app updater may download only
+  the authenticated exact-origin APK route and must verify size, SHA-256,
+  package ID, higher version code, and the installed signing certificate before
+  handing the file to the Android system installer for explicit confirmation.
 - Deterministic blood-pressure, heart, SpO2, and VO2 displays remain descriptive
   and never add severity colors or app-side diagnoses. Validated AI may use those
   metrics only for evidence-bound measurement/logging advice or discussion of a
@@ -143,16 +158,31 @@
   Android signed ingest remains independent. Never expose device identity,
   pairing state, signatures, nonces, raw provider payloads, or raw heart-rate
   samples through the authenticated dashboard.
-- Laboratory uploads support PDF/JPG/PNG/HEIC up to 20 MiB and PDF up to 50
-  pages. Originals use random keys in root-owned `/srv/amigo/data/lab-files`
-  (`0700`; files `0600`); `web` mounts it read-write, `ai-worker` read-only, and
-  the isolated non-root parser has no file mount, database, secret, or external
-  network. Extracted results publish as `unverified`; document ranges override
-  the versioned deterministic catalog, and user edits/confirmation are audited.
-- The persistent assistant uses `amigo-health-chat-v1`, the structured health and
-  laboratory history, the last 12 messages, a deterministic older summary, and
-  locally retrieved OCR chunks. Streaming drafts remain untrusted until the
-  final structured result passes the same evidence and medical-safety validation.
+- Laboratory uploads accept up to 25 PDF/JPG/PNG/HEIC files per selection, each
+  up to 20 MiB and each PDF up to 50 pages. PostgreSQL `stored_files` is the
+  source of truth for originals; laboratory files are temporarily dual-written
+  under random keys in root-owned `/srv/amigo/data/lab-files` (`0700`; files
+  `0600`) so the immediately previous release remains recoverable. `web` mounts
+  that directory read-write, `ai-worker` read-only, and the isolated non-root
+  parser has no file mount, database, secret, or external network. Extracted
+  results publish as `unverified`; document ranges override the versioned
+  deterministic catalog, and user edits/confirmation are audited.
+- Study-report uploads support the same bounded formats and queue for ultrasound,
+  MRI, CT, X-ray, ECG, and other reports; DICOM is not supported. PostgreSQL
+  stores the original plus structured findings/conclusion. Obvious identifier
+  header lines are removed before structured study facts can enter AI context.
+- The persistent assistant uses `amigo-health-chat-v2`, all structured health,
+  laboratory, and study history, the last 12 messages, and a deterministic older
+  summary. Originals, filenames, study titles, and OCR pages are excluded from
+  assistant context. It may discuss evidence-backed hypotheses and alternatives,
+  but streaming drafts remain untrusted until the final result passes evidence
+  validation and the hard prohibitions on definitive diagnosis, treatment,
+  medication/dosage instructions, and fixed calorie prescriptions.
+- Laboratory and study queue screens use PostgreSQL `LISTEN/NOTIFY` plus SSE;
+  background workers use bounded notification waits with 60-second fallback
+  polling. Healthchecks are lightweight and infrequent, the data worker does not
+  write minute heartbeat rows, and browser overview refresh runs only while the
+  page is visible.
 - The dashboard offers Light, Dark, Ocean, and Sunset themes. With no stored
   choice it must always start in Light regardless of the operating-system color
   scheme; an explicit selection persists and recolors both UI and charts.

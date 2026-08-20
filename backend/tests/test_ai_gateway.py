@@ -302,9 +302,9 @@ def test_chat_prompt_matches_validator_and_adds_retry_correction():
     prompt = build_chat_prompt(request)
 
     assert "Retry correction (2/2)" in prompt
-    assert "including a negated caveat" in prompt
-    assert "validator-blocked stems" in prompt
-    assert "`диагноз`" in prompt
+    assert "evidence-backed hypotheses" in prompt
+    assert "definitive diagnosis" in prompt
+    assert "Medical vocabulary is allowed" in prompt
     assert "HTML, Markdown, links" in prompt
     assert 'Allowed evidence keys: ["quality.runtime_smoke"]' in prompt
     assert "Attempt: 2/2" in prompt

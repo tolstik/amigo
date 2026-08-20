@@ -154,6 +154,13 @@ describe("API normalization", () => {
         maximum_heart_rate_bpm: 89,
         resting_heart_rate_bpm: 62,
       }],
+      heart_rate_hourly: [{
+        measured_at: "2026-08-18T12:00:00+03:00",
+        average_bpm: 61,
+        minimum_bpm: 52,
+        maximum_bpm: 76,
+        sample_count: 18,
+      }],
       available_metrics: ["heart_rate", "sleep", "resting_heart_rate"],
       correlations: [{ metric: "sleep_minutes", target: "weight_kg", coefficient: 0.31, full_overlapping_weeks: 8 }],
     }, "90d");
@@ -166,6 +173,13 @@ describe("API normalization", () => {
       hrvRmssdMs: null,
     });
     expect(result.summary).toMatchObject({ averageHeartRateBpm: 59, minimumHeartRateBpm: 47, maximumHeartRateBpm: 89 });
+    expect(result.heartRateHourly).toEqual([{
+      measuredAt: "2026-08-18T12:00:00+03:00",
+      averageBpm: 61,
+      minimumBpm: 52,
+      maximumBpm: 76,
+      sampleCount: 18,
+    }]);
     expect(result.availableMetrics).toEqual(["heart_rate", "sleep", "resting_heart_rate"]);
     expect(result.correlations[0].disclaimer).toBe("Корреляция не доказывает причинность.");
   });

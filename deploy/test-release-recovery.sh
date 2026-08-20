@@ -48,7 +48,7 @@ bash -n "${SCRIPT_DIR}/amigo-release"
 
 [[ -x "${SCRIPT_DIR}/amigo-release" ]] \
     || amigo_die "versioned release wrapper is not executable"
-grep --quiet --fixed-strings 'bash "${SCRIPT_DIR}/install-release-wrapper.sh"' \
+grep --quiet --fixed-strings "bash \"\${SCRIPT_DIR}/install-release-wrapper.sh\"" \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not install the least-privilege release wrapper"
 [[ "$(<"${SCRIPT_DIR}/sudoers/amigo-release")" \

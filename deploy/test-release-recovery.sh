@@ -142,6 +142,13 @@ grep --quiet --fixed-strings 'RECOVERY_MINUTE_BUCKET' \
 grep --quiet --fixed-strings 'nginx-control.sh" maintenance' \
     "${SCRIPT_DIR}/restore-previous-release.sh" \
     || amigo_die "previous-release recovery does not enforce the auth-floor maintenance route"
+grep --quiet --fixed-strings \
+    'error_page 503 =503 @amigo_auth_floor_503;' \
+    "${SCRIPT_DIR}/nginx/amigo.maintenance.locations.conf" \
+    || amigo_die "auth-floor maintenance status still depends on the shared 503 error page"
+grep --quiet --fixed-strings 'location @amigo_auth_floor_503 {' \
+    "${SCRIPT_DIR}/nginx/amigo.maintenance.locations.conf" \
+    || amigo_die "auth-floor maintenance snippet lacks its isolated 503 handler"
 grep --quiet --fixed-strings 'lab-parser' "${SCRIPT_DIR}/rollback.sh" \
     || amigo_die "legacy disaster fallback does not stop the isolated laboratory parser"
 # Literal variable syntax is the unsafe source pattern being rejected.

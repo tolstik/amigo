@@ -518,6 +518,8 @@ PostgreSQL на сохранённом volume. Для auth-capable previous rele
 его exact managed snippets и shell `200`. Для release без auth ставится текущий
 maintenance snippet: `/amigo/` стабилизируется на `503`, unsigned ingest всё ещё
 точно отклоняется его backend-контрактом. Shared `my.conf` вне markers сохраняется;
+maintenance status завершается в собственном named nginx handler и не зависит
+от общего server-level `error_page` или наличия shared `50x.html`;
 worker ждёт новый minute run-key и успешный incremental run. Окончательная
 production verification остаётся обязательной.
 Production checkout остаётся на candidate commit; фактический runtime определяет

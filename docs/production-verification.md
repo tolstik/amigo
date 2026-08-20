@@ -120,6 +120,8 @@
       read/ingest rate-limit zones установлены, `nginx -t` успешен.
 - [ ] Dynamic labs/assistant regex routes используют named captures и exact
       upstream URI; public method/path не искажается generic rewrite.
+- [ ] Каждый managed `limit_req` имеет explicit `limit_req_status 429`; upload
+      burst покрывает bounded verification/UI sequence без shared `503` handler.
 - [ ] Origin с `Host: amigo.tolstik.ru` отвечает; exact `/amigo` возвращает
       `308`, `/amigo/` — `200`.
 - [ ] Public `https://amigo.tolstik.ru/amigo` возвращает относительный

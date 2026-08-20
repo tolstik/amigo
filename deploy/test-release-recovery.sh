@@ -179,6 +179,15 @@ for explicit_dynamic_proxy in \
         "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
         || amigo_die "managed route lacks explicit dynamic upstream URI: ${explicit_dynamic_proxy}"
 done
+managed_rate_limit_count="$(grep --count --fixed-strings 'limit_req zone=' \
+    "${SCRIPT_DIR}/nginx/amigo.locations.conf")"
+managed_rate_status_count="$(grep --count --fixed-strings 'limit_req_status 429;' \
+    "${SCRIPT_DIR}/nginx/amigo.locations.conf")"
+[[ "${managed_rate_limit_count}" -eq "${managed_rate_status_count}" ]] \
+    || amigo_die "every managed rate limit must return explicit HTTP 429"
+grep --quiet --fixed-strings 'limit_req zone=amigo_upload burst=5 nodelay;' \
+    "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
+    || amigo_die "laboratory upload burst does not cover the bounded UI/verification sequence"
 grep --quiet --fixed-strings 'lab-parser' "${SCRIPT_DIR}/rollback.sh" \
     || amigo_die "legacy disaster fallback does not stop the isolated laboratory parser"
 # Literal variable syntax is the unsafe source pattern being rejected.

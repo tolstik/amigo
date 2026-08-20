@@ -458,6 +458,8 @@ sudo bash /srv/amigo/deploy/verify-production.sh
   immutable JavaScript/CSS assets;
 - explicit named-capture upstream URI для dynamic labs/assistant routes без
   capture-unsafe generic rewrite;
+- explicit `429` для каждого managed rate-limit; upload допускает bounded burst
+  из пяти запросов при сохранении лимита 6 запросов в минуту;
 - public login shell и method-correct `401` для health JSON/CSV/labs/assistant
   без session;
 - short-lived root-only verification session, authenticated overview/activity/

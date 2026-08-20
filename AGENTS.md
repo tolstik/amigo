@@ -34,6 +34,8 @@
 - Managed regex routes for laboratory documents/results and assistant turns use
   named captures with explicit upstream URIs; never reintroduce the generic
   `rewrite ^/amigo/(.*)$` form because nginx can clobber its numeric capture.
+- Every managed nginx rate limit returns explicit `429`; never rely on nginx's
+  default `503`, because the shared origin error handler can remap it.
 - A responding but unhealthy legacy origin may be bypassed only with takeover's
   explicit `--allow-unhealthy-legacy-origin` flag. In that mode failure reversal
   must never treat legacy as healthy, enable its Withings cron, or stop a

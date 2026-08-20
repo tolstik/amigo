@@ -68,6 +68,9 @@ grep --quiet --fixed-strings -- '--no-auto-recovery' \
 grep --quiet --fixed-strings 'CANDIDATE_RUNTIME_ACTIVE=1' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "fix-forward mode cannot distinguish an active candidate runtime"
+grep --quiet --fixed-strings '.fix-forward-session' \
+    "${SCRIPT_DIR}/deploy.sh" \
+    || amigo_die "current release cannot activate its authorized fix-forward session marker"
 if grep --quiet --extended-regexp \
     'AMIGO_DEPLOY_LOCK_HELD=.*rollback\.sh' "${SCRIPT_DIR}/deploy.sh"; then
     amigo_die "deploy still invokes legacy disaster fallback automatically"

@@ -36,6 +36,9 @@ esac
 readonly SEND_TELEGRAM_TEST
 
 AUTO_RECOVERY=1
+if [[ -f "${SCRIPT_DIR}/.fix-forward-session" ]]; then
+    AUTO_RECOVERY=0
+fi
 if [[ $# -eq 2 ]]; then
     [[ $2 == "--no-auto-recovery" ]] || usage
     AUTO_RECOVERY=0

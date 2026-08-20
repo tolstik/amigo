@@ -418,19 +418,19 @@ image refs/IDs всех шести services, SHA-256 Compose/nginx/Codex, рез
 <!-- BEGIN AMIGO PRODUCTION CHECKPOINT -->
 - Status: **deployed and verified**
 - Production URL: `https://amigo.tolstik.ru/amigo/`
-- Verified at: `2026-08-19T22:07:10Z` (`2026-08-20 01:07:10 MSK`)
-- Git SHA: `2516ee874885dd9a0ee8c1d9f73fac2341d539a6`
-- Latest rollback snapshot: `/srv/amigo-rollbacks/20260819T220411Z`
+- Verified at: `2026-08-20T04:27:20Z` (`2026-08-20 07:27:20 MSK`)
+- Git SHA: `272a01052246c91869da2a6319cc54c66588f174`
+- Latest rollback snapshot: `/srv/amigo-rollbacks/20260820T042221Z`
 - Installed config SHA-256: Compose `05d80cfec15d859ad686069652c0b4a33d0f210fdfe6bd4502cce5a111558c49`; nginx locations `a1b07803174a6143014c32da55c166422253b8fdd9db8df5ed3b3afb61de4728`; nginx rate limit `1a1a7d7b3124592c960e600c9fa6ccc7a80f4200ff71464a3e4a689b97bc86fb`.
 - Pinned Codex: `0.148.0` (`sha256:ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`).
-- Verification: all six Compose services healthy; application services use the release image; PostgreSQL ready; web and ingest bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; container secret boundaries, pinned Codex hash, isolated unpublished AI gateway, direct health, hidden public health routes, exact unsigned-ingest rejection, origin proxy, public HTTPS dashboard and overview/activity/recovery/AI JSON, relative `308`, security headers, route rollback rehearsal, cron isolation, and rollback assets passed.
+- Verification: all six Compose services healthy; application services use the release image; PostgreSQL ready; the current worker completed a successful post-start Withings incremental job; web and ingest are bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; container secret boundaries, pinned Codex hash, isolated unpublished AI gateway, direct health, hidden public health routes, exact unsigned-ingest rejection, origin proxy, public HTTPS dashboard and overview/activity/recovery/AI JSON, relative `308`, security headers, route rollback rehearsal, cron isolation, and rollback assets passed.
 - Installed image references and IDs:
 
-- `web`: `amigo:2516ee874885dd9a0ee8c1d9f73fac2341d539a6` (`sha256:89fcc041ad511a4fc8f3370fca1dc37650f01769e96a33b3d8831c6f2bed12c8`)
-- `worker`: `amigo:2516ee874885dd9a0ee8c1d9f73fac2341d539a6` (`sha256:89fcc041ad511a4fc8f3370fca1dc37650f01769e96a33b3d8831c6f2bed12c8`)
-- `ingest`: `amigo:2516ee874885dd9a0ee8c1d9f73fac2341d539a6` (`sha256:89fcc041ad511a4fc8f3370fca1dc37650f01769e96a33b3d8831c6f2bed12c8`)
-- `ai-worker`: `amigo:2516ee874885dd9a0ee8c1d9f73fac2341d539a6` (`sha256:89fcc041ad511a4fc8f3370fca1dc37650f01769e96a33b3d8831c6f2bed12c8`)
-- `ai-gateway`: `amigo:2516ee874885dd9a0ee8c1d9f73fac2341d539a6` (`sha256:89fcc041ad511a4fc8f3370fca1dc37650f01769e96a33b3d8831c6f2bed12c8`)
+- `web`: `amigo:272a01052246c91869da2a6319cc54c66588f174` (`sha256:6e89f9fe9f78aac0d504ed258bf4e9d5f163ac7581a8c73aeb366f472229929c`)
+- `worker`: `amigo:272a01052246c91869da2a6319cc54c66588f174` (`sha256:6e89f9fe9f78aac0d504ed258bf4e9d5f163ac7581a8c73aeb366f472229929c`)
+- `ingest`: `amigo:272a01052246c91869da2a6319cc54c66588f174` (`sha256:6e89f9fe9f78aac0d504ed258bf4e9d5f163ac7581a8c73aeb366f472229929c`)
+- `ai-worker`: `amigo:272a01052246c91869da2a6319cc54c66588f174` (`sha256:6e89f9fe9f78aac0d504ed258bf4e9d5f163ac7581a8c73aeb366f472229929c`)
+- `ai-gateway`: `amigo:272a01052246c91869da2a6319cc54c66588f174` (`sha256:6e89f9fe9f78aac0d504ed258bf4e9d5f163ac7581a8c73aeb366f472229929c`)
 - `db`: `postgres:17-alpine` (`sha256:1bea307dfb3ee30541a7acf7de14b58bcd6948da98e5d31a04c627c4d35ec64b`)
-- Rollback command: `sudo /srv/amigo/deploy/rollback.sh /srv/amigo-rollbacks/20260819T220411Z`
+- Rollback command: `sudo /srv/amigo/deploy/rollback.sh /srv/amigo-rollbacks/20260820T042221Z`
 <!-- END AMIGO PRODUCTION CHECKPOINT -->

@@ -456,7 +456,8 @@ sudo bash /srv/amigo/deploy/verify-production.sh
 - pinned Codex hash на host и в gateway container;
 - direct health, origin nginx, public TLS, relative `308`, defensive headers и
   immutable JavaScript/CSS assets;
-- public login shell и `401` для health JSON/CSV/labs/assistant без session;
+- public login shell и method-correct `401` для health JSON/CSV/labs/assistant
+  без session;
 - short-lived root-only verification session, authenticated overview/activity/
   recovery/AI-v3/labs/assistant/CSV, exact Origin+CSRF, безопасное отклонение
   пустого upload и no-buffer SSE без создания chat turn;

@@ -139,5 +139,8 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
                 "/api/v1/profile",
             ):
                 assert client.get(path).status_code == 401, path
+            assert client.post(
+                "/api/v1/labs/documents/00000000-0000-0000-0000-000000000000/results"
+            ).status_code == 401
     finally:
         app.dependency_overrides.clear()

@@ -123,7 +123,8 @@
 - [ ] Public `https://amigo.tolstik.ru/amigo` возвращает относительный
       `Location: /amigo/`; login shell/assets работают через валидный TLS.
 - [ ] Без cookie auth session, overview, CSV, labs и assistant возвращают exact
-      `401`; signed Android ingest остаётся независимым.
+      `401` при проверке реальных HTTP-методов route; signed Android ingest
+      остаётся независимым.
 - [ ] Root-only short-lived verification session создаётся CLI без печати
       token/cookie. С ней `/amigo/api/v1/overview`, `/amigo/api/v1/series/activity?range=30d`,
       `/amigo/api/v1/series/recovery?range=30d` и

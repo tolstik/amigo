@@ -146,9 +146,11 @@ require_header() {
 
 public_status() {
     local path=$1
+    local method=${2:-GET}
     curl --silent --show-error --max-time 20 \
         --proto '=https' \
         --tlsv1.2 \
+        --request "${method}" \
         --output /dev/null \
         --write-out '%{http_code}' \
         "${AMIGO_PUBLIC_URL}${path}"
@@ -494,11 +496,13 @@ for protected_path in \
     api/v1/overview \
     api/v1/export/weight.csv \
     api/v1/labs/documents \
-    api/v1/labs/documents/00000000-0000-0000-0000-000000000000/results \
     api/v1/assistant/messages; do
     [[ "$(public_status "${protected_path}")" == "401" ]] \
         || amigo_die "unauthenticated protected route did not return 401: ${protected_path}"
 done
+readonly LAB_RESULT_CREATE_PATH="api/v1/labs/documents/00000000-0000-0000-0000-000000000000/results"
+[[ "$(public_status "${LAB_RESULT_CREATE_PATH}" POST)" == "401" ]] \
+    || amigo_die "unauthenticated protected POST route did not return 401: ${LAB_RESULT_CREATE_PATH}"
 amigo_log "PASS dashboard JSON, CSV, laboratory, and assistant data require authentication"
 
 amigo_compose run --rm --no-deps --user 0 \

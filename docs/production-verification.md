@@ -141,7 +141,9 @@
       assistant messages и CSV. Mutation с exact Origin, но без CSRF возвращает
       `403`; пустой unsupported upload возвращает consent/validation rejection и
       не создаёт document. Fake assistant ID проверяет `text/event-stream`,
-      `no-store`, `X-Accel-Buffering: no` без создания turn.
+      `no-store` и error event без создания turn. `X-Accel-Buffering: no`
+      проверяется на origin: public nginx edge применяет этот служебный
+      заголовок для отключения buffering и не пересылает его клиенту.
 - [ ] Пустой unsigned POST на точный
       `/amigo-ingest/v1/health-connect/batches` возвращает `400` с
       `missing_signature_header` до создания health record. Прочие ingest paths/methods

@@ -31,6 +31,7 @@ readonly INGEST_BODY="${TMP_DIR}/ingest.body"
 readonly UPLOAD_HEADERS="${TMP_DIR}/upload.headers"
 readonly UPLOAD_BODY="${TMP_DIR}/upload.body"
 readonly UNSUPPORTED_FILE="${TMP_DIR}/unsupported.txt"
+readonly SSE_ORIGIN_HEADERS="${TMP_DIR}/sse-origin.headers"
 readonly SSE_HEADERS="${TMP_DIR}/sse.headers"
 readonly SSE_BODY="${TMP_DIR}/sse.body"
 readonly ASSET_HEADERS="${TMP_DIR}/asset.headers"
@@ -53,6 +54,7 @@ cleanup() {
         "${UPLOAD_HEADERS}" \
         "${UPLOAD_BODY}" \
         "${UNSUPPORTED_FILE}" \
+        "${SSE_ORIGIN_HEADERS}" \
         "${SSE_HEADERS}" \
         "${SSE_BODY}" \
         "${ASSET_HEADERS}" \
@@ -702,17 +704,24 @@ PY
 amigo_log "PASS exact Origin/CSRF boundary and safe upload rejection without stored data"
 
 curl --config "${AUTH_CURL_CONFIG}" \
+    --proto '=http' \
+    --header 'Host: amigo.tolstik.ru' \
+    --dump-header "${SSE_ORIGIN_HEADERS}" \
+    --output /dev/null \
+    "http://127.0.0.1/amigo/api/v1/assistant/messages/00000000-0000-0000-0000-000000000000/events"
+require_header '^x-accel-buffering:[[:space:]]*no' "${SSE_ORIGIN_HEADERS}"
+
+curl --config "${AUTH_CURL_CONFIG}" \
     --dump-header "${SSE_HEADERS}" \
     --output "${SSE_BODY}" \
     "${AMIGO_PUBLIC_URL}api/v1/assistant/messages/00000000-0000-0000-0000-000000000000/events"
 require_header '^content-type:[[:space:]]*text/event-stream' "${SSE_HEADERS}"
 require_header '^cache-control:.*no-store' "${SSE_HEADERS}"
-require_header '^x-accel-buffering:[[:space:]]*no' "${SSE_HEADERS}"
 grep --quiet --fixed-strings 'event: error' "${SSE_BODY}" \
     || amigo_die "authenticated SSE route did not return its bounded not-found event"
 [[ "$(public_status 'api/v1/assistant/messages/00000000-0000-0000-0000-000000000000/events')" == "401" ]] \
     || amigo_die "unauthenticated assistant SSE route did not return 401"
-amigo_log "PASS authenticated no-buffer SSE route without creating a chat turn"
+amigo_log "PASS origin no-buffer contract and authenticated public SSE without creating a chat turn"
 
 INGEST_REJECTION_STATUS="$(
     curl --disable --silent --show-error --max-time 20 \

@@ -38,6 +38,10 @@
 - Managed regex routes for laboratory documents/results and assistant turns use
   named captures with explicit upstream URIs; never reintroduce the generic
   `rewrite ^/amigo/(.*)$` form because nginx can clobber its numeric capture.
+- Assistant SSE sends `X-Accel-Buffering: no` through the origin nginx. The
+  public nginx edge consumes that control header, so production verification
+  checks it at the origin boundary and checks content type, cache policy, and
+  the bounded event body over public HTTPS.
 - Every managed nginx rate limit returns explicit `429`; never rely on nginx's
   default `503`, because the shared origin error handler can remap it.
 - A responding but unhealthy legacy origin may be bypassed only with takeover's

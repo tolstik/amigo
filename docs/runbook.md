@@ -72,6 +72,10 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
   цель по калориям.
 - TLS завершается на public edge `5.35.114.76`. Внешний HTTPS проверяется
   без `-k`; локальный nginx — отдельный HTTP origin.
+- Для assistant SSE приложение и origin передают `X-Accel-Buffering: no`.
+  Public nginx edge применяет этот служебный заголовок и не возвращает его
+  браузеру, поэтому verification требует его на origin, а на внешнем HTTPS
+  проверяет `text/event-stream`, `no-store` и bounded error event.
 - Origin nginx хранит действующую конфигурацию в `/etc/nginx/conf.d/my.conf`.
   Managed include добавляется только в существующие server-блоки `tolstik.ru`.
 - Legacy-приложение `/srv/www/amigo` и MariaDB `amigo` не удаляются и не

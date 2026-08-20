@@ -200,6 +200,13 @@ grep --quiet --fixed-strings 'limit_req zone=amigo_upload burst=5 nodelay;' \
 grep --quiet --fixed-strings 'proxy_pass_header X-Accel-Buffering;' \
     "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
     || amigo_die "assistant SSE route does not pass its no-buffer response contract"
+grep --quiet --fixed-strings '"${SSE_ORIGIN_HEADERS}"' \
+    "${SCRIPT_DIR}/verify-production.sh" \
+    || amigo_die "production verification does not inspect the origin SSE headers"
+[[ "$(grep --count --fixed-strings \
+    "require_header '^x-accel-buffering:[[:space:]]*no'" \
+    "${SCRIPT_DIR}/verify-production.sh")" -eq 1 ]] \
+    || amigo_die "X-Accel-Buffering must be required exactly once at the origin boundary"
 grep --quiet --fixed-strings 'lab-parser' "${SCRIPT_DIR}/rollback.sh" \
     || amigo_die "legacy disaster fallback does not stop the isolated laboratory parser"
 # Literal variable syntax is the unsafe source pattern being rejected.

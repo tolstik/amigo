@@ -160,10 +160,14 @@ grep --quiet --fixed-strings \
     'installed auth-floor HTTP config does not match the candidate release' \
     "${SCRIPT_DIR}/pre-cutover-backup.sh" \
     || amigo_die "pre-cutover backup cannot safely resume with the exact candidate HTTP config"
+# Literal nginx variable syntax is the source pattern being rejected.
+# shellcheck disable=SC2016
 if grep --quiet --fixed-strings 'rewrite ^/amigo/(.*)$ /$1 break;' \
     "${SCRIPT_DIR}/nginx/amigo.locations.conf"; then
     amigo_die "dynamic managed routes still use capture-unsafe URI rewriting"
 fi
+# These are literal nginx named-capture variables, not shell expansions.
+# shellcheck disable=SC2016
 for explicit_dynamic_proxy in \
     'api/v1/labs/documents/$amigo_lab_action_document_id/$amigo_lab_document_action' \
     'api/v1/labs/documents/$amigo_lab_create_document_id/results' \

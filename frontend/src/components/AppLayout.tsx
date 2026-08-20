@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { api } from "../api/client";
 import type { AuthSession } from "../api/types";
 import type { OverviewContext } from "../App";
@@ -27,9 +28,19 @@ const statusLabels = {
 } as const;
 
 export function AppLayout({ overview, session, onLogout }: { overview: OverviewContext; session: AuthSession; onLogout: () => void }) {
+  const location = useLocation();
+  const navigation = useRef<HTMLElement>(null);
   const sync = overview.data?.sync;
   const status = overview.error ? "error" : (sync?.status ?? "unknown");
   const lastSuccess = sync?.lastSuccessAt;
+  useEffect(() => {
+    if (!window.matchMedia("(max-width: 820px)").matches) return;
+    navigation.current?.querySelector<HTMLAnchorElement>("a.active")?.scrollIntoView({
+      behavior: "auto",
+      block: "nearest",
+      inline: "center",
+    });
+  }, [location.pathname]);
 
   return (
     <div className="app-shell">
@@ -69,7 +80,7 @@ export function AppLayout({ overview, session, onLogout }: { overview: OverviewC
 
       <div className="workspace">
         <aside className="sidebar" aria-label="Основная навигация">
-          <nav className="main-nav">
+          <nav className="main-nav" ref={navigation}>
             {navItems.map((item) => (
               <NavLink key={item.to} to={item.to} end={item.end}>
                 <Icon name={item.icon} />

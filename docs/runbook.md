@@ -142,10 +142,11 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
    Его дважды вводят только в скрытом prompt `deploy.sh` через `/dev/tty`; пароль
    не помещают в shell history, `.env`, secret file, командные аргументы или
    Markdown. На повторных deploy prompt отсутствует, пока аккаунт настроен.
-8. Для Android `1.0.2` (`versionCode 3`) использовать
-   [`Amigo-Sync-1.0.2.apk`](https://github.com/tolstik/amigo/releases/download/v3.1.0/Amigo-Sync-1.0.2.apk)
-   из GitHub release `v3.1.0` и сверить SHA-256
-   `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`.
+8. Для Android `1.1.0` (`versionCode 4`) использовать signed
+   `Amigo-1.1.0.apk` из GitHub release `v4.0.0` и сверить SHA-256
+   `6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`.
+   Signing certificate SHA-256 должен быть
+   `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
    Keystore и его пароли не хранятся в Git или Markdown.
 
 Для первого перехода с legacy файлы секретов можно создать без вывода
@@ -371,20 +372,21 @@ events, reasoning, prompts и validation details не сохраняются и 
 
 ## Android APK, pairing и backfill
 
-1. Установить проверенный signed Android `1.0.2` (`versionCode 3`) из release
-   `v3.1.0` или обновить предыдущую версию:
+1. Установить проверенный signed Android `1.1.0` (`versionCode 4`) из release
+   `v4.0.0` или обновить `1.0.2`:
 
    ```bash
    adb install -r <PATH_TO_SIGNED_APK>
    ```
 
-   SHA-256 asset `Amigo-Sync-1.0.2.apk`:
-   `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`.
+   SHA-256 asset `Amigo-1.1.0.apk`:
+   `6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`.
    Upgrade через `adb install -r` сохраняет pairing state, non-exportable
    Android Keystore key, выбранный Mi Fitness origin и resumable sync cursors.
 
-2. В Amigo Sync выдать read-only Health Connect permissions, включая history и
-   background access, если они доступны. Нажать «Найти источники» и
+2. В Amigo открыть вкладку «Синхронизация» и выдать read-only Health Connect
+   permissions, включая history и background access, если они доступны.
+   Нажать «Найти источники» и
    явно выбрать Mi Fitness. Не разрешать и не добавлять location/routes.
 3. Оставить server `https://amigo.tolstik.ru`, задать нечувствительную метку
    телефона и зарегистрировать устройство. Приложение создаст
@@ -415,6 +417,15 @@ events, reasoning, prompts и validation details не сохраняются и 
 6. Дождаться успешного status в приложении и проверить «Активность»/
    «Восстановление». WorkManager продолжит best-effort sync примерно раз в час.
 
+Вкладка «Дашборд» использует тот же local account и 90-дневную session, что и
+браузер. Login/logout не меняет Android pairing. Проверить, что verified App
+Link на `https://amigo.tolstik.ru/amigo/labs` открывает приложение; неизвестный
+route/origin блокируется. Upload выбирает один PDF/JPG/PNG/HEIC/HEIF до 20 МиБ
+через Files/Photos. CSV и лабораторный оригинал сохраняются через системный
+«Сохранить как»; приложение не следует redirect и не передаёт cookie вне
+allowlisted same-origin routes. Камера, встроенный viewer и offline medical
+cache намеренно отсутствуют.
+
 Кнопка «Сбросить сопряжение» сначала удаляет и немедленно создаёт новый
 non-exportable P-256 key, а уже затем очищает pairing и sync cursors. После неё
 нужны новая регистрация и явное одобрение нового code; старый server device не
@@ -431,7 +442,7 @@ client/server idempotency и snapshot reconciliation уже предусмотр
 Health Connect step record принимается до документированного значения
 `1 000 000` включительно. При отклонении сервер пишет только стабильный
 `detail.code`, без payload, headers, device ID, batch ID и validation details;
-Android `1.0.2` показывает только allowlisted code рядом с HTTP status и не
+Android `1.1.0` показывает только allowlisted code рядом с HTTP status и не
 отражает произвольное тело ответа.
 
 ## Telegram schedule
@@ -469,6 +480,8 @@ sudo bash /srv/amigo/deploy/verify-production.sh
 - pinned Codex hash на host и в gateway container;
 - direct health, origin nginx, public TLS, relative `308`, defensive headers и
   immutable JavaScript/CSS assets;
+- exact public `/.well-known/assetlinks.json`, package
+  `ru.tolstik.amigo.sync` и release signing certificate;
 - explicit named-capture upstream URI для dynamic labs/assistant routes без
   capture-unsafe generic rewrite;
 - explicit `429` для каждого managed rate-limit; upload допускает bounded burst
@@ -482,8 +495,9 @@ sudo bash /srv/amigo/deploy/verify-production.sh
 - точный ingest route: unsigned empty batch отклоняется до создания записи;
 - закрытые health endpoints, legacy assets и обе cron-строки.
 
-Дополнительно оператор проверяет desktop/mobile, полный Health Connect backfill,
-один следующий sync-цикл, отсутствие дублей, табличные альтернативы графиков
+Дополнительно оператор проверяет desktop/mobile/WebView, verified App Links,
+SAF upload/download, полный Health Connect backfill, один следующий sync-цикл,
+отсутствие дублей, табличные альтернативы графиков
 и то, что pressure/heart/SpO2/VO2 max остаются описательными в детерминированных
 экранах. AI-рекомендации должны идти до наблюдений, содержать action,
 cadence/review period и evidence, не содержать диагноз, лечение,

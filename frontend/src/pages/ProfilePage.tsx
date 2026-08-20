@@ -5,12 +5,13 @@ import { ErrorState, LoadingState } from "../components/AsyncState";
 import { PageHeader } from "../components/PageHeader";
 import { useApi } from "../hooks/useApi";
 
-export function ProfilePage() {
+export function ProfilePage({ onLogout }: { onLogout: () => void }) {
   const loader = useCallback((signal: AbortSignal) => api.profile(signal), []);
   const profile = useApi(loader);
   const [form, setForm] = useState<UserProfile | null>(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
   useEffect(() => { if (profile.data) setForm(profile.data); }, [profile.data]);
 
   async function submit(event: FormEvent) {
@@ -31,6 +32,18 @@ export function ProfilePage() {
     }
   }
 
+  async function logout() {
+    setLoggingOut(true);
+    setError(null);
+    try {
+      await api.logout();
+      onLogout();
+    } catch {
+      setError("Не удалось завершить сессию.");
+      setLoggingOut(false);
+    }
+  }
+
   return (
     <>
       <PageHeader eyebrow="Настройки" title="Профиль и приватность" description="Дата рождения и биологический пол используются только для точного выбора лабораторных референсов. Рост приходит из серверного профиля." />
@@ -44,6 +57,7 @@ export function ProfilePage() {
           {error && <p className="form-error" role="alert">{error}</p>}
           {saved && <p className="form-success" role="status">Профиль сохранён.</p>}
           <button className="button button--primary">Сохранить</button>
+          <button className="button button--ghost profile-logout" type="button" onClick={logout} disabled={loggingOut}>{loggingOut ? "Выходим…" : "Выйти из Amigo"}</button>
         </form>}
     </>
   );

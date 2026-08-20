@@ -40,7 +40,7 @@ function PrivateApp({ session, onLogout }: { session: AuthSession; onLogout: () 
         <Route path="labs/documents/:id" element={<LabDocumentPage />} />
         <Route path="labs/analytes/:id" element={<LabAnalytePage />} />
         <Route path="assistant" element={<AssistantPage />} />
-        <Route path="profile" element={<ProfilePage />} />
+        <Route path="profile" element={<ProfilePage onLogout={onLogout} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

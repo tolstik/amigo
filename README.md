@@ -1,4 +1,4 @@
-# Amigo v3
+# Amigo v4
 
 Personal, authenticated health dashboard for weight-program progress, activity,
 recovery, descriptive blood-pressure history, laboratory results, and a
@@ -39,8 +39,9 @@ is persisted and applied to both the interface and charts.
 
 `backend/` contains FastAPI services, deterministic analytics, integrations,
 and migrations. `frontend/` contains the React/TypeScript dashboard. `android/`
-contains the Health Connect companion. `deploy/` and `docs/runbook.md` contain
-the production, verification, and rollback procedures.
+contains the hybrid Amigo Android app: its default tab is the secured dashboard
+and its second tab is the native Health Connect companion. `deploy/` and
+`docs/runbook.md` contain the production, verification, and rollback procedures.
 
 ## AI analysis boundary
 
@@ -107,9 +108,19 @@ retained as complete. The gateway uses ephemeral `codex app-server` turns with
 a strict output schema; see the official
 [`app-server` turns documentation](https://learn.chatgpt.com/docs/app-server#turns).
 
-## Health Connect companion
+## Android app and Health Connect companion
 
-Amigo Sync reads the history that Health Connect actually makes available for
+Amigo `1.1.0` (`versionCode 4`, package `ru.tolstik.amigo.sync`) opens the full
+authenticated dashboard in a top-level WebView. It uses the same local account
+and 90-day server session as a browser, while signed ingest remains independent.
+Only the fixed production origin and known SPA routes are accepted; there is no
+JavaScript bridge, third-party cookie access, mixed content, TLS bypass, or
+medical offline cache. Verified App Links cover `/amigo` and `/amigo/...`.
+Laboratory uploads use the system file picker, and authenticated CSV/original
+downloads use system “Save as” with an exact same-origin allowlist and no
+redirects.
+
+The native synchronization tab reads the history that Health Connect actually makes available for
 steps, distance, calories, active minutes, workouts, sleep, heart/resting heart
 rate, HRV, SpO2, and VO2 max. Availability varies by device and Mi Fitness.
 The app never requests weight, blood pressure, location, or exercise routes.
@@ -133,7 +144,10 @@ Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are
 documented in [docs/runbook.md](docs/runbook.md).
 
-The signed companion from release `v3.1.0` is
+The signed `1.1.0` release candidate for `v4.0.0` has SHA-256
+`6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d` and the
+same signing certificate as the installed app. Until `v4.0.0` is published, the
+previous public companion from release `v3.1.0` remains
 [`Amigo-Sync-1.0.2.apk`](https://github.com/tolstik/amigo/releases/download/v3.1.0/Amigo-Sync-1.0.2.apk)
 (SHA-256 `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`).
 Verify the checksum before installing it.

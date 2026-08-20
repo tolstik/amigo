@@ -91,6 +91,14 @@
   rate limit. Health Connect step counts up to its documented 1,000,000 maximum
   are accepted. Ingest rejection logs contain only the stable `detail.code`,
   never health payloads, headers, device IDs, batch IDs, or validation details.
+- Android `ru.tolstik.amigo.sync` opens the authenticated dashboard in a
+  top-level WebView by default and keeps native Health Connect sync on a second
+  tab. The WebView is fixed to `https://amigo.tolstik.ru`, has no JavaScript
+  bridge, blocks mixed content/TLS bypass/third-party cookies/unknown routes,
+  and never receives ingest pairing state. App Links cover only `/amigo` and
+  `/amigo/...`; authenticated CSV and laboratory-original downloads use the
+  system document picker and forward in-memory cookies only to exact allowlisted
+  same-origin GET routes, without redirects.
 - Deterministic blood-pressure, heart, SpO2, and VO2 displays remain descriptive
   and never add severity colors or app-side diagnoses. Validated AI may use those
   metrics only for evidence-bound measurement/logging advice or discussion of a

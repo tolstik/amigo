@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,9 +32,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         MainUiState(healthSdkStatus = HealthConnectGatewayStatus.current(application)),
     )
     val state: StateFlow<MainUiState> = _state.asStateFlow()
+    private var refreshJob: Job? = null
 
-    init {
-        viewModelScope.launch {
+    fun setSyncScreenVisible(visible: Boolean) {
+        if (!visible) {
+            refreshJob?.cancel()
+            refreshJob = null
+            return
+        }
+        if (refreshJob?.isActive == true) return
+        refreshJob = viewModelScope.launch {
             while (isActive) {
                 refreshInternal()
                 delay(5_000)

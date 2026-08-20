@@ -1,10 +1,24 @@
 package ru.tolstik.amigo.sync
 
+import android.app.Activity
+import android.app.AlertDialog
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
+import android.view.ViewGroup
+import android.webkit.CookieManager
+import android.webkit.ValueCallback
+import android.webkit.WebView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -16,44 +30,221 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import java.io.File
+import java.io.IOException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.Request
+import ru.tolstik.amigo.sync.dashboard.DashboardDownloadRequest
+import ru.tolstik.amigo.sync.dashboard.DashboardFilePolicy
+import ru.tolstik.amigo.sync.dashboard.DashboardUrlPolicy
+import ru.tolstik.amigo.sync.dashboard.DashboardWebViewCallbacks
+import ru.tolstik.amigo.sync.dashboard.createDashboardWebView
+
+private enum class AppDestination { DASHBOARD, SYNC }
+
+private data class SelectedDocument(
+    val displayName: String?,
+    val mimeType: String?,
+    val sizeBytes: Long?,
+)
+
+private class DashboardAuthenticationRequired : IOException()
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
+    private lateinit var dashboardWebView: WebView
+    private var selectedDestination by mutableStateOf(AppDestination.DASHBOARD)
+    private var dashboardLoading by mutableStateOf(true)
+    private var dashboardError by mutableStateOf(false)
+    private var dashboardGeneration by mutableIntStateOf(0)
+    private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingDownload: DashboardDownloadRequest? = null
+
     private val permissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract(),
     ) { granted -> viewModel.onPermissionsResult(granted) }
 
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val callback = fileChooserCallback
+        fileChooserCallback = null
+        if (callback == null) return@registerForActivityResult
+        val uri = result.data?.data?.takeIf { result.resultCode == Activity.RESULT_OK }
+        if (uri == null) {
+            callback.onReceiveValue(null)
+            return@registerForActivityResult
+        }
+        val document = selectedDocument(uri)
+        if (!DashboardFilePolicy.isAllowedUpload(document.displayName, document.mimeType, document.sizeBytes)) {
+            Toast.makeText(this, "Выберите PDF, JPG, PNG или HEIC до 20 МиБ", Toast.LENGTH_LONG).show()
+            callback.onReceiveValue(null)
+            return@registerForActivityResult
+        }
+        callback.onReceiveValue(arrayOf(uri))
+    }
+
+    private val saveDocumentLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val request = pendingDownload
+        pendingDownload = null
+        val uri = result.data?.data?.takeIf { result.resultCode == Activity.RESULT_OK }
+        if (request != null && uri != null) downloadTo(request, uri)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        selectedDestination = savedInstanceState
+            ?.getString(STATE_DESTINATION)
+            ?.let { runCatching { AppDestination.valueOf(it) }.getOrNull() }
+            ?: AppDestination.DASHBOARD
+        dashboardWebView = newDashboardWebView()
+        val restored = savedInstanceState
+            ?.getBundle(STATE_WEB_VIEW)
+            ?.let { dashboardWebView.restoreState(it) != null }
+            ?: false
+        val incomingLink = if (savedInstanceState == null) {
+            DashboardUrlPolicy.normalizeAppLink(intent?.dataString)
+        } else {
+            null
+        }
+        when {
+            incomingLink != null -> {
+                selectedDestination = AppDestination.DASHBOARD
+                dashboardWebView.loadUrl(incomingLink)
+            }
+            !restored -> dashboardWebView.loadUrl(DashboardUrlPolicy.ROOT_URL)
+        }
+        viewModel.setSyncScreenVisible(selectedDestination == AppDestination.SYNC)
+
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
             MaterialTheme(colorScheme = lightColorScheme()) {
-                AmigoSyncScreen(
+                AmigoApp(state)
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val link = DashboardUrlPolicy.normalizeAppLink(intent.dataString)
+        if (link == null) {
+            showBlockedNavigation()
+            return
+        }
+        selectDestination(AppDestination.DASHBOARD)
+        dashboardError = false
+        dashboardWebView.loadUrl(link)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (selectedDestination == AppDestination.DASHBOARD) {
+            dashboardWebView.onResume()
+        } else {
+            viewModel.setSyncScreenVisible(true)
+        }
+    }
+
+    override fun onPause() {
+        viewModel.setSyncScreenVisible(false)
+        dashboardWebView.onPause()
+        super.onPause()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_DESTINATION, selectedDestination.name)
+        val webViewState = Bundle()
+        dashboardWebView.saveState(webViewState)
+        outState.putBundle(STATE_WEB_VIEW, webViewState)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onDestroy() {
+        fileChooserCallback?.onReceiveValue(null)
+        fileChooserCallback = null
+        (dashboardWebView.parent as? ViewGroup)?.removeView(dashboardWebView)
+        dashboardWebView.stopLoading()
+        dashboardWebView.destroy()
+        super.onDestroy()
+    }
+
+    @Composable
+    private fun AmigoApp(state: MainUiState) {
+        BackHandler {
+            when {
+                selectedDestination == AppDestination.SYNC -> selectDestination(AppDestination.DASHBOARD)
+                dashboardWebView.canGoBack() -> dashboardWebView.goBack()
+                else -> finish()
+            }
+        }
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = selectedDestination == AppDestination.DASHBOARD,
+                        onClick = { selectDestination(AppDestination.DASHBOARD) },
+                        icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                        label = { Text("Дашборд") },
+                    )
+                    NavigationBarItem(
+                        selected = selectedDestination == AppDestination.SYNC,
+                        onClick = { selectDestination(AppDestination.SYNC) },
+                        icon = { Icon(Icons.Default.Sync, contentDescription = null) },
+                        label = { Text("Синхронизация") },
+                    )
+                }
+            },
+        ) { padding ->
+            when (selectedDestination) {
+                AppDestination.DASHBOARD -> DashboardScreen(Modifier.padding(padding))
+                AppDestination.SYNC -> SyncScreen(
                     state = state,
+                    modifier = Modifier.padding(padding),
                     onRequestPermissions = {
                         val permissions = viewModel.permissionsToRequest()
                         if (permissions.isNotEmpty()) permissionLauncher.launch(permissions)
@@ -71,15 +262,268 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        viewModel.refresh()
+    @Composable
+    private fun DashboardScreen(modifier: Modifier) {
+        Box(modifier.fillMaxSize()) {
+            key(dashboardGeneration) {
+                AndroidView(
+                    factory = { dashboardWebView },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            if (dashboardLoading && !dashboardError) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+            }
+            if (dashboardError) {
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text("Не удалось открыть дашборд", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            "Проверьте подключение к интернету и повторите попытку.",
+                            modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(onClick = ::retryDashboard) { Text("Повторить") }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun newDashboardWebView(): WebView = createDashboardWebView(
+        this,
+        DashboardWebViewCallbacks(
+            onLoadingChanged = { loading ->
+                dashboardLoading = loading
+                if (loading) dashboardError = false
+            },
+            onLoadError = {
+                dashboardLoading = false
+                dashboardError = true
+            },
+            onBlockedNavigation = ::showBlockedNavigation,
+            onFileChooser = ::showFileChooser,
+            onDownload = ::requestDownloadDestination,
+            onRendererGone = ::replaceCrashedWebView,
+        ),
+    )
+
+    private fun selectDestination(destination: AppDestination) {
+        if (selectedDestination == destination) return
+        selectedDestination = destination
+        val syncVisible = destination == AppDestination.SYNC
+        viewModel.setSyncScreenVisible(syncVisible)
+        if (syncVisible) {
+            dashboardWebView.onPause()
+        } else {
+            dashboardWebView.onResume()
+        }
+    }
+
+    private fun retryDashboard() {
+        dashboardError = false
+        dashboardLoading = true
+        val currentUrl = dashboardWebView.url
+        if (DashboardUrlPolicy.isAllowedNavigation(currentUrl)) {
+            dashboardWebView.reload()
+        } else {
+            dashboardWebView.loadUrl(DashboardUrlPolicy.ROOT_URL)
+        }
+    }
+
+    private fun replaceCrashedWebView(crashed: WebView) {
+        if (crashed !== dashboardWebView) return
+        (crashed.parent as? ViewGroup)?.removeView(crashed)
+        crashed.destroy()
+        dashboardWebView = newDashboardWebView()
+        dashboardGeneration += 1
+        dashboardLoading = false
+        dashboardError = true
+    }
+
+    private fun showBlockedNavigation() {
+        Toast.makeText(this, "Amigo заблокировал внешний или небезопасный адрес", Toast.LENGTH_LONG).show()
+    }
+
+    private fun showFileChooser(callback: ValueCallback<Array<Uri>>) {
+        fileChooserCallback?.onReceiveValue(null)
+        fileChooserCallback = callback
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, DashboardFilePolicy.allowedUploadMimeTypes)
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
+        }
+        fileChooserLauncher.launch(intent)
+    }
+
+    private fun selectedDocument(uri: Uri): SelectedDocument {
+        var displayName: String? = null
+        var sizeBytes: Long? = null
+        contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex >= 0 && !cursor.isNull(nameIndex)) displayName = cursor.getString(nameIndex)
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) sizeBytes = cursor.getLong(sizeIndex)
+            }
+        }
+        return SelectedDocument(displayName, contentResolver.getType(uri), sizeBytes)
+    }
+
+    private fun requestDownloadDestination(request: DashboardDownloadRequest) {
+        if (pendingDownload != null) {
+            Toast.makeText(this, "Сначала завершите текущее сохранение", Toast.LENGTH_SHORT).show()
+            return
+        }
+        pendingDownload = request
+        val mimeType = request.mimeType
+            ?.substringBefore(';')
+            ?.takeIf { it in DashboardFilePolicy.allowedUploadMimeTypes || it == "text/csv" }
+            ?: "application/octet-stream"
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = mimeType
+            putExtra(Intent.EXTRA_TITLE, request.suggestedName)
+        }
+        saveDocumentLauncher.launch(intent)
+    }
+
+    private fun downloadTo(download: DashboardDownloadRequest, destination: Uri) {
+        val cookies = CookieManager.getInstance().getCookie(DashboardUrlPolicy.ROOT_URL)
+            ?.takeIf(String::isNotBlank)
+        if (cookies == null) {
+            runCatching { contentResolver.delete(destination, null, null) }
+            dashboardWebView.loadUrl(DashboardUrlPolicy.ROOT_URL)
+            Toast.makeText(
+                this,
+                "Сессия завершилась. Войдите снова и повторите скачивание.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        lifecycleScope.launch {
+            Toast.makeText(this@MainActivity, "Скачивание…", Toast.LENGTH_SHORT).show()
+            val result = runCatching {
+                withContext(Dispatchers.IO) { downloadToTemporaryFile(download, destination, cookies) }
+            }
+            result.onSuccess {
+                showOpenDocumentDialog(destination, download.mimeType)
+            }.onFailure { error ->
+                runCatching { contentResolver.delete(destination, null, null) }
+                if (error is DashboardAuthenticationRequired) {
+                    dashboardWebView.loadUrl(DashboardUrlPolicy.ROOT_URL)
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Сессия завершилась. Войдите снова и повторите скачивание.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Не удалось сохранить файл",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private suspend fun downloadToTemporaryFile(
+        download: DashboardDownloadRequest,
+        destination: Uri,
+        cookies: String,
+    ) {
+        check(DashboardUrlPolicy.isAllowedDownload(download.url))
+        val http = (application as AmigoSyncApplication).container.http.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+        val request = Request.Builder()
+            .url(download.url)
+            .header("Accept", download.mimeType?.substringBefore(';') ?: "application/octet-stream")
+            .header("Cookie", cookies)
+            .apply { if (download.userAgent.isNotBlank()) header("User-Agent", download.userAgent) }
+            .get()
+            .build()
+        val temporary = File.createTempFile("amigo-download-", ".tmp", cacheDir)
+        temporary.setReadable(false, false)
+        temporary.setWritable(false, false)
+        temporary.setReadable(true, true)
+        temporary.setWritable(true, true)
+        try {
+            http.newCall(request).execute().use { response ->
+                if (response.code == 401) throw DashboardAuthenticationRequired()
+                if (!response.isSuccessful || response.isRedirect) {
+                    throw IOException("Dashboard download returned HTTP ${response.code}")
+                }
+                val body = response.body ?: throw IOException("Dashboard download returned no body")
+                if (body.contentLength() > DashboardFilePolicy.MAX_DOWNLOAD_BYTES) {
+                    throw IOException("Dashboard download is too large")
+                }
+                body.byteStream().use { input ->
+                    temporary.outputStream().buffered().use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var total = 0L
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            if (total > DashboardFilePolicy.MAX_DOWNLOAD_BYTES) {
+                                throw IOException("Dashboard download is too large")
+                            }
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
+            }
+            contentResolver.openOutputStream(destination, "w")?.use { output ->
+                temporary.inputStream().buffered().use { input -> input.copyTo(output) }
+            } ?: throw IOException("Cannot open the selected destination")
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    private fun showOpenDocumentDialog(uri: Uri, mimeType: String?) {
+        AlertDialog.Builder(this)
+            .setMessage("Файл сохранён")
+            .setNegativeButton("Закрыть", null)
+            .setPositiveButton("Открыть") { _, _ ->
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, mimeType?.substringBefore(';') ?: "*/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                try {
+                    startActivity(intent)
+                } catch (_: ActivityNotFoundException) {
+                    Toast.makeText(this, "На телефоне нет приложения для этого файла", Toast.LENGTH_LONG).show()
+                }
+            }
+            .show()
+    }
+
+    companion object {
+        private const val STATE_DESTINATION = "amigo.destination"
+        private const val STATE_WEB_VIEW = "amigo.web_view"
     }
 }
 
 @Composable
-private fun AmigoSyncScreen(
+private fun SyncScreen(
     state: MainUiState,
+    modifier: Modifier = Modifier,
     onRequestPermissions: () -> Unit,
     onDiscoverOrigins: () -> Unit,
     onSelectOrigin: (String) -> Unit,
@@ -91,170 +535,160 @@ private fun AmigoSyncScreen(
     onSync: () -> Unit,
 ) {
     val local = state.local
-    Scaffold { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                Spacer(Modifier.height(8.dp))
-                Text("Amigo Sync", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    "Mi Fitness → Health Connect → Amigo",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            state.notice?.let { notice ->
-                item { StatusCard("Сообщение", notice) }
-            }
-            item {
-                SectionCard("1. Health Connect") {
-                    Text(healthStatusText(state.healthSdkStatus))
-                    state.permissions?.let { permissions ->
-                        Text("Разрешения: ${permissions.granted.intersect(permissions.requested).size}/${permissions.requested.size}")
-                        if (!permissions.hasMetricReadPermission) {
-                            Text(
-                                "Нет доступа ни к одному показателю здоровья",
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
+    LazyColumn(
+        modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Spacer(Modifier.height(8.dp))
+            Text("Синхронизация", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Mi Fitness → Health Connect → Amigo",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        state.notice?.let { notice ->
+            item { StatusCard("Сообщение", notice) }
+        }
+        item {
+            SectionCard("1. Health Connect") {
+                Text(healthStatusText(state.healthSdkStatus))
+                state.permissions?.let { permissions ->
+                    Text("Разрешения: ${permissions.granted.intersect(permissions.requested).size}/${permissions.requested.size}")
+                    if (!permissions.hasMetricReadPermission) {
                         Text(
-                            when {
-                                !permissions.historyAvailable -> "Расширенный доступ к истории не поддерживается"
-                                permissions.historyGranted -> "Вся доступная история разрешена"
-                                else -> "История старше 30 дней не разрешена"
-                            },
-                        )
-                        Text(
-                            when {
-                                !permissions.backgroundAvailable -> "Фоновое чтение не поддерживается"
-                                permissions.backgroundGranted -> "Фоновое чтение разрешено"
-                                else -> "Фоновое чтение не разрешено"
-                            },
+                            "Нет доступа ни к одному показателю здоровья",
+                            color = MaterialTheme.colorScheme.error,
                         )
                     }
-                    Button(
-                        onClick = onRequestPermissions,
-                        enabled = !state.busy && state.healthSdkStatus == HealthConnectClient.SDK_AVAILABLE,
-                    ) { Text("Выдать доступ") }
-                    OutlinedButton(
-                        onClick = onDiscoverOrigins,
-                        enabled = !state.busy && state.permissions?.hasMetricReadPermission == true,
-                    ) { Text("Найти источники") }
+                    Text(
+                        when {
+                            !permissions.historyAvailable -> "Расширенный доступ к истории не поддерживается"
+                            permissions.historyGranted -> "Вся доступная история разрешена"
+                            else -> "История старше 30 дней не разрешена"
+                        },
+                    )
+                    Text(
+                        when {
+                            !permissions.backgroundAvailable -> "Фоновое чтение не поддерживается"
+                            permissions.backgroundGranted -> "Фоновое чтение разрешено"
+                            else -> "Фоновое чтение не разрешено"
+                        },
+                    )
                 }
+                Button(
+                    onClick = onRequestPermissions,
+                    enabled = !state.busy && state.healthSdkStatus == HealthConnectClient.SDK_AVAILABLE,
+                ) { Text("Выдать доступ") }
+                OutlinedButton(
+                    onClick = onDiscoverOrigins,
+                    enabled = !state.busy && state.permissions?.hasMetricReadPermission == true,
+                ) { Text("Найти источники") }
             }
-            if (state.origins.isNotEmpty()) {
-                item { Text("Источник данных", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
-                items(state.origins, key = OriginItem::packageName) { origin ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .selectable(
-                                selected = local?.selectedOrigin == origin.packageName,
-                                enabled = !state.busy,
-                                role = Role.RadioButton,
-                                onClick = { onSelectOrigin(origin.packageName) },
-                            )
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(
+        }
+        if (state.origins.isNotEmpty()) {
+            item { Text("Источник данных", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            items(state.origins, key = OriginItem::packageName) { origin ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
                             selected = local?.selectedOrigin == origin.packageName,
-                            onClick = null,
+                            enabled = !state.busy,
+                            role = Role.RadioButton,
+                            onClick = { onSelectOrigin(origin.packageName) },
                         )
-                        Column(Modifier.padding(start = 8.dp)) {
-                            Text(origin.label, fontWeight = FontWeight.Medium)
-                            Text(origin.packageName, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
-            item {
-                SectionCard("2. Сопряжение с сервером") {
-                    OutlinedTextField(
-                        value = local?.serverUrl.orEmpty(),
-                        onValueChange = onServerUrlChange,
-                        label = { Text("Адрес сервера") },
-                        enabled = !state.busy && local?.registration == null,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = local?.selectedOrigin == origin.packageName,
+                        onClick = null,
                     )
-                    OutlinedTextField(
-                        value = local?.deviceLabel.orEmpty(),
-                        onValueChange = onDeviceLabelChange,
-                        label = { Text("Название телефона") },
-                        enabled = !state.busy && local?.registration == null,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    val registration = local?.registration
-                    if (registration == null) {
-                        val hasMetricReadPermission =
-                            state.permissions?.hasMetricReadPermission == true
-                        if (!hasMetricReadPermission) {
-                            Text(
-                                "Перед регистрацией разрешите чтение хотя бы одного показателя " +
-                                    "Health Connect.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        } else if (local?.selectedOrigin == null) {
-                            Text(
-                                "Перед регистрацией нажмите «Найти источники» и выберите " +
-                                    "Mi Fitness выше.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Button(
-                            onClick = onRegister,
-                            enabled = !state.busy &&
-                                local?.selectedOrigin != null &&
-                                hasMetricReadPermission,
-                        ) { Text("Зарегистрировать телефон") }
-                    } else {
-                        if (registration.pairingCode.isNotBlank()) {
-                            Text(
-                                "Код: ${registration.pairingCode}",
-                                style = MaterialTheme.typography.headlineSmall,
-                            )
-                        }
-                        Text("Статус: ${registration.status}")
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = onCheckPairing, enabled = !state.busy) { Text("Проверить") }
-                            OutlinedButton(onClick = onResetPairing, enabled = !state.busy) { Text("Сбросить") }
-                        }
+                    Column(Modifier.padding(start = 8.dp)) {
+                        Text(origin.label, fontWeight = FontWeight.Medium)
+                        Text(origin.packageName, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
-            item {
-                SectionCard("3. Синхронизация") {
-                    Text("Фоновая проверка выполняется примерно раз в час.")
-                    Text("История: ${local?.completedTypes ?: 0}/11 типов")
-                    Text("Последняя отправка: ${formatInstant(local?.lastSync)}")
-                    Text("Данные актуальны на: ${formatInstant(local?.dataAsOf)}")
-                    local?.lastError?.let { Text("Ошибка: $it", color = MaterialTheme.colorScheme.error) }
-                    Button(
-                        onClick = onSync,
-                        enabled = !state.busy && local?.registration?.status == "approved" && local?.selectedOrigin != null,
-                    ) { Text("Синхронизировать сейчас") }
-                    if (state.busy) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.height(24.dp))
-                            Text(" Выполняется…")
-                        }
-                    }
-                }
-            }
-            item {
-                HorizontalDivider()
-                Text(
-                    "Приложение только читает выбранные показатели. Вес, давление, GPS и маршруты не запрашиваются.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 24.dp),
+        }
+        item {
+            SectionCard("2. Сопряжение с сервером") {
+                OutlinedTextField(
+                    value = local?.serverUrl.orEmpty(),
+                    onValueChange = onServerUrlChange,
+                    label = { Text("Адрес сервера") },
+                    enabled = !state.busy && local?.registration == null,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    value = local?.deviceLabel.orEmpty(),
+                    onValueChange = onDeviceLabelChange,
+                    label = { Text("Название телефона") },
+                    enabled = !state.busy && local?.registration == null,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                val registration = local?.registration
+                if (registration == null) {
+                    val hasMetricReadPermission = state.permissions?.hasMetricReadPermission == true
+                    if (!hasMetricReadPermission) {
+                        Text(
+                            "Перед регистрацией разрешите чтение хотя бы одного показателя Health Connect.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else if (local?.selectedOrigin == null) {
+                        Text(
+                            "Перед регистрацией нажмите «Найти источники» и выберите Mi Fitness выше.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Button(
+                        onClick = onRegister,
+                        enabled = !state.busy && local?.selectedOrigin != null && hasMetricReadPermission,
+                    ) { Text("Зарегистрировать телефон") }
+                } else {
+                    if (registration.pairingCode.isNotBlank()) {
+                        Text("Код: ${registration.pairingCode}", style = MaterialTheme.typography.headlineSmall)
+                    }
+                    Text("Статус: ${registration.status}")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onCheckPairing, enabled = !state.busy) { Text("Проверить") }
+                        OutlinedButton(onClick = onResetPairing, enabled = !state.busy) { Text("Сбросить") }
+                    }
+                }
             }
+        }
+        item {
+            SectionCard("3. Синхронизация") {
+                Text("Фоновая проверка выполняется примерно раз в час.")
+                Text("История: ${local?.completedTypes ?: 0}/11 типов")
+                Text("Последняя отправка: ${formatInstant(local?.lastSync)}")
+                Text("Данные актуальны на: ${formatInstant(local?.dataAsOf)}")
+                local?.lastError?.let { Text("Ошибка: $it", color = MaterialTheme.colorScheme.error) }
+                Button(
+                    onClick = onSync,
+                    enabled = !state.busy && local?.registration?.status == "approved" && local?.selectedOrigin != null,
+                ) { Text("Синхронизировать сейчас") }
+                if (state.busy) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.height(24.dp))
+                        Text(" Выполняется…")
+                    }
+                }
+            }
+        }
+        item {
+            HorizontalDivider()
+            Text(
+                "Приложение только читает выбранные показатели. Вес, давление, GPS и маршруты не запрашиваются.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 24.dp),
+            )
         }
     }
 }

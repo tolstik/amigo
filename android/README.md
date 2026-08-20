@@ -1,15 +1,37 @@
-# Amigo Health Connect companion
+# Amigo Android app
 
-Android companion app (`ru.tolstik.amigo.sync`) that reads Mi Fitness data from
-Health Connect and sends signed, idempotent batches to the Amigo server. The app
-never requests write access, weight, blood pressure, location, or exercise
-routes.
+Hybrid Android app (`ru.tolstik.amigo.sync`) with the authenticated Amigo
+dashboard as its default tab and native Health Connect synchronization as its
+second tab. The sync client reads Mi Fitness data and sends signed, idempotent
+batches to the Amigo server. It never requests write access, weight, blood
+pressure, location, or exercise routes.
 
-Signed release `1.0.2`:
-[`Amigo-Sync-1.0.2.apk`](https://github.com/tolstik/amigo/releases/download/v3.1.0/Amigo-Sync-1.0.2.apk),
-SHA-256 `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`.
+Signed release candidate `1.1.0` (`versionCode 4`) for project release `v4.0.0`:
+`Amigo-1.1.0.apk`, SHA-256
+`6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
+
+The previous published release is `1.0.2`:
+[`Amigo-Sync-1.0.2.apk`](https://github.com/tolstik/amigo/releases/download/v3.1.0/Amigo-Sync-1.0.2.apk),
+SHA-256 `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`.
+
+## Dashboard tab
+
+- Loads only `https://amigo.tolstik.ru/amigo/` and known dashboard routes in a
+  top-level WebView; verified links for `/amigo` and `/amigo/...` open this tab.
+- Uses the normal username/password form and persistent first-party WebView
+  cookie. Web login/logout never changes the independent ingest pairing.
+- Enables JavaScript and DOM storage required by the React dashboard, but has no
+  JavaScript bridge and rejects third-party cookies, mixed content, TLS errors,
+  external origins, unsafe schemes, and unknown main-frame routes.
+- Uses Android Files/Photos to choose one PDF/JPG/PNG/HEIC/HEIF up to 20 MiB.
+  Camera capture is intentionally not requested.
+- Handles only exact authenticated CSV and laboratory-original download routes.
+  The session cookie stays in memory, redirects are disabled, the response is
+  capped at 25 MiB, and the destination is selected through system “Save as”.
+- Keeps no offline medical archive. A failed connection or renderer shows a
+  native retry screen.
 
 ## Build and test
 
@@ -50,14 +72,16 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## First setup
 
-1. Open Amigo Sync and grant the requested read permissions. Grant history and
-   background access when Health Connect exposes those capabilities.
-2. Tap **Найти источники** and explicitly select Mi Fitness. The source package
+1. Open Amigo. The dashboard is the default tab; sign in with the existing
+   local Amigo account. Open **Синхронизация** for Health Connect setup.
+2. Grant the requested read permissions. Grant history and background access
+   when Health Connect exposes those capabilities.
+3. Tap **Найти источники** and explicitly select Mi Fitness. The source package
    is discovered from record metadata and is not hard-coded.
-3. Keep the default server `https://amigo.tolstik.ru`, enter a phone label, and
+4. Keep the default server `https://amigo.tolstik.ru`, enter a phone label, and
    register the device.
-4. Approve the displayed pairing code on the server, then tap **Проверить**.
-5. Tap **Синхронизировать сейчас**. WorkManager continues best-effort sync about
+5. Approve the displayed pairing code on the server, then tap **Проверить**.
+6. Tap **Синхронизировать сейчас**. WorkManager continues best-effort sync about
    once an hour when networking and background Health Connect reads are
    available.
 
@@ -97,7 +121,8 @@ heart-rate record at 5,000 evenly sampled points while preserving the first and
 last point. Batch starts are separated by at least 1,100 ms to remain below the
 production 60 requests/minute limit. A failed upload leaves the cursor/token
 unchanged, so the same deterministic batch ID and body are retried. No raw
-health payload or private key is written to logs. Release 1.0.2 also displays a
+health payload or private key is written to logs. Release 1.1.0 retains the
+1.0.2 behavior that displays a
 server rejection's allowlisted `detail.code` next to the HTTP status; arbitrary
-response bodies are never reflected. Installing it over 1.0.1 preserves the
+response bodies are never reflected. Installing it over 1.0.2 preserves the
 pairing key, selected origin, and resumable sync cursors.

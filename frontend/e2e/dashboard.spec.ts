@@ -110,6 +110,18 @@ test.beforeEach(async ({ page }) => {
     } });
     if (path.endsWith("/labs/documents") && method === "GET") return route.fulfill({ json: { items: [labDocument] } });
     if (path.endsWith("/labs/documents") && method === "POST") return route.fulfill({ status: 202, json: { ...labDocument, status: "queued", verified: false } });
+    if (path.includes("/export/") && path.endsWith(".csv")) return route.fulfill({
+      status: 200,
+      contentType: "text/csv; charset=utf-8",
+      headers: { "Content-Disposition": "attachment; filename=amigo-weight.csv" },
+      body: "measured_at,value,unit\n2026-09-01T05:00:00Z,125.5,kg\n",
+    });
+    if (path.endsWith(`/labs/documents/${labDocument.id}/download`)) return route.fulfill({
+      status: 200,
+      contentType: "application/pdf",
+      headers: { "Content-Disposition": "attachment; filename*=UTF-8''%D0%B0%D0%BD%D0%B0%D0%BB%D0%B8%D0%B7%D1%8B.pdf" },
+      body: "%PDF-1.4 synthetic original",
+    });
     if (path.endsWith(`/labs/documents/${labDocument.id}/results`) && method === "POST") {
       expect(route.request().postDataJSON()).toMatchObject({
         analyte_name: "Трансферрин",
@@ -226,6 +238,21 @@ test("keeps the light default and a usable persistent theme selector on mobile",
   await expect(page.locator("html")).toHaveAttribute("data-theme", "sunset");
 });
 
+test("keeps narrow mobile layouts usable and the active navigation item visible", async ({ page }) => {
+  for (const width of [320, 360, 412]) {
+    await page.setViewportSize({ width, height: 780 });
+    await page.goto("./labs/documents/20000000-0000-0000-0000-000000000001");
+    await expect(page.getByRole("heading", { name: "анализы.pdf" })).toBeVisible();
+    const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(hasOverflow).toBe(false);
+    const active = page.locator(".main-nav a.active");
+    const bounds = await active.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
+  }
+});
+
 test("keeps a protected deep link through login", async ({ page }) => {
   let authenticated = false;
   await page.route("**/api/v1/**", async (route) => {
@@ -274,6 +301,35 @@ test("shows laboratory summary and upload queue", async ({ page }) => {
   await form.getByLabel("Дата").fill("2026-08-28");
   await form.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByRole("button", { name: "Добавить показатель" })).toBeVisible();
+});
+
+test("downloads authenticated CSV and a laboratory original", async ({ page }) => {
+  await page.goto("./");
+  const csvLink = page.getByRole("link", { name: "Скачать CSV" });
+  // Chromium's native download attribute bypasses Playwright request routing;
+  // the production Content-Disposition header remains what names the file.
+  await csvLink.evaluate((element) => element.removeAttribute("download"));
+  const csvPromise = page.waitForEvent("download");
+  await csvLink.click();
+  const csv = await csvPromise;
+  expect(csv.suggestedFilename()).toBe("amigo-weight.csv");
+
+  await page.goto(`./labs/documents/${labDocument.id}`);
+  const originalLink = page.getByRole("link", { name: "Оригинал" });
+  await originalLink.evaluate((element) => element.removeAttribute("download"));
+  const originalPromise = page.waitForEvent("download");
+  await originalLink.click();
+  const original = await originalPromise;
+  expect(original.suggestedFilename()).toBe("анализы.pdf");
+});
+
+test("revokes the session from the mobile profile", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto("./profile");
+  const logoutRequest = page.waitForRequest((request) => request.url().endsWith("/auth/logout"));
+  await page.getByRole("button", { name: "Выйти из Amigo" }).click();
+  expect((await logoutRequest).method()).toBe("POST");
+  await expect(page.getByRole("heading", { name: "Вход в Amigo" })).toBeVisible();
 });
 
 test("separates laboratory history charts by unit", async ({ page }) => {

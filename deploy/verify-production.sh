@@ -35,6 +35,8 @@ readonly SSE_ORIGIN_HEADERS="${TMP_DIR}/sse-origin.headers"
 readonly SSE_HEADERS="${TMP_DIR}/sse.headers"
 readonly SSE_BODY="${TMP_DIR}/sse.body"
 readonly ASSET_HEADERS="${TMP_DIR}/asset.headers"
+readonly ASSETLINKS_HEADERS="${TMP_DIR}/assetlinks.headers"
+readonly ASSETLINKS_BODY="${TMP_DIR}/assetlinks.json"
 readonly REDIRECT_HEADERS="${TMP_DIR}/redirect.headers"
 readonly CRONTAB_FILE="${TMP_DIR}/tolstik.crontab"
 
@@ -58,6 +60,8 @@ cleanup() {
         "${SSE_HEADERS}" \
         "${SSE_BODY}" \
         "${ASSET_HEADERS}" \
+        "${ASSETLINKS_HEADERS}" \
+        "${ASSETLINKS_BODY}" \
         "${REDIRECT_HEADERS}" \
         "${CRONTAB_FILE}"
     rmdir -- "${VERIFICATION_DIR}" 2>/dev/null || true
@@ -451,6 +455,40 @@ PUBLIC_REDIRECT_STATUS="$(
 grep --ignore-case --quiet --extended-regexp '^location:[[:space:]]*/amigo/[[:space:]]*$' \
     "${REDIRECT_HEADERS}" \
     || amigo_die "public /amigo redirect is not relative"
+
+curl --fail --silent --show-error --max-time 20 \
+    --proto '=https' \
+    --tlsv1.2 \
+    --dump-header "${ASSETLINKS_HEADERS}" \
+    --output "${ASSETLINKS_BODY}" \
+    https://amigo.tolstik.ru/.well-known/assetlinks.json
+require_header '^content-type:[[:space:]]*application/json' "${ASSETLINKS_HEADERS}"
+require_header '^cache-control:[[:space:]]*public,[[:space:]]*max-age=3600' \
+    "${ASSETLINKS_HEADERS}"
+require_header '^x-content-type-options:[[:space:]]*nosniff' "${ASSETLINKS_HEADERS}"
+python3 - "${ASSETLINKS_BODY}" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+expected = [{
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+        "namespace": "android_app",
+        "package_name": "ru.tolstik.amigo.sync",
+        "sha256_cert_fingerprints": [
+            "25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02"
+        ],
+    },
+}]
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if payload != expected:
+    raise SystemExit("assetlinks contract differs from the signed Amigo release")
+PY
+ASSETLINKS_POST_STATUS="$(public_status "/.well-known/assetlinks.json" POST)"
+[[ "${ASSETLINKS_POST_STATUS}" == "405" ]] \
+    || amigo_die "assetlinks POST returned ${ASSETLINKS_POST_STATUS}, expected 405"
+amigo_log "PASS verified Android App Links association"
 
 curl --fail --silent --show-error --max-time 20 \
     --proto '=https' \

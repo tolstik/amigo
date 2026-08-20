@@ -72,9 +72,11 @@
 - [ ] До первого Withings API request legacy collector переведён в единственный
       disabled-marker; после full sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.
-- [ ] Android `1.0.2` (`versionCode 3`) получен как
-      `Amigo-Sync-1.0.2.apk` из release `v3.1.0`; его SHA-256 равен
-      `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`.
+- [ ] Android `1.1.0` (`versionCode 4`) получен как `Amigo-1.1.0.apk` из
+      release `v4.0.0`; его SHA-256 равен
+      `6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`, а
+      signing certificate SHA-256 равен
+      `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
       Signing keystore и пароли не попали в checkout или документы.
 
 ## Автоматические проверки после cutover
@@ -127,6 +129,9 @@
       `308`, `/amigo/` — `200`.
 - [ ] Public `https://amigo.tolstik.ru/amigo` возвращает относительный
       `Location: /amigo/`; login shell/assets работают через валидный TLS.
+- [ ] Public `GET /.well-known/assetlinks.json` имеет JSON/nosniff/cache
+      headers и exact package/certificate contract для
+      `ru.tolstik.amigo.sync`; POST и другие mutations возвращают exact `405`.
 - [ ] Без cookie auth session, overview, CSV, labs и assistant возвращают exact
       `401` при проверке реальных HTTP-методов route; signed Android ingest
       остаётся независимым.
@@ -248,10 +253,21 @@
       bounded medical/measurement рекомендацию. В AI output отсутствуют диагноз,
       лечение, назначение или изменение лекарства/дозировки и фиксированная цель
       по калориям.
-- [ ] Signed APK `1.0.2` установлен через `adb install -r`; прежние pairing
+- [ ] Signed APK `1.1.0` установлен через `adb install -r`; прежние pairing
       state, non-exportable Keystore key, выбранный Mi Fitness origin и cursors
-      сохранены. Amigo Sync имеет только read-only Health Connect permissions;
+      сохранены. Amigo имеет только read-only Health Connect permissions;
       location и exercise routes не запрошены.
+- [ ] Приложение открывает вкладку «Дашборд» по умолчанию; login, logout, все
+      SPA-разделы, темы, profile, laboratory upload/edit/confirm/delete/download,
+      CSV и assistant SSE работают внутри WebView. Web logout не сбрасывает
+      ingest pairing.
+- [ ] Verified App Links для `/amigo` и `/amigo/...` открывают приложение и
+      сохраняют deep link через login. HTTP, lookalike host, unknown route и
+      external origin блокируются; TLS errors не обходятся.
+- [ ] SAF выбирает один PDF/JPG/PNG/HEIC/HEIF до 20 МиБ без storage/camera
+      permission. CSV и laboratory original сохраняются через system Save As;
+      cookie не уходит вне exact same-origin allowlist, redirects запрещены,
+      ошибочный/слишком большой download удаляется.
 - [ ] Pending pairing label/code сверен с нужным телефоном и одобрен через
       `python -m app.health_cli approve-device`; неожиданных pending devices нет.
 - [ ] Тестовый pairing reset сначала заменяет Android Keystore identity и только
@@ -291,6 +307,9 @@
       services, SHA-256 установленных Compose/nginx/Codex, результаты
       verification, exact previous-release recovery command и отдельную
       `rollback.sh --to-legacy` disaster command без секретов.
+- [ ] Release `v4.0.0` указывает на deployed feature commit; asset
+      `Amigo-1.1.0.apk` скачивается, повторно даёт ожидаемые APK SHA-256 и
+      signing certificate, а verified App Link association остаётся доступна.
 - [ ] Изменения `AGENTS.md`, runbook и `production-checkpoint.md` перенесены в
       канонический Git и закоммичены.
 - [ ] Владелец получил production URL, APK или ссылку на release, а также точную

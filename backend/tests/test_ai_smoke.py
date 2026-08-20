@@ -103,3 +103,80 @@ def test_run_smoke_fails_closed_on_invalid_output(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(RuntimeError, match="schema validation"):
         run_smoke()
+
+
+def test_run_smoke_retries_one_transient_assistant_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    chat_attempts = []
+
+    def fake_post(url, **kwargs) -> httpx.Response:
+        payload = kwargs["json"]
+        if url.endswith("/analyze"):
+            return httpx.Response(200, json=_response_payload(payload["snapshot_hash"]))
+        if url.endswith("/extract-labs"):
+            response = GatewayLabResponse(
+                extraction={
+                    "report": {
+                        "observed_on": None,
+                        "laboratory": None,
+                        "specimen": None,
+                    },
+                    "results": [],
+                }
+            )
+            return httpx.Response(200, json=response.model_dump(mode="json"))
+        chat_attempts.append(payload["attempt"])
+        if payload["attempt"] == 1:
+            return httpx.Response(200, text=json.dumps({"type": "error"}) + "\n")
+        response = GatewayChatResponse(
+            answer={
+                "segments": [
+                    {
+                        "text": "Синтетический сигнал доступен.",
+                        "evidence_keys": ["quality.runtime_smoke"],
+                    }
+                ]
+            }
+        )
+        return httpx.Response(
+            200,
+            text=json.dumps(
+                {"type": "complete", "response": response.model_dump(mode="json")}
+            )
+            + "\n",
+        )
+
+    monkeypatch.setattr("app.ai_smoke.httpx.post", fake_post)
+
+    run_smoke()
+
+    assert chat_attempts == [1, 2]
+
+
+def test_run_smoke_fails_after_second_assistant_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    chat_attempts = []
+
+    def fake_post(url, **kwargs) -> httpx.Response:
+        payload = kwargs["json"]
+        if url.endswith("/analyze"):
+            return httpx.Response(200, json=_response_payload(payload["snapshot_hash"]))
+        if url.endswith("/extract-labs"):
+            response = GatewayLabResponse(
+                extraction={
+                    "report": {
+                        "observed_on": None,
+                        "laboratory": None,
+                        "specimen": None,
+                    },
+                    "results": [],
+                }
+            )
+            return httpx.Response(200, json=response.model_dump(mode="json"))
+        chat_attempts.append(payload["attempt"])
+        return httpx.Response(200, text=json.dumps({"type": "error"}) + "\n")
+
+    monkeypatch.setattr("app.ai_smoke.httpx.post", fake_post)
+
+    with pytest.raises(RuntimeError, match="assistant smoke failed schema validation"):
+        run_smoke()
+
+    assert chat_attempts == [1, 2]

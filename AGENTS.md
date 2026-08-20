@@ -125,7 +125,10 @@
   retry loop.
 - The pre-cutover synthetic AI smoke must exercise the live analysis,
   laboratory-extraction, and assistant-turn gateway contracts with bounded
-  non-personal fixtures. Gateway/parser health alone is not release readiness.
+  non-personal fixtures. Analysis and laboratory extraction run once; only an
+  invalid/error assistant result may be attempted exactly once more with
+  `attempt=2`, and the second result must validate fully. Gateway/parser health
+  alone is not release readiness.
 - AI prompt contract `amigo-health-v3` requires concrete actions, a cadence or
   review period, and cited metric evidence; recommendations are shown before
   general observations in Telegram and on the overview dashboard. When any

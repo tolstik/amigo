@@ -27,6 +27,7 @@ from .lab_contracts import (
 
 
 logger = logging.getLogger("amigo.ai.smoke")
+ASSISTANT_SMOKE_ATTEMPTS = 2
 
 
 def synthetic_request(now: datetime | None = None) -> GatewayAnalyzeRequest:
@@ -113,6 +114,28 @@ def _post_contract(url: str, payload: dict, timeout_seconds: int, label: str) ->
     return response
 
 
+def _validate_assistant_response(
+    response: httpx.Response,
+    request: GatewayChatRequest,
+) -> GatewayChatResponse:
+    completed: GatewayChatResponse | None = None
+    try:
+        for line in response.text.splitlines():
+            if not line:
+                continue
+            event = json.loads(line)
+            if event.get("type") == "complete":
+                completed = GatewayChatResponse.model_validate(event.get("response"))
+            elif event.get("type") == "error":
+                raise ValueError("assistant smoke returned an error event")
+        if completed is None:
+            raise ValueError("assistant smoke did not complete")
+        validate_chat_answer(completed.answer, set(request.allowed_evidence_keys))
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError("AI gateway assistant smoke failed schema validation") from exc
+    return completed
+
+
 def run_smoke() -> GatewayAnalyzeResponse:
     settings = get_settings()
     request = synthetic_request()
@@ -141,28 +164,26 @@ def run_smoke() -> GatewayAnalyzeResponse:
     except (ValueError, TypeError) as exc:
         raise RuntimeError("AI gateway laboratory smoke failed schema validation") from exc
 
-    chat_request = synthetic_chat_request()
-    chat_response = _post_contract(
-        f"{settings.ai_gateway_url}/chat",
-        chat_request.model_dump(mode="json"),
-        settings.ai_gateway_timeout_seconds,
-        "assistant smoke",
-    )
-    completed: GatewayChatResponse | None = None
-    try:
-        for line in chat_response.text.splitlines():
-            if not line:
-                continue
-            event = json.loads(line)
-            if event.get("type") == "complete":
-                completed = GatewayChatResponse.model_validate(event.get("response"))
-            elif event.get("type") == "error":
-                raise ValueError("assistant smoke returned an error event")
-    except (ValueError, TypeError) as exc:
-        raise RuntimeError("AI gateway assistant smoke failed schema validation") from exc
-    if completed is None:
-        raise RuntimeError("AI gateway assistant smoke did not complete")
-    validate_chat_answer(completed.answer, set(chat_request.allowed_evidence_keys))
+    base_chat_request = synthetic_chat_request()
+    assistant_error: RuntimeError | None = None
+    for attempt in range(1, ASSISTANT_SMOKE_ATTEMPTS + 1):
+        chat_request = base_chat_request.model_copy(update={"attempt": attempt})
+        try:
+            chat_response = _post_contract(
+                f"{settings.ai_gateway_url}/chat",
+                chat_request.model_dump(mode="json"),
+                settings.ai_gateway_timeout_seconds,
+                "assistant smoke",
+            )
+            _validate_assistant_response(chat_response, chat_request)
+            assistant_error = None
+            break
+        except RuntimeError as exc:
+            assistant_error = exc
+            if attempt < ASSISTANT_SMOKE_ATTEMPTS:
+                logger.warning("assistant smoke attempt failed; retrying once")
+    if assistant_error is not None:
+        raise assistant_error
     return parsed
 
 

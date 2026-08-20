@@ -257,6 +257,9 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    `ai-worker` последовательно проверяет live-контракты analysis, laboratory
    extraction и assistant turn, включая auth, sandbox, model, strict JSON schema
    и streaming completion, без реальных health data или персонального контекста.
+   Analysis и laboratory выполняются один раз. Только invalid/error assistant
+   result получает ровно одну повторную попытку с `attempt=2`; второй ответ
+   обязан полностью пройти schema, evidence и medical-safety validation.
 8. При всё ещё остановленном persistent `ai-worker` один
    `ai-retry-current --worker-stopped` готовит exact current job. `ai-ready`
    принимает только `0` (готово) или `75` (ещё не готово); любой другой exit

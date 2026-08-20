@@ -108,6 +108,13 @@
   `6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`; package,
   version, label и signing certificate сверены.
 - Полный Playwright run прошёл: 22/22 сценария в desktop Chromium и Pixel 7.
-- Остаются commit/push и CI, production deploy с `--skip-telegram-test`,
-  проверка APK на физическом телефоне, публикация `v4.0.0` и финальный
-  checkpoint.
+- Feature commit `adf16eb52dd366fcffe1e967b45e1104079d1bb9` отправлен в
+  `origin/main`, CI полностью прошёл. Первый production deploy создал verified
+  snapshot `/srv/amigo-rollbacks/20260820T164455Z`, но pre-cutover assistant
+  smoke получил единичный error event; automatic recovery полностью вернул
+  release `004d6423855f235f34e46a1643cc1de99e21e07e` и managed route.
+- Добавлен один bounded retry только для invalid/error assistant smoke; analysis
+  и laboratory smoke не повторяются, а второй assistant result обязан полностью
+  валидироваться. Остаются CI descendant commit, повторный production deploy,
+  публикация `v4.0.0` и финальный checkpoint. Установку и физическую проверку
+  APK владелец выполняет самостоятельно без подключения телефона к этой сессии.

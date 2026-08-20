@@ -173,8 +173,8 @@ for explicit_dynamic_proxy in \
     'api/v1/labs/documents/$amigo_lab_create_document_id/results' \
     'api/v1/labs/documents/$amigo_lab_detail_document_id' \
     'api/v1/labs/results/$amigo_lab_patch_result_id' \
-    'api/v1/assistant/messages/$amigo_assistant_retry_message_id/retry' \
-    'api/v1/assistant/messages/$amigo_assistant_events_message_id/events'; do
+    'api/v1/assistant/messages/$amigo_chat_retry_id/retry' \
+    'api/v1/assistant/messages/$amigo_chat_events_id/events'; do
     grep --quiet --fixed-strings "${explicit_dynamic_proxy}" \
         "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
         || amigo_die "managed route lacks explicit dynamic upstream URI: ${explicit_dynamic_proxy}"

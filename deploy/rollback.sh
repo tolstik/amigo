@@ -19,7 +19,7 @@ readonly SNAPSHOT=$2
 
 amigo_require_root
 amigo_require_commands \
-    awk bash chmod crontab curl date docker flock git grep install nginx realpath sha256sum
+    awk bash chmod crontab curl date docker flock git grep install nginx realpath sha256sum sleep
 amigo_require_production_layout
 amigo_assert_snapshot "${SNAPSHOT}"
 amigo_acquire_deploy_lock
@@ -75,7 +75,10 @@ rollback_error() {
     if [[ ${ROLLBACK_COMMITTED} -eq 0 ]]; then
         if [[ ${ROUTE_DISABLED} -eq 1 && ${ROUTE_WAS_ACTIVE} -eq 1 ]]; then
             amigo_log "restoring the v2 nginx route after the failed rollback"
-            bash "${SCRIPT_DIR}/nginx-control.sh" enable "${SNAPSHOT}"
+            if ! bash "${SCRIPT_DIR}/nginx-control.sh" enable "${SNAPSHOT}" \
+                || ! amigo_wait_for_origin_http_200 "/amigo/api/v1/overview" 15; then
+                amigo_log "WARNING: restored Amigo route did not stabilize at HTTP 200"
+            fi
         fi
         if [[ ${WORKER_STOPPED} -eq 1 && ${WORKER_WAS_RUNNING} -eq 1 ]]; then
             amigo_log "restarting the v2 worker after the failed rollback"
@@ -104,16 +107,10 @@ amigo_log "switching nginx back to the preserved legacy application"
 ROUTE_DISABLED=1
 bash "${SCRIPT_DIR}/nginx-control.sh" disable "${SNAPSHOT}"
 
-LEGACY_ORIGIN_STATUS="$(
-    curl --silent --show-error --max-time 15 \
-        --header 'Host: amigo.tolstik.ru' \
-        --output /dev/null \
-        --write-out '%{http_code}' \
-        http://127.0.0.1/amigo/
-)"
+amigo_wait_for_origin_http_200 "/amigo/" 15 \
+    || amigo_die "legacy origin route did not stabilize at HTTP 200 after route disable"
+LEGACY_ORIGIN_STATUS="200"
 readonly LEGACY_ORIGIN_STATUS
-[[ "${LEGACY_ORIGIN_STATUS}" == "200" ]] \
-    || amigo_die "legacy origin route returned ${LEGACY_ORIGIN_STATUS}"
 
 amigo_log "returning the current Withings OAuth token pair to the legacy collector"
 amigo_handback_withings_tokens

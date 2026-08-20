@@ -212,7 +212,9 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    Gateway smoke/retry не повторяется.
 9. Запуск `ingest`, затем атомарная установка nginx route. Публичный dashboard
    разрешает только `GET`/`HEAD`/`OPTIONS`; ingest имеет точные rate-limited
-   routes и body limit 1 MiB.
+   routes и body limit 1 MiB. Сразу после nginx reload origin получает до
+   15 проверок с интервалом 2 секунды для стабилизации на exact HTTP 200;
+   последующий полный verification этим не заменяется.
 10. Запуск `worker` и `ai-worker` и полный verification. Проверка ждёт, пока
     текущий container
     `worker` завершит новый `withings-incremental` `JobRun` со статусом
@@ -422,7 +424,9 @@ candidate, оставляет legacy Withings cron выключенным, за�
 `web`, `worker`, `ingest`, `ai-worker`, `ai-gateway` и PostgreSQL на сохранённом
 volume. Оно восстанавливает только Amigo-owned nginx snippets, сохраняя другие
 изменения shared `my.conf`, ждёт нового minute run-key и затем новый успешный
-incremental run.
+incremental run. Post-nginx exact-200 проверка использует тот же ограниченный
+30-секундный stabilization window; окончательная production verification
+остаётся обязательной.
 Production checkout остаётся на candidate commit; фактический runtime определяет
 `/var/lib/amigo/current-release`. Автоматического `pg_restore` нет.
 

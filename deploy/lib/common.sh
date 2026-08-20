@@ -311,6 +311,36 @@ amigo_wait_for_http() {
     return 1
 }
 
+amigo_wait_for_origin_http_200() {
+    local path=$1
+    local attempts=${2:-15}
+    local attempt
+    local status=""
+
+    if [[ "${path}" != "/amigo/" \
+        && "${path}" != "/amigo/api/v1/overview" ]]; then
+        amigo_die "invalid Amigo origin verification path"
+        return 1
+    fi
+    if [[ ! "${attempts}" =~ ^[1-9][0-9]*$ || ${attempts} -gt 60 ]]; then
+        amigo_die "invalid Amigo origin verification attempt bound"
+        return 1
+    fi
+    for ((attempt = 1; attempt <= attempts; attempt += 1)); do
+        status="$(
+            curl --silent --show-error --max-time 5 \
+                --header 'Host: amigo.tolstik.ru' \
+                --output /dev/null --write-out '%{http_code}' \
+                "http://127.0.0.1${path}" 2>/dev/null
+        )" || status=""
+        if [[ "${status}" == "200" ]]; then
+            return 0
+        fi
+        [[ ${attempt} -lt ${attempts} ]] && sleep 2
+    done
+    return 1
+}
+
 amigo_handback_withings_tokens() {
     local compose_file=${1:-${AMIGO_COMPOSE_FILE}}
     local release_sha=${2:-}
@@ -352,7 +382,6 @@ amigo_revert_legacy_takeover() {
     local handback_ok=1
     local route_safe_for_legacy=${legacy_origin_was_healthy}
     local collectors_stopped=1
-    local legacy_status=""
 
     [[ "${token_imported}" =~ ^[01]$ \
         && "${route_enable_started}" =~ ^[01]$ \
@@ -386,22 +415,14 @@ amigo_revert_legacy_takeover() {
         elif ! amigo_assert_managed_route_inactive; then
             route_safe_for_legacy=0
         else
-            legacy_status="$(
-                curl --silent --show-error --max-time 15 \
-                    --header 'Host: amigo.tolstik.ru' \
-                    --output /dev/null --write-out '%{http_code}' \
-                    http://127.0.0.1/amigo/ 2>/dev/null
-            )"
-            [[ "${legacy_status}" == "200" ]] || route_safe_for_legacy=0
+            if ! amigo_wait_for_origin_http_200 "/amigo/" 15; then
+                route_safe_for_legacy=0
+            fi
         fi
     elif [[ ${legacy_origin_was_healthy} -eq 1 ]]; then
-        legacy_status="$(
-            curl --silent --show-error --max-time 15 \
-                --header 'Host: amigo.tolstik.ru' \
-                --output /dev/null --write-out '%{http_code}' \
-                http://127.0.0.1/amigo/ 2>/dev/null
-        )"
-        [[ "${legacy_status}" == "200" ]] || route_safe_for_legacy=0
+        if ! amigo_wait_for_origin_http_200 "/amigo/" 15; then
+            route_safe_for_legacy=0
+        fi
     fi
     if [[ ${route_safe_for_legacy} -eq 1 && ${collectors_stopped} -eq 1 ]]; then
         amigo_compose_file_release \

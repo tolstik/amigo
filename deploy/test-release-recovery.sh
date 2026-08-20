@@ -139,6 +139,11 @@ if grep --quiet --fixed-strings 'create --no-build --no-deps' \
     "${SCRIPT_DIR}/takeover-from-legacy.sh"; then
     amigo_die "recovery uses an unsupported docker compose create flag"
 fi
+for route_script in deploy.sh restore-previous-release.sh takeover-from-legacy.sh rollback.sh; do
+    grep --quiet --fixed-strings 'amigo_wait_for_origin_http_200' \
+        "${SCRIPT_DIR}/${route_script}" \
+        || amigo_die "post-nginx route check lacks bounded HTTP 200 retry: ${route_script}"
+done
 
 if grep --quiet --fixed-strings 'pg_restore' \
     "${SCRIPT_DIR}/restore-previous-release.sh" "${SCRIPT_DIR}/takeover-from-legacy.sh"; then

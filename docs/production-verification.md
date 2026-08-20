@@ -129,6 +129,9 @@
 - [ ] Failure-path test после `CUTOVER_STARTED` вызывает только
       `restore-previous-release.sh`; `rollback.sh --to-legacy` автоматически не
       вызывается даже при ошибке recovery.
+- [ ] Каждая post-nginx route проверка допускает только bounded stabilization
+      retry до exact HTTP 200; transient reload race не вызывает ложный откат,
+      но полный `verify-production.sh` после cutover остаётся обязательным.
 - [ ] Recovery использует SHA/application и PostgreSQL image IDs/Compose/nginx
       из конкретного snapshot, оставляет legacy cron disabled и не меняет
       production checkout HEAD. Shared nginx config вне Amigo markers остаётся

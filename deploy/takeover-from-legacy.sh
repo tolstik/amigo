@@ -451,9 +451,8 @@ amigo_wait_for_http "http://127.0.0.1:18182/healthz" 60 \
 
 ROUTE_ENABLE_STARTED=1
 bash "${SCRIPT_DIR}/nginx-control.sh" enable "${SNAPSHOT}"
-curl --fail --silent --show-error --max-time 15 \
-    --header 'Host: amigo.tolstik.ru' --output /dev/null \
-    http://127.0.0.1/amigo/api/v1/overview
+amigo_wait_for_origin_http_200 "/amigo/api/v1/overview" 15 \
+    || amigo_die "recorded Amigo origin did not stabilize at HTTP 200 after route enable"
 
 for resumed_service in web worker ingest ai-worker ai-gateway; do
     resumed_container=$(amigo_compose_file_release \

@@ -34,7 +34,7 @@ esac
 
 amigo_require_root
 amigo_require_commands \
-    bash chmod curl date docker flock git install mariadb mktemp mv nginx realpath stat
+    bash chmod curl date docker flock git install mariadb mktemp mv nginx realpath sleep stat
 amigo_require_production_layout
 amigo_acquire_deploy_lock
 
@@ -314,10 +314,8 @@ amigo_compose up -d --wait --wait-timeout 180 ingest
 EXISTING_INGEST_STOPPED=0
 
 bash "${SCRIPT_DIR}/nginx-control.sh" enable "${SNAPSHOT}"
-curl --fail --silent --show-error --max-time 15 \
-    --header 'Host: amigo.tolstik.ru' \
-    --output /dev/null \
-    http://127.0.0.1/amigo/
+amigo_wait_for_origin_http_200 "/amigo/" 15 \
+    || amigo_die "candidate Amigo origin did not stabilize at HTTP 200 after route enable"
 
 amigo_log "starting the data and AI workers after legacy collection is disabled"
 amigo_compose up -d --wait --wait-timeout 180 worker ai-worker

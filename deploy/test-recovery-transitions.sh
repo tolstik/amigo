@@ -8,14 +8,16 @@ readonly SCRIPT_DIR
 source "${SCRIPT_DIR}/lib/common.sh"
 
 TRACE_FILE="$(mktemp)"
-readonly TRACE_FILE
-trap 'rm -f -- "${TRACE_FILE}"' EXIT
+CURL_COUNT_FILE="$(mktemp)"
+readonly TRACE_FILE CURL_COUNT_FILE
+trap 'rm -f -- "${TRACE_FILE}" "${CURL_COUNT_FILE}"' EXIT
 
 MOCK_ROUTE_DISABLE_STATUS=0
 MOCK_ROUTE_MARKERS=0
 MOCK_LEGACY_HTTP=200
 MOCK_HANDBACK_STATUS=0
 MOCK_COLLECTOR_STOP_STATUS=0
+MOCK_HTTP_FAILURES=0
 
 trace() {
     printf '%s\n' "$*" >>"${TRACE_FILE}"
@@ -61,7 +63,18 @@ amigo_assert_managed_route_inactive() {
 }
 
 curl() {
-    printf '%s' "${MOCK_LEGACY_HTTP}"
+    local calls
+    printf 'call\n' >>"${CURL_COUNT_FILE}"
+    calls=$(wc -l <"${CURL_COUNT_FILE}")
+    if [[ ${calls} -le ${MOCK_HTTP_FAILURES} ]]; then
+        printf '404'
+    else
+        printf '%s' "${MOCK_LEGACY_HTTP}"
+    fi
+}
+
+sleep() {
+    :
 }
 
 assert_trace() {
@@ -77,16 +90,38 @@ assert_trace() {
 
 reset_mocks() {
     : >"${TRACE_FILE}"
+    : >"${CURL_COUNT_FILE}"
     MOCK_ROUTE_DISABLE_STATUS=0
     MOCK_ROUTE_MARKERS=0
     MOCK_LEGACY_HTTP=200
     MOCK_HANDBACK_STATUS=0
     MOCK_COLLECTOR_STOP_STATUS=0
+    MOCK_HTTP_FAILURES=0
 }
 
 readonly TEST_COMPOSE="/snapshot/release/compose.yaml"
 readonly TEST_RELEASE="0123456789abcdef0123456789abcdef01234567"
 readonly TEST_SNAPSHOT="/srv/amigo-rollbacks/20000101T000000Z"
+
+reset_mocks
+MOCK_HTTP_FAILURES=2
+amigo_wait_for_origin_http_200 "/amigo/api/v1/overview" 3
+[[ "$(wc -l <"${CURL_COUNT_FILE}")" -eq 3 ]]
+
+reset_mocks
+MOCK_HTTP_FAILURES=3
+if amigo_wait_for_origin_http_200 "/amigo/" 2; then
+    printf 'origin retry unexpectedly accepted a non-200 response\n' >&2
+    exit 1
+fi
+[[ "$(wc -l <"${CURL_COUNT_FILE}")" -eq 2 ]]
+
+reset_mocks
+if amigo_wait_for_origin_http_200 "/amigo/../../healthz" 1; then
+    printf 'origin retry unexpectedly accepted a non-allowlisted path\n' >&2
+    exit 1
+fi
+[[ "$(wc -l <"${CURL_COUNT_FILE}")" -eq 0 ]]
 
 reset_mocks
 amigo_revert_legacy_takeover \

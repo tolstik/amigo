@@ -205,10 +205,8 @@ amigo_wait_for_http "http://127.0.0.1:18182/healthz" 60 \
 
 amigo_log "restoring the exact pre-cutover managed nginx files"
 bash "${SCRIPT_DIR}/nginx-control.sh" restore "${SNAPSHOT}"
-curl --fail --silent --show-error --max-time 15 \
-    --header 'Host: amigo.tolstik.ru' \
-    --output /dev/null \
-    http://127.0.0.1/amigo/api/v1/overview
+amigo_wait_for_origin_http_200 "/amigo/api/v1/overview" 15 \
+    || amigo_die "previous Amigo origin did not stabilize at HTTP 200 after route restore"
 
 AI_TABLE_STATE="$(
     amigo_compose_file_release \

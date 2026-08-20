@@ -6,8 +6,10 @@ second tab. The sync client reads Mi Fitness data and sends signed, idempotent
 batches to the Amigo server. It never requests write access, weight, blood
 pressure, location, or exercise routes.
 
-Signed release candidate `1.1.0` (`versionCode 4`) for project release `v4.0.0`:
-`Amigo-1.1.0.apk`, SHA-256
+Current signed release `1.1.0` (`versionCode 4`) for project release
+[`v4.0.0`](https://github.com/tolstik/amigo/releases/tag/v4.0.0):
+[`Amigo-1.1.0.apk`](https://github.com/tolstik/amigo/releases/download/v4.0.0/Amigo-1.1.0.apk),
+SHA-256
 `6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.

@@ -144,13 +144,15 @@ Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are
 documented in [docs/runbook.md](docs/runbook.md).
 
-The signed `1.1.0` release candidate for `v4.0.0` has SHA-256
-`6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d` and the
-same signing certificate as the installed app. Until `v4.0.0` is published, the
-previous public companion from release `v3.1.0` remains
-[`Amigo-Sync-1.0.2.apk`](https://github.com/tolstik/amigo/releases/download/v3.1.0/Amigo-Sync-1.0.2.apk)
-(SHA-256 `ca5612ad7a642bde582478b5eebf8edc7d83a87337cf5df71d522026cecc94fd`).
-Verify the checksum before installing it.
+The signed current companion is
+[`Amigo-1.1.0.apk`](https://github.com/tolstik/amigo/releases/download/v4.0.0/Amigo-1.1.0.apk)
+from release [`v4.0.0`](https://github.com/tolstik/amigo/releases/tag/v4.0.0).
+Its SHA-256 is
+`6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`, and its
+signing-certificate SHA-256 is
+`25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
+The previous `1.0.2` APK remains available from `v3.1.0`. Verify the checksum
+before installing an APK.
 
 ## Telegram schedule
 

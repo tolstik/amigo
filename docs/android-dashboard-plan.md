@@ -1,19 +1,20 @@
 # Amigo v4.0.0: дашборд внутри Android-приложения
 
-Статус: реализация выполнена локально; CI, production cutover, проверка на
-физическом телефоне и публикация release ожидают завершения.
+Статус: реализация, CI, production cutover и публикация `v4.0.0` завершены.
+Установку и проверку на физическом телефоне владелец выполняет самостоятельно.
 
 ## Кратко
 
-- Предварительный auth/labs/assistant cutover уже выполнен и проверен на SHA
-  `004d6423855f235f34e46a1643cc1de99e21e07e`; checkpoint зафиксирован
-  `2026-08-20T14:53:36Z`, rollback snapshot —
-  `/srv/amigo-rollbacks/20260820T144819Z`.
-- Затем выпустить Android `1.1.0` (`versionCode 4`) как обновление существующего
+- Итоговый production cutover выполнен и проверен на SHA
+  `c8a684b7684751e32395be565df98b82f8f10b21`; checkpoint зафиксирован
+  `2026-08-20T17:15:07Z`, rollback snapshot —
+  `/srv/amigo-rollbacks/20260820T170954Z`.
+- Android `1.1.0` (`versionCode 4`) выпущен как обновление существующего
   package `ru.tolstik.amigo.sync`: приложение называется **Amigo**, по умолчанию
   открывает дашборд, а нативная синхронизация остаётся второй вкладкой.
-- Итоговый серверный и Android-релиз маркировать `v4.0.0`; APK —
-  `Amigo-1.1.0.apk`.
+- Итоговый серверный и Android-релиз опубликован как
+  [`v4.0.0`](https://github.com/tolstik/amigo/releases/tag/v4.0.0); APK —
+  [`Amigo-1.1.0.apk`](https://github.com/tolstik/amigo/releases/download/v4.0.0/Amigo-1.1.0.apk).
 
 ## Основные изменения
 
@@ -73,17 +74,16 @@
   persistence, file chooser, Save As, offline/retry, rotation и App Link
   intents. Выполнить `testDebugUnitTest`, `lintDebug`, `assembleDebug` и signed
   `assembleRelease`.
-- До публикации проверить APK signer и SHA-256. После второго server cutover с
-  `--skip-telegram-test` установить APK через `adb install -r` поверх 1.0.2 и
-  подтвердить сохранность Keystore identity, pairing, выбранного origin и sync
-  cursors.
+- APK signer и SHA-256 проверены до публикации и повторно после скачивания из
+  GitHub release. Владелец устанавливает APK поверх 1.0.2 и подтверждает на
+  физическом телефоне сохранность Keystore identity, pairing, выбранного origin
+  и sync cursors.
 - На физическом телефоне проверить verified App Links, login/logout, все
   разделы, темы, профиль, лабораторный upload/edit/confirm/delete/download,
   assistant SSE/reconnect, CSV, ручную и фоновую синхронизацию.
-- Создать tag/release `v4.0.0` на deployed feature commit и приложить
-  `Amigo-1.1.0.apk`. После production verification обновить `AGENTS.md`, README,
-  Android README, runbook и production checkpoint: deployed SHA/images, APK
-  URL/SHA-256/certificate, App Links result и новый rollback snapshot.
+- Tag/release `v4.0.0` создан на deployed commit, `Amigo-1.1.0.apk` приложен.
+  Production verification и documentation checkpoint фиксируют deployed
+  SHA/images, APK URL/SHA-256/certificate, App Links result и rollback snapshot.
 
 ## Зафиксированные границы
 
@@ -115,6 +115,12 @@
   release `004d6423855f235f34e46a1643cc1de99e21e07e` и managed route.
 - Добавлен один bounded retry только для invalid/error assistant smoke; analysis
   и laboratory smoke не повторяются, а второй assistant result обязан полностью
-  валидироваться. Остаются CI descendant commit, повторный production deploy,
-  публикация `v4.0.0` и финальный checkpoint. Установку и физическую проверку
-  APK владелец выполняет самостоятельно без подключения телефона к этой сессии.
+  валидироваться. Следующая попытка штатно восстановилась после ошибочно строгой
+  public `assetlinks` POST-проверки; финальная проверка разделяет origin `405` и
+  безопасный public edge `403`/`405`.
+- CI `32395950697` полностью прошёл на `c8a684b…`. Production deployment и все
+  проверки семи сервисов, post-start Withings job, App Links, auth/CSRF,
+  лабораторий, assistant/SSE и signed ingest завершены успешно. Release
+  `v4.0.0` опубликован; повторно скачанный APK сохранил SHA-256 и сертификат.
+  Установку и физическую проверку APK владелец выполняет самостоятельно без
+  подключения телефона к этой сессии.

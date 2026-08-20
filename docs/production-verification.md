@@ -54,6 +54,10 @@
       после takeover managed route активен, legacy cron disabled. Для snapshot
       `20260820T055833Z` прошла явная legacy-v0 проверка recorded SHA/OCI image и
       exact force-recreate application containers.
+- [ ] Если legacy origin отвечал не `200`, takeover получил явный
+      `--allow-unhealthy-legacy-origin`; отсутствие HTTP-ответа не принималось.
+      Failure test подтверждает, что такой legacy не получает cron обратно и
+      started Amigo route/runtime/db остаются доступными fail-closed.
 - [ ] До первого Withings API request legacy collector переведён в единственный
       disabled-marker; после full sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.

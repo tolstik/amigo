@@ -115,6 +115,12 @@ grep --quiet --fixed-strings 'amigo_assert_image_revision' \
 grep --quiet --fixed-strings 'LEGACY_DISABLE_MINUTE' \
     "${SCRIPT_DIR}/takeover-from-legacy.sh" \
     || amigo_die "takeover does not wait through a cron boundary"
+grep --quiet --fixed-strings -- '--allow-unhealthy-legacy-origin' \
+    "${SCRIPT_DIR}/takeover-from-legacy.sh" \
+    || amigo_die "takeover lacks the explicit degraded legacy-origin override"
+grep --quiet --fixed-strings 'LEGACY_ORIGIN_WAS_HEALTHY' \
+    "${SCRIPT_DIR}/takeover-from-legacy.sh" \
+    || amigo_die "takeover failure reversal is not bound to legacy-origin health"
 grep --quiet --fixed-strings 'amigo_assert_managed_route_active' \
     "${SCRIPT_DIR}/restore-previous-release.sh" \
     || amigo_die "previous-release recovery does not reject legacy route state"

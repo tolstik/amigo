@@ -9,13 +9,22 @@ readonly SCRIPT_DIR
 source "${SCRIPT_DIR}/lib/common.sh"
 
 usage() {
-    printf 'Usage: %s --resume-recorded-release /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ\n' \
+    printf 'Usage: %s --resume-recorded-release [--allow-unhealthy-legacy-origin] /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ\n' \
         "${0##*/}" >&2
+    printf 'The unhealthy-origin override is only for an explicit takeover from a responding but degraded legacy route.\n' >&2
     exit 2
 }
 
-[[ $# -eq 2 && $1 == "--resume-recorded-release" ]] || usage
-readonly SNAPSHOT=$2
+[[ $# -ge 2 && $1 == "--resume-recorded-release" ]] || usage
+if [[ $# -eq 2 ]]; then
+    readonly ALLOW_UNHEALTHY_LEGACY_ORIGIN=0
+    readonly SNAPSHOT=$2
+elif [[ $# -eq 3 && $2 == "--allow-unhealthy-legacy-origin" ]]; then
+    readonly ALLOW_UNHEALTHY_LEGACY_ORIGIN=1
+    readonly SNAPSHOT=$3
+else
+    usage
+fi
 
 amigo_require_root
 amigo_require_commands \
@@ -178,8 +187,18 @@ LEGACY_ORIGIN_STATUS="$(
         http://127.0.0.1/amigo/
 )"
 readonly LEGACY_ORIGIN_STATUS
-[[ "${LEGACY_ORIGIN_STATUS}" == "200" ]] \
-    || amigo_die "legacy origin route is not healthy before takeover"
+[[ "${LEGACY_ORIGIN_STATUS}" =~ ^[1-5][0-9]{2}$ ]] \
+    || amigo_die "legacy origin did not return a concrete HTTP response before takeover"
+LEGACY_ORIGIN_WAS_HEALTHY=0
+if [[ "${LEGACY_ORIGIN_STATUS}" == "200" ]]; then
+    LEGACY_ORIGIN_WAS_HEALTHY=1
+elif [[ ${ALLOW_UNHEALTHY_LEGACY_ORIGIN} -eq 1 ]]; then
+    amigo_log "DEGRADED SOURCE: legacy origin returned HTTP ${LEGACY_ORIGIN_STATUS}; explicit override accepted"
+    amigo_log "legacy will not be treated as a healthy automatic failure target during this takeover"
+else
+    amigo_die "legacy origin route returned HTTP ${LEGACY_ORIGIN_STATUS}; explicit unhealthy-origin override is required"
+fi
+readonly LEGACY_ORIGIN_WAS_HEALTHY
 [[ "$(mariadb --batch --skip-column-names "${AMIGO_LEGACY_DB}" \
     --execute 'SELECT COUNT(*) FROM seting')" == "1" ]] \
     || amigo_die "legacy token table must contain exactly one row before takeover"
@@ -229,7 +248,8 @@ takeover_error() {
             "${PREVIOUS_RELEASE_SHA}" \
             "${SNAPSHOT}" \
             "${TOKEN_IMPORTED}" \
-            "${ROUTE_ENABLE_STARTED}"
+            "${ROUTE_ENABLE_STARTED}" \
+            "${LEGACY_ORIGIN_WAS_HEALTHY}"
     fi
     cleanup_handoff
     exit "${status}"

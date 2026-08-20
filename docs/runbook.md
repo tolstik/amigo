@@ -443,6 +443,20 @@ Compose допускается только после rollback-compatibility ga
 image сверяется по OCI revision и принудительно пересоздаёт application
 containers. Новые snapshots используют полный release envelope.
 
+По умолчанию takeover требует HTTP 200 от legacy origin. Если legacy отвечает
+конкретным HTTP-статусом, но уже неисправен, требуется отдельное явное разрешение:
+
+```bash
+sudo bash /srv/amigo/deploy/takeover-from-legacy.sh \
+  --resume-recorded-release \
+  --allow-unhealthy-legacy-origin \
+  /srv/amigo-rollbacks/20260820T055833Z
+```
+
+Этот режим не считает legacy пригодным для failure fallback: при ошибке его
+Withings cron не включается, started Amigo route/runtime/db не останавливаются.
+Отсутствие реального HTTP-ответа override не разрешает.
+
 Команда отключает только exact legacy collector и ждёт целую cron-границу плюс
 подтверждённое отсутствие уже запущенного `get_withings.php`. Затем она читает
 текущую OAuth-пару прямо из live MariaDB во временный root-only `/run` handoff,

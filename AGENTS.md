@@ -19,6 +19,10 @@
   `rollback.sh --to-legacy SNAPSHOT`. From an already active legacy route/cron,
   first use `takeover-from-legacy.sh --resume-recorded-release SNAPSHOT` so the
   live MariaDB OAuth pair is handed safely back to PostgreSQL.
+- A responding but unhealthy legacy origin may be bypassed only with takeover's
+  explicit `--allow-unhealthy-legacy-origin` flag. In that mode failure reversal
+  must never treat legacy as healthy, enable its Withings cron, or stop a
+  route-serving Amigo runtime.
 - Before re-enabling the legacy Withings cron, stop the Amigo worker and
   complete the secret-free OAuth token handback from PostgreSQL to the single
   legacy MariaDB token row.

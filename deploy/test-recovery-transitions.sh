@@ -90,14 +90,14 @@ readonly TEST_SNAPSHOT="/srv/amigo-rollbacks/20000101T000000Z"
 
 reset_mocks
 amigo_revert_legacy_takeover \
-    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 0 0
+    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 0 0 1
 assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
 compose ${TEST_COMPOSE} ${TEST_RELEASE} stop web ingest ai-gateway db
 cron enable"
 
 reset_mocks
 amigo_revert_legacy_takeover \
-    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 1 1
+    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 1 1 1
 assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
 handback ${TEST_COMPOSE} ${TEST_RELEASE}
 nginx disable ${TEST_SNAPSHOT}
@@ -107,7 +107,7 @@ cron enable"
 reset_mocks
 MOCK_ROUTE_DISABLE_STATUS=1
 amigo_revert_legacy_takeover \
-    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 0 1
+    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 0 1 1
 assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
 nginx disable ${TEST_SNAPSHOT}
 cron disable"
@@ -115,7 +115,7 @@ cron disable"
 reset_mocks
 MOCK_ROUTE_MARKERS=2
 amigo_revert_legacy_takeover \
-    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 0 1
+    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 0 1 1
 assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
 nginx disable ${TEST_SNAPSHOT}
 cron disable"
@@ -123,7 +123,7 @@ cron disable"
 reset_mocks
 MOCK_HANDBACK_STATUS=1
 amigo_revert_legacy_takeover \
-    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 1 0
+    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 1 0 1
 assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
 handback ${TEST_COMPOSE} ${TEST_RELEASE}
 compose ${TEST_COMPOSE} ${TEST_RELEASE} stop web ingest ai-gateway db
@@ -132,9 +132,28 @@ cron disable"
 reset_mocks
 MOCK_COLLECTOR_STOP_STATUS=1
 amigo_revert_legacy_takeover \
-    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 1 1
+    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 1 1 1
 assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
 nginx disable ${TEST_SNAPSHOT}
+cron disable"
+
+reset_mocks
+amigo_revert_legacy_takeover \
+    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 0 0 0
+assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
+cron disable"
+
+reset_mocks
+MOCK_LEGACY_HTTP=500
+amigo_revert_legacy_takeover \
+    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 0 0 1
+assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
+cron disable"
+
+reset_mocks
+amigo_revert_legacy_takeover \
+    "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 0 1 0
+assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
 cron disable"
 
 printf 'mocked recovery transition checks passed\n'

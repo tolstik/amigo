@@ -348,10 +348,16 @@ amigo_revert_legacy_takeover() {
     local snapshot=$3
     local token_imported=$4
     local route_enable_started=$5
+    local legacy_origin_was_healthy=$6
     local handback_ok=1
-    local route_safe_for_legacy=1
+    local route_safe_for_legacy=${legacy_origin_was_healthy}
     local collectors_stopped=1
     local legacy_status=""
+
+    [[ "${token_imported}" =~ ^[01]$ \
+        && "${route_enable_started}" =~ ^[01]$ \
+        && "${legacy_origin_was_healthy}" =~ ^[01]$ ]] \
+        || amigo_die "invalid legacy takeover reversal state"
 
     if ! amigo_compose_file_release \
         "${compose_file}" "${release_sha}" stop worker ai-worker; then
@@ -370,7 +376,10 @@ amigo_revert_legacy_takeover() {
             fi
         fi
     fi
-    if [[ ${route_enable_started} -eq 1 ]]; then
+    if [[ ${route_enable_started} -eq 1 && ${legacy_origin_was_healthy} -eq 0 ]]; then
+        route_safe_for_legacy=0
+        amigo_log "known-unhealthy legacy origin will not replace a started Amigo route"
+    elif [[ ${route_enable_started} -eq 1 ]]; then
         amigo_log "returning the public route to legacy before stopping the Amigo web service"
         if ! bash "${AMIGO_DEPLOY_DIR}/nginx-control.sh" disable "${snapshot}"; then
             route_safe_for_legacy=0
@@ -385,6 +394,14 @@ amigo_revert_legacy_takeover() {
             )"
             [[ "${legacy_status}" == "200" ]] || route_safe_for_legacy=0
         fi
+    elif [[ ${legacy_origin_was_healthy} -eq 1 ]]; then
+        legacy_status="$(
+            curl --silent --show-error --max-time 15 \
+                --header 'Host: amigo.tolstik.ru' \
+                --output /dev/null --write-out '%{http_code}' \
+                http://127.0.0.1/amigo/ 2>/dev/null
+        )"
+        [[ "${legacy_status}" == "200" ]] || route_safe_for_legacy=0
     fi
     if [[ ${route_safe_for_legacy} -eq 1 && ${collectors_stopped} -eq 1 ]]; then
         amigo_compose_file_release \

@@ -42,6 +42,9 @@
   pulse. Mi Fitness data arrives only through Health Connect and the signed
   Android companion; never import Health Connect weight, blood pressure,
   GPS/location, or exercise routes.
+- Identical Withings groups replayed by the overlap window are not updates and
+  must not enqueue another AI analysis. Only newly created or structurally
+  changed provider groups may trigger measurement-driven regeneration.
 - Android pairing reset must rotate the non-exportable device key before local
   pairing state is cleared. Health batches stay below 1 MiB, contain at most
   2,000 records and 5,000 heart-rate samples per record, and start no faster
@@ -60,9 +63,13 @@
   fallback text.
 - The AI boundary sends only minimized, identifier-free derived facts and
   bounded daily aggregate series to the pinned Codex CLI using the fixed
-  `gpt-5.6-terra` model. AI runs asynchronously after data changes or before a
+  `gpt-5.6-sol` model. AI runs asynchronously after data changes or before a
   scheduled digest. Public GET handlers only read the validated PostgreSQL
   cache and must never call Codex or enqueue analysis.
+- Historical AI rows remain in PostgreSQL, but workers and public cache reads
+  consider only the active model and prompt contract. The explicit deployment
+  enqueue may retry a failed/superseded same-key active job; background enqueue
+  must not revive terminal history.
 - AI prompt contract `amigo-health-v2` requires concrete actions, a cadence or
   review period, and cited metric evidence; recommendations are shown before
   general observations in Telegram and on the overview dashboard. When any
@@ -76,6 +83,9 @@
   pairing state, signatures, nonces, raw provider payloads, or raw heart-rate
   samples. Configuration, pairing, and integration mutations remain server-side
   only.
+- The dashboard offers Light, Dark, Ocean, and Sunset themes. With no stored
+  choice it must always start in Light regardless of the operating-system color
+  scheme; an explicit selection persists and recolors both UI and charts.
 - Daily Telegram reports run at `09:00 Europe/Moscow`; the Monday 09:00 weekly
   report replaces that day's daily report. Immediate Withings weight/pressure
   notifications remain enabled. When AI is unavailable, Telegram explicitly

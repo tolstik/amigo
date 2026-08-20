@@ -250,6 +250,21 @@ container_codex_hash="$(docker exec "${gateway_container}" sha256sum "${CODEX_CO
     || amigo_die "running AI gateway sees an unpinned Codex binary"
 amigo_log "PASS Codex 0.148.0 binary and read-only gateway mount match the pinned SHA-256"
 
+docker exec "${gateway_container}" python -c '
+import json
+import urllib.request
+
+with urllib.request.urlopen("http://127.0.0.1:8090/healthz", timeout=3) as response:
+    payload = json.load(response)
+if payload != {
+    "status": "ok",
+    "model": "gpt-5.6-sol",
+    "prompt_version": "amigo-health-v2",
+}:
+    raise SystemExit(1)
+' || amigo_die "AI gateway health does not report the fixed Sol model and v2 prompt contract"
+amigo_log "PASS AI gateway health reports fixed gpt-5.6-sol and amigo-health-v2"
+
 [[ -s "${AMIGO_LEGACY_WEIGHT_IMPORT}" && ! -L "${AMIGO_LEGACY_WEIGHT_IMPORT}" ]] \
     || amigo_die "root-only legacy weight import is missing"
 IMPORT_MODE="$(stat -c '%a' "${AMIGO_LEGACY_WEIGHT_IMPORT}")"
@@ -352,30 +367,36 @@ require_header '^x-content-type-options:[[:space:]]*nosniff' "${DASHBOARD_HEADER
 require_header '^content-security-policy:' "${DASHBOARD_HEADERS}"
 amigo_log "PASS public dashboard, TLS, and defensive headers"
 
-ASSET_PATH="$(python3 - "${DASHBOARD_BODY}" <<'PY'
+mapfile -t FRONTEND_ASSET_PATHS < <(python3 - "${DASHBOARD_BODY}" <<'PY'
 from pathlib import Path
 import re
 import sys
 
 html = Path(sys.argv[1]).read_text(encoding="utf-8")
-match = re.search(r'["\'](/amigo/assets/[^"\']+\.js)["\']', html)
-if match is None:
+paths = sorted(set(re.findall(r'["\'](/amigo/assets/[^"\']+\.(?:css|js))["\']', html)))
+if not any(path.endswith(".js") for path in paths):
     raise SystemExit(1)
-print(match.group(1))
+if not any(path.endswith(".css") for path in paths):
+    raise SystemExit(1)
+print(*paths, sep="\n")
 PY
-)"
-readonly ASSET_PATH
-curl --fail --silent --show-error --max-time 20 \
-    --proto '=https' \
-    --tlsv1.2 \
-    --dump-header "${ASSET_HEADERS}" \
-    --output /dev/null \
-    "https://amigo.tolstik.ru${ASSET_PATH}"
-require_header '^cache-control:[[:space:]]*public,[[:space:]]*max-age=31536000,[[:space:]]*immutable' \
-    "${ASSET_HEADERS}"
-[[ "$(grep --ignore-case --count '^cache-control:' "${ASSET_HEADERS}")" -eq 1 ]] \
-    || amigo_die "hashed asset returned conflicting Cache-Control headers"
-amigo_log "PASS hashed frontend asset has one immutable cache policy"
+)
+readonly -a FRONTEND_ASSET_PATHS
+[[ ${#FRONTEND_ASSET_PATHS[@]} -ge 2 ]] \
+    || amigo_die "public dashboard is missing its hashed JavaScript or CSS asset"
+for asset_path in "${FRONTEND_ASSET_PATHS[@]}"; do
+    curl --fail --silent --show-error --max-time 20 \
+        --proto '=https' \
+        --tlsv1.2 \
+        --dump-header "${ASSET_HEADERS}" \
+        --output /dev/null \
+        "https://amigo.tolstik.ru${asset_path}"
+    require_header '^cache-control:[[:space:]]*public,[[:space:]]*max-age=31536000,[[:space:]]*immutable' \
+        "${ASSET_HEADERS}"
+    [[ "$(grep --ignore-case --count '^cache-control:' "${ASSET_HEADERS}")" -eq 1 ]] \
+        || amigo_die "hashed asset returned conflicting Cache-Control headers"
+done
+amigo_log "PASS hashed frontend JavaScript and CSS assets have one immutable cache policy"
 
 check_public_json_api() {
     local path=$1
@@ -410,6 +431,8 @@ elif contract == "ai":
         raise SystemExit("AI payload is not a fresh validated result")
     if payload.get("prompt_version") != "amigo-health-v2":
         raise SystemExit("AI payload does not use amigo-health-v2")
+    if payload.get("model") != "gpt-5.6-sol":
+        raise SystemExit("AI payload does not use the fixed gpt-5.6-sol model")
     recommendations = payload.get("recommendations")
     if not isinstance(recommendations, list) or not recommendations:
         raise SystemExit("AI payload has no validated recommendations")

@@ -27,6 +27,9 @@ Only `web` and `ingest` are host-published, on loopback ports `18181` and
 routes under `/amigo-ingest/v1/`. The AI gateway has no host port.
 The dashboard is intentionally public and read-only; Health Connect is exposed
 there only as daily/weekly aggregates, without device or pairing metadata.
+Its theme selector offers Light, Dark, Ocean, and Sunset. A fresh browser always
+starts in Light regardless of the operating-system setting; an explicit choice
+is persisted and applied to both the interface and charts.
 
 `backend/` contains FastAPI services, deterministic analytics, integrations,
 and migrations. `frontend/` contains the React/TypeScript dashboard. `android/`
@@ -42,7 +45,7 @@ and bounded daily series. It does not send raw provider payloads, device IDs,
 GPS/location, or credentials to the model.
 
 Analysis is generated asynchronously with a SHA-256-pinned Codex CLI and the
-fixed `gpt-5.6-terra` model. The gateway runs `codex exec` in an ephemeral,
+fixed `gpt-5.6-sol` model. The gateway runs `codex exec` in an ephemeral,
 read-only sandbox with a strict JSON schema and no database, Withings, Telegram,
 or Docker secrets. Results are validated against the supplied evidence keys and
 cached in PostgreSQL. Public GET requests only read that cache and never invoke
@@ -62,10 +65,12 @@ There is no generated or rule-based narrative fallback. When a newer snapshot
 is waiting or regeneration fails, the previous result may be marked stale for
 at most 24 hours; after that the UI reports AI as unavailable and Telegram sends
 facts only. Weight, activity, recovery, and pressure charts continue to work.
+Withings overlap polling treats an identical provider group as unchanged, so
+only a new or structurally changed measurement group requests another analysis.
 
 See the official OpenAI documentation for
 [`codex exec` and saved CLI authentication](https://learn.chatgpt.com/docs/non-interactive-mode)
-and the current [Codex model catalog](https://learn.chatgpt.com/docs/models).
+and the current [`gpt-5.6-sol` model](https://developers.openai.com/api/docs/models/gpt-5.6-sol).
 
 ## Health Connect companion
 

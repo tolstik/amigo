@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import type { OverviewContext } from "../App";
 import { formatDateTime, relativeTime } from "../lib/format";
 import { Icon, type IconName } from "./Icon";
+import { ThemeSwitcher } from "./ThemeSwitcher";
 
 const navItems: Array<{ to: string; label: string; icon: IconName; end?: boolean }> = [
   { to: "/", label: "Обзор", icon: "overview", end: true },
@@ -38,21 +39,24 @@ export function AppLayout({ overview }: { overview: OverviewContext }) {
             <span><strong>Amigo</strong><small>Дневник динамики</small></span>
           </NavLink>
 
-          <div className="sync-box" title={lastSuccess ? `Последняя синхронизация: ${formatDateTime(lastSuccess)}` : undefined}>
-            <span className={`sync-dot sync-dot--${status}`} />
-            <span>
-              <strong>{statusLabels[status]}</strong>
-              <small>{lastSuccess ? relativeTime(lastSuccess) : "ожидаем данные"}</small>
-            </span>
-            <button
-              type="button"
-              className={`icon-button${overview.refreshing ? " is-spinning" : ""}`}
-              onClick={overview.reload}
-              aria-label="Обновить данные"
-              disabled={overview.refreshing}
-            >
-              <Icon name="refresh" />
-            </button>
+          <div className="app-bar__tools">
+            <ThemeSwitcher />
+            <div className="sync-box" title={lastSuccess ? `Последняя синхронизация: ${formatDateTime(lastSuccess)}` : undefined}>
+              <span className={`sync-dot sync-dot--${status}`} />
+              <span>
+                <strong>{statusLabels[status]}</strong>
+                <small>{lastSuccess ? relativeTime(lastSuccess) : "ожидаем данные"}</small>
+              </span>
+              <button
+                type="button"
+                className={`icon-button${overview.refreshing ? " is-spinning" : ""}`}
+                onClick={overview.reload}
+                aria-label="Обновить данные"
+                disabled={overview.refreshing}
+              >
+                <Icon name="refresh" />
+              </button>
+            </div>
           </div>
         </div>
       </header>

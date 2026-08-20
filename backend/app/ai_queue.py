@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -55,6 +55,21 @@ def _backoff_seconds(attempts: int, base_seconds: int) -> int:
     return min(3600, base_seconds * (2 ** max(0, attempts - 1)))
 
 
+def _supersede_incompatible_pending_jobs(db: Session, current: datetime) -> int:
+    result = db.execute(
+        update(AiAnalysisJob)
+        .where(
+            AiAnalysisJob.status == "pending",
+            or_(
+                AiAnalysisJob.model != AI_MODEL,
+                AiAnalysisJob.prompt_version != AI_PROMPT_VERSION,
+            ),
+        )
+        .values(status="superseded", finished_at=current, lease_until=None)
+    )
+    return result.rowcount or 0
+
+
 def enqueue_analysis(
     db: Session,
     snapshot: AnalysisSnapshot,
@@ -64,6 +79,7 @@ def enqueue_analysis(
     debounce_seconds: int = 300,
     activity_min_interval_seconds: int = 3600,
     stale_seconds: int = 86400,
+    retry_terminal: bool = False,
 ) -> AiAnalysisJob:
     """Persist one canonical request and supersede older queued snapshots."""
 
@@ -72,10 +88,33 @@ def enqueue_analysis(
     request_key = analysis_request_key(digest)
     existing = db.scalar(select(AiAnalysisJob).where(AiAnalysisJob.request_key == request_key))
     if existing is not None:
+        if retry_terminal and existing.status in {"failed", "superseded"}:
+            existing.trigger = trigger
+            existing.status = "pending"
+            existing.attempts = 0
+            existing.available_at = current + timedelta(seconds=max(0, debounce_seconds))
+            existing.lease_until = None
+            existing.last_error_code = None
+            existing.created_at = current
+            existing.started_at = None
+            existing.finished_at = None
+            db.commit()
+            db.refresh(existing)
+        elif retry_terminal and existing.status == "pending":
+            immediate = current + timedelta(seconds=max(0, debounce_seconds))
+            existing.trigger = trigger
+            if _aware(existing.available_at) > immediate:
+                existing.available_at = immediate
+            db.commit()
+            db.refresh(existing)
         return existing
 
     latest_result = db.scalar(
         select(AiAnalysisResult)
+        .where(
+            AiAnalysisResult.model == AI_MODEL,
+            AiAnalysisResult.prompt_version == AI_PROMPT_VERSION,
+        )
         .order_by(AiAnalysisResult.source_through.desc(), AiAnalysisResult.generated_at.desc())
         .limit(1)
     )
@@ -90,7 +129,11 @@ def enqueue_analysis(
     if trigger == "activity" and activity_min_interval_seconds > 0:
         latest = db.scalar(
             select(AiAnalysisJob)
-            .where(AiAnalysisJob.status.in_(("pending", "processing", "succeeded")))
+            .where(
+                AiAnalysisJob.status.in_(("pending", "processing", "succeeded")),
+                AiAnalysisJob.model == AI_MODEL,
+                AiAnalysisJob.prompt_version == AI_PROMPT_VERSION,
+            )
             .order_by(AiAnalysisJob.created_at.desc(), AiAnalysisJob.id.desc())
             .limit(1)
         )
@@ -149,6 +192,7 @@ def recover_expired_leases(
     backoff_base_seconds: int = 60,
 ) -> int:
     current = _aware(now)
+    incompatible_pending = _supersede_incompatible_pending_jobs(db, current)
     jobs = list(
         db.scalars(
             select(AiAnalysisJob).where(
@@ -159,6 +203,11 @@ def recover_expired_leases(
     )
     for job in jobs:
         job.lease_until = None
+        if job.model != AI_MODEL or job.prompt_version != AI_PROMPT_VERSION:
+            job.status = "superseded"
+            job.finished_at = current
+            job.last_error_code = None
+            continue
         job.last_error_code = "lease_expired"
         if job.attempts >= max_attempts:
             job.status = "failed"
@@ -168,7 +217,7 @@ def recover_expired_leases(
             job.available_at = current + timedelta(
                 seconds=_backoff_seconds(job.attempts, backoff_base_seconds)
             )
-    if jobs:
+    if jobs or incompatible_pending:
         db.commit()
     return len(jobs)
 
@@ -181,12 +230,16 @@ def claim_analysis_job(
     max_attempts: int = 4,
 ) -> AiAnalysisJob | None:
     current = _aware(now)
+    if _supersede_incompatible_pending_jobs(db, current):
+        db.commit()
     job = db.scalar(
         select(AiAnalysisJob)
         .where(
             AiAnalysisJob.status == "pending",
             AiAnalysisJob.available_at <= current,
             AiAnalysisJob.attempts < max_attempts,
+            AiAnalysisJob.model == AI_MODEL,
+            AiAnalysisJob.prompt_version == AI_PROMPT_VERSION,
         )
         .order_by(AiAnalysisJob.available_at, AiAnalysisJob.id)
         .with_for_update(skip_locked=True)
@@ -230,6 +283,8 @@ def complete_analysis_job(
             AiAnalysisJob.id != job.id,
             AiAnalysisJob.snapshot_hash != job.snapshot_hash,
             AiAnalysisJob.created_at >= job.created_at,
+            AiAnalysisJob.model == job.model,
+            AiAnalysisJob.prompt_version == job.prompt_version,
         )
         .order_by(AiAnalysisJob.created_at, AiAnalysisJob.id)
         .limit(1)
@@ -300,12 +355,20 @@ def latest_analysis(db: Session, *, now: datetime | None = None) -> LatestAnalys
     current = _aware(now)
     result = db.scalar(
         select(AiAnalysisResult)
+        .where(
+            AiAnalysisResult.model == AI_MODEL,
+            AiAnalysisResult.prompt_version == AI_PROMPT_VERSION,
+        )
         .order_by(AiAnalysisResult.source_through.desc(), AiAnalysisResult.generated_at.desc())
         .limit(1)
     )
     pending = db.scalar(
         select(AiAnalysisJob.id)
-        .where(AiAnalysisJob.status.in_(("pending", "processing")))
+        .where(
+            AiAnalysisJob.status.in_(("pending", "processing")),
+            AiAnalysisJob.model == AI_MODEL,
+            AiAnalysisJob.prompt_version == AI_PROMPT_VERSION,
+        )
         .limit(1)
     )
     if result is None:

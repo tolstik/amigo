@@ -305,6 +305,7 @@ def enqueue_current_analysis(
     trigger: AnalysisTrigger,
     now: datetime | None = None,
     debounce_seconds: int | None = None,
+    retry_terminal: bool = False,
 ):
     """Create one minimized snapshot and enqueue it without contacting Codex."""
 
@@ -326,4 +327,5 @@ def enqueue_current_analysis(
         ),
         activity_min_interval_seconds=settings.ai_activity_min_interval_seconds,
         stale_seconds=settings.ai_stale_seconds,
+        retry_terminal=retry_terminal,
     )

@@ -16,6 +16,7 @@ from app.ai_contracts import (
     SnapshotFact,
     SnapshotPoint,
     SnapshotSeries,
+    analysis_request_key,
     canonical_snapshot_json,
     snapshot_hash,
     validate_analysis_evidence,
@@ -87,6 +88,28 @@ def test_codex_output_schema_requires_every_declared_property():
     for value in objects:
         if value.get("type") == "object":
             assert set(value.get("required", [])) == set(value.get("properties", {}))
+
+
+def test_gateway_contract_is_pinned_to_sol():
+    snapshot = AnalysisSnapshot(source_through=NOW, facts=[fact("weight.latest_kg", 120)])
+
+    assert AI_MODEL == "gpt-5.6-sol"
+    with pytest.raises(ValidationError):
+        GatewayAnalyzeRequest(
+            snapshot_hash=snapshot_hash(snapshot),
+            prompt_version=AI_PROMPT_VERSION,
+            model="gpt-5.6-terra",
+            snapshot=snapshot,
+        )
+
+
+def test_model_migration_changes_the_deduplication_key():
+    digest = "a" * 64
+
+    assert analysis_request_key(digest) != analysis_request_key(
+        digest,
+        model="gpt-5.6-terra",
+    )
 
 
 def test_gateway_request_rejects_noncanonical_hash():

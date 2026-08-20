@@ -58,7 +58,7 @@ test.beforeEach(async ({ page }) => {
       limitations: ["Текущая неделя ещё не завершена"],
       generated_at: "2026-09-02T07:55:00Z",
       data_as_of: "2026-09-02T07:50:00Z",
-      model: "gpt-5.6-terra",
+      model: "gpt-5.6-sol",
     } });
     if (path.endsWith("/insights")) return route.fulfill({ json: { items: overview.insights } });
     if (path.endsWith("/series/pressure")) {
@@ -111,4 +111,20 @@ test("renders AI analysis, activity baseline and recovery", async ({ page }) => 
   await expect(
     page.getByRole("article").filter({ hasText: "Последний сон" }).getByText("7 ч 41 мин", { exact: true }),
   ).toBeVisible();
+});
+
+test("keeps the light default and a usable persistent theme selector on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("./");
+
+  const selector = page.getByRole("combobox", { name: "Тема оформления" });
+  await expect(selector).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+  await selector.selectOption("sunset");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "sunset");
+  await page.reload();
+  await expect(page.getByRole("combobox", { name: "Тема оформления" })).toHaveValue("sunset");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "sunset");
 });

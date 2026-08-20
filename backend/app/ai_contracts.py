@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 
-AI_MODEL = "gpt-5.6-terra"
+AI_MODEL = "gpt-5.6-sol"
 AI_PROMPT_VERSION = "amigo-health-v2"
 SNAPSHOT_SCHEMA_VERSION = "1"
 
@@ -277,7 +277,7 @@ class AiAnalysis(StrictModel):
 class GatewayAnalyzeRequest(StrictModel):
     snapshot_hash: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
     prompt_version: Literal["amigo-health-v2"] = AI_PROMPT_VERSION
-    model: Literal["gpt-5.6-terra"] = AI_MODEL
+    model: Literal["gpt-5.6-sol"] = AI_MODEL
     snapshot: AnalysisSnapshot
 
     @model_validator(mode="after")
@@ -290,7 +290,7 @@ class GatewayAnalyzeRequest(StrictModel):
 class GatewayAnalyzeResponse(StrictModel):
     snapshot_hash: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
     prompt_version: Literal["amigo-health-v2"] = AI_PROMPT_VERSION
-    model: Literal["gpt-5.6-terra"] = AI_MODEL
+    model: Literal["gpt-5.6-sol"] = AI_MODEL
     generated_at: datetime
     duration_ms: Annotated[int, Field(ge=0, le=600_000)]
     analysis: AiAnalysis

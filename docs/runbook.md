@@ -30,19 +30,30 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
   пересчитывается моделью или из Health Connect weight.
 - AI вызывается асинхронно через SHA-256-pinned Codex CLI `0.148.0`
   (`ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`),
-  фиксированную модель `gpt-5.6-terra`, read-only sandbox и строгую JSON
+  фиксированную модель `gpt-5.6-sol`, read-only sandbox и строгую JSON
   schema. Публичные GET только читают кэш PostgreSQL.
 - Prompt contract `amigo-health-v2` требует для каждой рекомендации конкретное
   действие, cadence или review period и ссылки на существующие evidence keys.
   На overview и в Telegram рекомендации идут раньше общих наблюдений.
 - Ни дашборд, ни Telegram не показывают шаблонную подмену AI-текста.
   При недоступном AI графики и факты остаются рабочими.
+- Исторические AI jobs/results сохраняются в PostgreSQL, но public cache и
+  worker используют только текущую пару model/prompt. Несовместимые pending или
+  просроченные jobs становятся `superseded`; явный deployment `ai-enqueue`
+  может повторно поставить active failed/superseded same-key job без ожидания
+  backoff, обычный background enqueue terminal history не оживляет.
 - Дашборд намеренно публичный и read-only. Health Connect публикуется только
   как дневные/недельные агрегаты без device/pairing metadata, signatures,
   nonces, raw provider payload и raw heart-rate samples.
 - Withings — единственный источник веса, состава тела и давления. Mi Fitness
   передаёт только allowlisted activity/recovery records через Health Connect;
   weight, pressure, location и exercise routes из Health Connect не принимаются.
+- Одинаковая Withings group, повторно пришедшая из overlap-window, считается
+  неизменной и не запускает AI повторно. Measurement-trigger создаётся только
+  для новой или структурно изменившейся provider group.
+- Переключатель дашборда содержит темы «Светлая», «Тёмная», «Океан» и «Закат».
+  Без сохранённого выбора старт всегда светлый независимо от темы ОС; явный
+  выбор сохраняется и применяется также к графикам.
 - Детерминированные экраны давления, сердечных метрик, SpO2 и VO2 max остаются
   описательными, без severity-цветов и app-side диагнозов. Валидированный AI
   может использовать эти метрики только для совета повторить измерения, вести
@@ -336,7 +347,8 @@ sudo bash /srv/amigo/deploy/verify-production.sh
   status и timestamps, но не `details` или provider payload;
 - loopback binds `18181`/`18182` и отсутствие published `8090`;
 - pinned Codex hash на host и в gateway container;
-- direct health, origin nginx, public TLS, relative `308`, defensive headers и immutable assets;
+- direct health, origin nginx, public TLS, relative `308`, defensive headers и
+  immutable JavaScript/CSS assets;
 - public overview, activity, recovery и AI JSON-контракты;
 - точный ingest route: unsigned empty batch отклоняется до создания записи;
 - закрытые health endpoints, legacy assets и обе cron-строки.

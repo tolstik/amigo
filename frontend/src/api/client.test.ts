@@ -164,7 +164,7 @@ describe("API normalization", () => {
       recommendations: [{ id: "r1", title: "Следующий шаг", text: "Сохраните текущий ритм.", evidence_ids: ["activity.week"] }],
       limitations: ["Неполная неделя"],
       generated_at: "2026-08-19T06:00:00Z",
-      model: "gpt-5.6-terra",
+      model: "gpt-5.6-sol",
     });
     expect(result.status).toBe("fresh");
     expect(result.insights[0].evidenceIds).toEqual(["activity.week"]);

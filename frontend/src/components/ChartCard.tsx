@@ -4,8 +4,10 @@ import { BarChart, LineChart, ScatterChart } from "echarts/charts";
 import { AriaComponent, DataZoomComponent, GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import ReactEChartsCore from "echarts-for-react/lib/core";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
+import { chartOptionForTheme } from "../charts/theme";
 import { useColorScheme } from "../hooks/useColorScheme";
+import { useTheme } from "../theme/ThemeProvider";
 
 echarts.use([
   LineChart,
@@ -31,6 +33,8 @@ interface ChartCardProps {
 
 export function ChartCard({ title, subtitle, option, ariaLabel, height = 390, aside, footer }: ChartCardProps) {
   const scheme = useColorScheme();
+  const { theme } = useTheme();
+  const themedOption = useMemo(() => chartOptionForTheme(option, theme), [option, theme]);
   return (
     <section className="panel chart-card">
       <div className="panel__head">
@@ -42,8 +46,9 @@ export function ChartCard({ title, subtitle, option, ariaLabel, height = 390, as
       </div>
       <div role="img" aria-label={ariaLabel}>
         <ReactEChartsCore
+          key={theme}
           echarts={echarts}
-          option={{ ...option, backgroundColor: "transparent", aria: { enabled: true, decal: { show: true } } }}
+          option={{ ...themedOption, backgroundColor: "transparent", aria: { enabled: true, decal: { show: true } } }}
           notMerge
           lazyUpdate
           style={{ height }}

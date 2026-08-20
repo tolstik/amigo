@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.ai_contracts import (
     AI_MODEL,
     AI_PROMPT_VERSION,
@@ -10,6 +12,8 @@ from app.ai_contracts import (
     AnalysisSnapshot,
     GatewayAnalyzeResponse,
     SnapshotFact,
+    analysis_request_key,
+    snapshot_hash,
 )
 from app.ai_models import AiAnalysisJob, AiAnalysisResult
 from app.ai_queue import (
@@ -82,6 +86,108 @@ def test_enqueue_deduplicates_and_supersedes_older_pending_job(db):
     assert first.status == "superseded"
     assert second.status == "pending"
     assert db.query(AiAnalysisJob).count() == 2
+
+
+@pytest.mark.parametrize("terminal_status", ["failed", "superseded"])
+def test_explicit_retry_requeues_a_terminal_same_snapshot_job(db, terminal_status):
+    current_snapshot = snapshot(-0.4)
+    terminal = enqueue_analysis(
+        db,
+        current_snapshot,
+        trigger="measurement",
+        now=NOW,
+        debounce_seconds=0,
+    )
+    terminal.status = terminal_status
+    terminal.attempts = 4
+    terminal.last_error_code = "invalid_response"
+    terminal.started_at = NOW
+    terminal.finished_at = NOW + timedelta(seconds=1)
+    db.commit()
+
+    unchanged = enqueue_analysis(
+        db,
+        current_snapshot,
+        trigger="manual",
+        now=NOW + timedelta(minutes=1),
+        debounce_seconds=0,
+    )
+    assert unchanged.id == terminal.id
+    assert unchanged.status == terminal_status
+
+    retried = enqueue_analysis(
+        db,
+        current_snapshot,
+        trigger="manual",
+        now=NOW + timedelta(minutes=2),
+        debounce_seconds=0,
+        retry_terminal=True,
+    )
+    assert retried.id == terminal.id
+    assert retried.status == "pending"
+    assert retried.attempts == 0
+    assert retried.last_error_code is None
+    assert retried.started_at is None
+    assert retried.finished_at is None
+    assert claim_analysis_job(db, now=NOW + timedelta(minutes=2)).id == terminal.id
+
+
+def test_explicit_retry_accelerates_an_existing_pending_job(db):
+    current_snapshot = snapshot(-0.4)
+    pending = enqueue_analysis(
+        db,
+        current_snapshot,
+        trigger="measurement",
+        now=NOW,
+        debounce_seconds=300,
+    )
+
+    retried = enqueue_analysis(
+        db,
+        current_snapshot,
+        trigger="manual",
+        now=NOW + timedelta(minutes=1),
+        debounce_seconds=0,
+        retry_terminal=True,
+    )
+
+    assert retried.id == pending.id
+    assert retried.trigger == "manual"
+    assert retried.available_at.replace(tzinfo=timezone.utc) == NOW + timedelta(minutes=1)
+    assert claim_analysis_job(db, now=NOW + timedelta(minutes=1)).id == pending.id
+
+
+def test_same_snapshot_enqueues_a_new_sol_job_after_terra_migration(db):
+    current_snapshot = snapshot(-0.4)
+    digest = snapshot_hash(current_snapshot)
+    legacy = AiAnalysisJob(
+        request_key=analysis_request_key(digest, model="gpt-5.6-terra"),
+        snapshot_hash=digest,
+        snapshot=current_snapshot.model_dump(mode="json"),
+        source_through=NOW,
+        prompt_version=AI_PROMPT_VERSION,
+        model="gpt-5.6-terra",
+        trigger="measurement",
+        status="pending",
+        available_at=NOW,
+        created_at=NOW - timedelta(minutes=1),
+    )
+    db.add(legacy)
+    db.commit()
+
+    current = enqueue_analysis(
+        db,
+        current_snapshot,
+        trigger="manual",
+        now=NOW,
+        debounce_seconds=0,
+    )
+    db.refresh(legacy)
+
+    assert current.id != legacy.id
+    assert current.model == AI_MODEL
+    assert legacy.status == "superseded"
+    assert claim_analysis_job(db, now=NOW).id == current.id
 
 
 def test_activity_requests_are_debounced_after_latest_processing_or_result(db):
@@ -185,6 +291,66 @@ def test_cached_result_that_fails_the_active_contract_is_hidden(db):
     assert state.status == "unavailable"
     assert state.analysis is None
     assert public_analysis_payload(db, now=NOW)["analysis"] is None
+
+
+def test_cached_result_and_pending_state_ignore_an_incompatible_model(db):
+    enqueue_analysis(
+        db,
+        snapshot(-0.8),
+        trigger="measurement",
+        now=NOW,
+        debounce_seconds=0,
+    )
+    job = claim_analysis_job(db, now=NOW, lease_seconds=30)
+    assert job is not None
+    result = complete_analysis_job(db, job, response_for(job))
+    job.model = "gpt-5.6-terra"
+    result.model = "gpt-5.6-terra"
+    db.commit()
+
+    assert latest_analysis(db, now=NOW).status == "unavailable"
+
+    enqueue_analysis(
+        db,
+        snapshot(-0.9, NOW + timedelta(minutes=1)),
+        trigger="measurement",
+        now=NOW + timedelta(minutes=1),
+        debounce_seconds=0,
+    )
+    assert latest_analysis(db, now=NOW + timedelta(minutes=1)).status == "pending"
+
+
+def test_incompatible_jobs_are_preserved_but_never_claimed_or_requeued(db):
+    legacy_snapshot = snapshot(-0.8)
+    common = {
+        "snapshot_hash": snapshot_hash(legacy_snapshot),
+        "snapshot": legacy_snapshot.model_dump(mode="json"),
+        "source_through": NOW,
+        "prompt_version": AI_PROMPT_VERSION,
+        "model": "gpt-5.6-terra",
+        "trigger": "measurement",
+        "available_at": NOW - timedelta(minutes=1),
+        "created_at": NOW - timedelta(minutes=2),
+    }
+    pending = AiAnalysisJob(request_key="a" * 64, status="pending", **common)
+    expired = AiAnalysisJob(
+        request_key="b" * 64,
+        status="processing",
+        attempts=1,
+        started_at=NOW - timedelta(minutes=2),
+        lease_until=NOW - timedelta(seconds=1),
+        **common,
+    )
+    db.add_all([pending, expired])
+    db.commit()
+
+    assert recover_expired_leases(db, now=NOW) == 1
+    db.refresh(pending)
+    db.refresh(expired)
+    assert pending.status == "superseded"
+    assert expired.status == "superseded"
+    assert db.query(AiAnalysisJob).count() == 2
+    assert claim_analysis_job(db, now=NOW) is None
 
 
 def test_failure_backoff_and_expired_lease_never_persist_raw_errors(db):

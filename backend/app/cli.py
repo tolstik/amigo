@@ -103,6 +103,7 @@ def execute(args: argparse.Namespace) -> int:
                 settings,
                 trigger="manual",
                 debounce_seconds=0,
+                retry_terminal=True,
             )
         if job is None:
             print("AI analysis is disabled")

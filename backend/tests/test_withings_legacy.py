@@ -36,6 +36,8 @@ def test_full_withings_sync_paginates_scales_and_deduplicates(db):
     )
     db.commit()
 
+    value_adjustment = 0
+
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer access"
         offset = request.url.params.get("offset")
@@ -46,7 +48,13 @@ def test_full_withings_sync_paginates_scales_and_deduplicates(db):
                     "grpid": group_id,
                     "date": 1786773600 + group_id,
                     "timezone": "Europe/Moscow",
-                    "measures": [{"type": 1, "value": 127030 - group_id * 100, "unit": -3}],
+                    "measures": [
+                        {
+                            "type": 1,
+                            "value": 127030 - group_id * 100 + value_adjustment,
+                            "unit": -3,
+                        }
+                    ],
                 }
             ],
             "more": 1 if offset is None else 0,
@@ -68,7 +76,18 @@ def test_full_withings_sync_paginates_scales_and_deduplicates(db):
     with WithingsClient(db, settings, http) as client:
         second = client.sync(full=True, suppress_notifications=True)
     assert second.groups_created == 0
+    assert second.groups_updated == 0
     assert db.scalar(select(func.count()).select_from(MeasurementGroup)) == 2
+
+    # A provider-side correction remains a real update and replaces the
+    # normalized values without duplicating the group.
+    value_adjustment = 100
+    with WithingsClient(db, settings, http) as client:
+        corrected = client.sync(full=True, suppress_notifications=True)
+    assert corrected.groups_created == 0
+    assert corrected.groups_updated == 2
+    corrected_values = list(db.scalars(select(Measurement.value).order_by(Measurement.value)))
+    assert float(corrected_values[0]) == 126.93
 
 
 def test_legacy_weight_file_uses_utc_scale_and_skips_withings_duplicate(db, add_group, tmp_path):

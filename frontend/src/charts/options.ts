@@ -19,7 +19,7 @@ const colors = {
   violet: "#8b6ee8",
   coral: "#e9785d",
   amber: "#d99b35",
-  muted: "#879288",
+  muted: "#6d796f",
   grid: "rgba(128, 145, 134, .16)",
 };
 

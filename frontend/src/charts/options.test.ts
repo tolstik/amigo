@@ -1,5 +1,6 @@
 import type { WeeklyWeightPoint } from "../api/types";
 import { weeklyChangeChartOption, weeklyWeightChartOption } from "./options";
+import { chartOptionForTheme, chartPalettes } from "./theme";
 
 function week(index: number, overrides: Partial<WeeklyWeightPoint> = {}): WeeklyWeightPoint {
   const start = new Date(Date.UTC(2026, 7, 17 + index * 7));
@@ -61,5 +62,17 @@ describe("weekly chart options", () => {
     expect(factColor({ value: 0.1, dataIndex: 3 })).toBe("#e9785d");
     expect(zoom.map((item) => item.type)).toEqual(["inside", "slider"]);
     expect(zoom[0]).toMatchObject({ startValue: 2, endValue: 13 });
+  });
+
+  it("recolors static chart elements and callback colors for the selected theme", () => {
+    const option = chartOptionForTheme(weeklyChangeChartOption([week(0), week(1)]), "ocean");
+    const series = option.series as any[];
+    const factColor = series[0].itemStyle.color;
+
+    expect((option.legend as any).textStyle.color).toBe(chartPalettes.ocean.muted);
+    expect((option.yAxis as any).axisLine.lineStyle.color).toBe(chartPalettes.ocean.grid);
+    expect(series[1].itemStyle.color).toBe(chartPalettes.ocean.blue);
+    expect(factColor({ value: -0.7, dataIndex: 1 })).toBe(chartPalettes.ocean.green);
+    expect(factColor({ value: 0.1, dataIndex: 1 })).toBe(chartPalettes.ocean.coral);
   });
 });

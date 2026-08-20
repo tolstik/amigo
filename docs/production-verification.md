@@ -64,7 +64,7 @@
       равен ровно `http://ai-gateway:8090`; override на внешний endpoint
       отклоняется fail-closed.
 - [ ] Pinned Codex binary на host и read-only mount в `ai-gateway` имеют ожидаемый
-      SHA-256. Gateway health сообщает fixed model `gpt-5.6-terra`; synthetic
+      SHA-256. Gateway health сообщает fixed model `gpt-5.6-sol`; synthetic
       `python -m app.ai_smoke` прошёл без real health data.
 - [ ] `/srv/amigo/data/import/legacy-weight.tsv` root-owned, закрыт для group/world и
       смонтирован как read-only `/imports`.
@@ -85,15 +85,16 @@
       `/amigo/api/v1/series/recovery?range=30d` и
       `/amigo/api/v1/ai-analysis` возвращают `no-store` JSON
       нужного контракта. Для завершения deployment AI status равен `fresh`,
-      payload помечен `ai_generated`, prompt contract равен `amigo-health-v2`,
-      а каждая опубликованная рекомендация имеет evidence keys.
+      payload помечен `ai_generated`, model равен `gpt-5.6-sol`, prompt contract
+      равен `amigo-health-v2`, а каждая опубликованная рекомендация имеет
+      evidence keys.
 - [ ] Пустой unsigned POST на точный
       `/amigo-ingest/v1/health-connect/batches` возвращает `400` с
       `missing_signature_header` до создания health record. Прочие ingest paths/methods
       не открыты.
 - [ ] Присутствуют `Cache-Control: no-store`, `X-Robots-Tag: noindex, noarchive`,
-      `X-Content-Type-Options` и CSP; hashed assets имеют единственный immutable
-      cache header.
+      `X-Content-Type-Options` и CSP; hashed JavaScript и CSS assets имеют
+      единственный immutable cache header.
 - [ ] Активной точной `get_withings.php` строки нет, disabled-marker ровно
       один, точная общая `send_telergam.php all` сохранена.
 - [ ] `/srv/www/amigo` и MariaDB `amigo` существуют. Route-only rehearsal
@@ -115,8 +116,10 @@
 - [ ] Давление, heart metrics, SpO2 и VO2 max на детерминированных экранах
       показаны описательно, без медицинских категорий, severity-цветов, порогов
       и app-side диагнозов; BIA явно помечена как приблизительная.
-- [ ] CSV export, фильтры периода, светлая/тёмная тема и табличные альтернативы
-      графикам работают на desktop/mobile.
+- [ ] CSV export, фильтры периода, темы «Светлая», «Тёмная», «Океан» и «Закат»
+      и табличные альтернативы графикам работают на desktop/mobile. При пустом
+      storage старт остаётся светлым даже под dark OS; явный выбор сохраняется
+      после reload и перекрашивает также графики.
 - [ ] На «Прогрессе» видны оба недельных weight plan/fact графика:
       парные столбики «Факт/План» и линия минимума; дельта имеет верный знак.
 - [ ] Weight weekly таблица совпадает с tooltip и

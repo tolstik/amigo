@@ -259,9 +259,11 @@ class WithingsClient:
                 pages += 1
                 for raw_group in groups:
                     seen += 1
-                    was_created, event_types = upsert_measurement_group(self.db, raw_group)
+                    was_created, was_changed, event_types = upsert_measurement_group(
+                        self.db, raw_group
+                    )
                     created += int(was_created)
-                    updated += int(not was_created)
+                    updated += int(was_changed and not was_created)
                     if was_created and not suppress_notifications:
                         notifications += enqueue_group_notifications(
                             self.db,
@@ -301,7 +303,7 @@ def _scaled_measure(raw: dict[str, Any]) -> Decimal:
 
 def upsert_measurement_group(
     db: Session, raw_group: dict[str, Any], provider: str = "withings"
-) -> tuple[bool, set[str]]:
+) -> tuple[bool, bool, set[str]]:
     try:
         provider_id = str(raw_group["grpid"])
         measured_at = datetime.fromtimestamp(int(raw_group["date"]), tz=timezone.utc)
@@ -314,6 +316,11 @@ def upsert_measurement_group(
         )
     )
     created = group is None
+    # The overlap window intentionally returns already imported groups. Treat
+    # an identical provider payload as unchanged so downstream AI analysis is
+    # not regenerated every five minutes for the same measurements.
+    if group is not None and group.raw_payload == raw_group:
+        return False, False, set()
     if group is None:
         group = MeasurementGroup(provider=provider, provider_group_id=provider_id, measured_at=measured_at)
         db.add(group)
@@ -359,7 +366,7 @@ def upsert_measurement_group(
         event_types.add("measurement.weight")
     if {"systolic", "diastolic"} <= measurement_kinds:
         event_types.add("measurement.pressure")
-    return created, event_types
+    return created, True, event_types
 
 
 def enqueue_group_notifications(

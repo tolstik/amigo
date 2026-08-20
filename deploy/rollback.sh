@@ -32,12 +32,24 @@ ROUTE_WAS_ACTIVE=0
 ROLLBACK_COMMITTED=0
 ROLLBACK_CRON_ENABLE_STARTED=0
 
+mapfile -t CURRENT_SERVICES < <(amigo_compose config --services)
+readonly -a CURRENT_SERVICES
+current_has_service() {
+    local expected=$1
+    local service
+    for service in "${CURRENT_SERVICES[@]}"; do
+        [[ "${service}" == "${expected}" ]] && return 0
+    done
+    return 1
+}
+
 worker_container=$(amigo_compose ps -q worker)
 if [[ -n "${worker_container}" ]] \
     && [[ "$(docker inspect --format '{{.State.Status}}' "${worker_container}")" == "running" ]]; then
     WORKER_WAS_RUNNING=1
 fi
-for auxiliary_service in ai-worker ingest ai-gateway; do
+for auxiliary_service in ai-worker ingest ai-gateway lab-parser; do
+    current_has_service "${auxiliary_service}" || continue
     auxiliary_container=$(amigo_compose ps -q "${auxiliary_service}")
     if [[ -n "${auxiliary_container}" ]] \
         && [[ "$(docker inspect --format '{{.State.Status}}' "${auxiliary_container}")" == "running" ]]; then
@@ -76,7 +88,7 @@ rollback_error() {
         if [[ ${ROUTE_DISABLED} -eq 1 && ${ROUTE_WAS_ACTIVE} -eq 1 ]]; then
             amigo_log "restoring the v2 nginx route after the failed rollback"
             if ! bash "${SCRIPT_DIR}/nginx-control.sh" enable "${SNAPSHOT}" \
-                || ! amigo_wait_for_origin_http_200 "/amigo/api/v1/overview" 15; then
+                || ! amigo_wait_for_origin_http_200 "/amigo/" 15; then
                 amigo_log "WARNING: restored Amigo route did not stabilize at HTTP 200"
             fi
         fi
@@ -101,7 +113,12 @@ trap 'rollback_error 143 "${LINENO}"' TERM
 amigo_log "starting explicitly authorized disaster fallback to the preserved legacy application"
 amigo_log "stopping data collection, Health Connect ingestion, and cloud AI before fallback"
 WORKER_STOPPED=1
-amigo_compose stop worker ai-worker ingest ai-gateway
+ROLLBACK_STOP_SERVICES=(worker)
+for auxiliary_service in ai-worker ingest ai-gateway lab-parser; do
+    current_has_service "${auxiliary_service}" \
+        && ROLLBACK_STOP_SERVICES+=("${auxiliary_service}")
+done
+amigo_compose stop "${ROLLBACK_STOP_SERVICES[@]}"
 
 amigo_log "switching nginx back to the preserved legacy application"
 ROUTE_DISABLED=1

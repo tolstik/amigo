@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     static_dir: Path = Path("/app/static")
     log_level: str = "INFO"
     user_height_cm: float = 176.0
+    auth_username: str = "amigo"
+    auth_session_days: int = 90
+    lab_storage_dir: Path = Path("/srv/amigo/data/lab-files")
+    lab_parser_url: str = "http://lab-parser:8085"
+    lab_parser_timeout_seconds: int = 180
+    assistant_max_attempts: int = 2
 
     token_encryption_key: str | None = Field(default=None, repr=False)
     withings_client_id: str | None = None
@@ -127,6 +133,9 @@ class Settings(BaseSettings):
         "ai_lease_seconds",
         "ai_max_attempts",
         "ai_backoff_base_seconds",
+        "auth_session_days",
+        "lab_parser_timeout_seconds",
+        "assistant_max_attempts",
     )
     @classmethod
     def positive_interval(cls, value: int) -> int:
@@ -148,7 +157,7 @@ class Settings(BaseSettings):
             raise ValueError("user height must be between 100 and 250 cm")
         return round(value, 1)
 
-    @field_validator("ai_gateway_url")
+    @field_validator("ai_gateway_url", "lab_parser_url")
     @classmethod
     def valid_ai_gateway_url(cls, value: str) -> str:
         normalized = value.strip().rstrip("/")
@@ -163,6 +172,8 @@ class Settings(BaseSettings):
                 raise ValueError("AI analysis must be enabled in production")
             if self.ai_gateway_url != "http://ai-gateway:8090":
                 raise ValueError("production AI gateway must use the isolated Compose service")
+            if self.lab_parser_url != "http://lab-parser:8085":
+                raise ValueError("production lab parser must use the isolated Compose service")
             if (
                 self.weekly_digest_day != "mon"
                 or self.weekly_digest_time != time(9, 0)

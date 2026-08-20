@@ -16,6 +16,7 @@ from .analytics import plan_weight, pressure_sessions, trend_change
 from .ai_queue import public_analysis_payload
 from .config import Settings
 from .health_analytics import activity_series, recovery_series
+from .lab_models import LabResult
 from .models import JobRun, Measurement, MeasurementGroup, Outbox, utcnow
 from .service import (
     active_plan,
@@ -248,6 +249,77 @@ class TelegramNotifier:
                 lines.append(f"{prefix}{safe_text}")
         return lines
 
+    @staticmethod
+    def _pack_messages(header: str, lines: list[str], limit: int = 3_800) -> list[str]:
+        if not lines:
+            return []
+        messages: list[str] = []
+        current = header
+        for line in lines:
+            candidate = f"{current}\n{line}"
+            if len(candidate) > limit and current != header:
+                messages.append(current)
+                current = f"{header}\n{line}"
+            else:
+                current = candidate
+        messages.append(current)
+        return messages
+
+    def _ai_recommendation_messages(self) -> list[str]:
+        payload = public_analysis_payload(self.db)
+        if payload.get("status") != "ready" or not isinstance(payload.get("analysis"), dict):
+            return []
+        recommendations = payload["analysis"].get("recommendations")
+        if not isinstance(recommendations, list):
+            return []
+        lines = []
+        for item in recommendations:
+            if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+                continue
+            title = item.get("title") if isinstance(item.get("title"), str) else "Рекомендация"
+            lines.append(f"• <b>{escape(title)}</b>: {escape(item['text'])}")
+        return self._pack_messages("<b>✨ Рекомендации Amigo</b>", lines)
+
+    def _lab_messages(self, now: datetime) -> list[str]:
+        since = now - timedelta(hours=24)
+        rows = list(
+            self.db.scalars(
+                select(LabResult)
+                .where(LabResult.deleted.is_(False), LabResult.created_at >= since)
+                .order_by(LabResult.observed_on, LabResult.created_at, LabResult.source_index)
+            )
+        )
+        labels = {
+            "within_reference": "в референсе",
+            "below_reference": "ниже референса",
+            "above_reference": "выше референса",
+            "outside_reference": "вне референса",
+            "indeterminate": "без оценки",
+        }
+        lines: list[str] = []
+        for row in rows:
+            value = str(row.value_numeric) if row.value_numeric is not None else (row.value_text or "—")
+            if row.comparator and row.comparator != "=":
+                value = f"{row.comparator}{value}"
+            if row.unit:
+                value = f"{value} {row.unit}"
+            if row.reference_text:
+                reference = row.reference_text
+            elif row.reference_low is not None and row.reference_high is not None:
+                reference = f"{row.reference_low}–{row.reference_high} {row.unit or ''}".strip()
+            elif row.reference_low is not None:
+                reference = f"от {row.reference_low} {row.unit or ''}".strip()
+            elif row.reference_high is not None:
+                reference = f"до {row.reference_high} {row.unit or ''}".strip()
+            else:
+                reference = "не указан"
+            verification = "проверено" if row.verification_status == "verified" else "НЕ ПРОВЕРЕНО"
+            lines.append(
+                f"• <b>{escape(row.analyte_name)}</b>: {escape(value)} · "
+                f"референс {escape(reference)} · {escape(labels.get(row.status, 'без оценки'))} · {verification}"
+            )
+        return self._pack_messages("<b>🧪 Новые лабораторные результаты</b>", lines)
+
     def deliver(self, event: Outbox, now: datetime | None = None) -> DeliveryResult:
         current = now or datetime.now(timezone.utc)
         if event.event_type == "measurement.weight":
@@ -265,9 +337,13 @@ class TelegramNotifier:
                 "<b>📊 Недельный график Amigo</b>",
             )
             self.client.send_message(text)
+            for message in [*self._lab_messages(current), *self._ai_recommendation_messages()]:
+                self.client.send_message(message)
             return DeliveryResult()
         if event.event_type == "daily.digest":
             self.client.send_message(self._daily_digest_text(current))
+            for message in [*self._lab_messages(current), *self._ai_recommendation_messages()]:
+                self.client.send_message(message)
             return DeliveryResult()
         raise TelegramError(f"unsupported outbox event {event.event_type}")
 

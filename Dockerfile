@@ -23,7 +23,8 @@ ENV PYTHONUNBUFFERED=1 \
     AMIGO_STATIC_DIR=/app/static
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates fonts-dejavu-core \
+    && apt-get install --yes --no-install-recommends \
+        ca-certificates fonts-dejavu-core libheif1 tesseract-ocr tesseract-ocr-eng tesseract-ocr-rus \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/backend

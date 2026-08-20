@@ -98,6 +98,7 @@ for metadata_key in \
     previous_database_rollback_image \
     previous_ai_model \
     previous_ai_prompt_version \
+    previous_auth_floor \
     previous_managed_route_state \
     previous_compose_sha256; do
     grep --quiet --fixed-strings "${metadata_key}" "${SCRIPT_DIR}/pre-cutover-backup.sh" \
@@ -127,6 +128,11 @@ grep --quiet --fixed-strings 'amigo_assert_managed_route_active' \
 grep --quiet --fixed-strings 'RECOVERY_MINUTE_BUCKET' \
     "${SCRIPT_DIR}/restore-previous-release.sh" \
     || amigo_die "previous-release recovery does not avoid minute-key collision"
+grep --quiet --fixed-strings 'nginx-control.sh" maintenance' \
+    "${SCRIPT_DIR}/restore-previous-release.sh" \
+    || amigo_die "previous-release recovery does not enforce the auth-floor maintenance route"
+grep --quiet --fixed-strings 'lab-parser' "${SCRIPT_DIR}/rollback.sh" \
+    || amigo_die "legacy disaster fallback does not stop the isolated laboratory parser"
 # Literal variable syntax is the unsafe source pattern being rejected.
 # shellcheck disable=SC2016
 if grep --quiet --fixed-strings \

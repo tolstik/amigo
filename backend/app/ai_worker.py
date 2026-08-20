@@ -26,6 +26,7 @@ from .ai_queue import (
 )
 from .config import Settings, get_settings
 from .db import SessionLocal
+from .lab_assistant_worker import LabAssistantGateway, process_assistant_job, process_lab_job
 
 
 logger = logging.getLogger("amigo.ai.worker")
@@ -104,10 +105,14 @@ class AiAnalysisWorker:
         self,
         settings: Settings | None = None,
         gateway: AiGatewayClient | None = None,
+        lab_gateway: LabAssistantGateway | None = None,
     ):
         self.settings = settings or get_settings()
         self.gateway = gateway or AiGatewayClient(self.settings)
         self._owns_gateway = gateway is None
+        self.lab_gateway = lab_gateway or LabAssistantGateway(self.settings)
+        self._owns_lab_gateway = lab_gateway is None
+        self._consecutive_assistant_jobs = 0
         self.max_attempts = min(
             self.settings.ai_max_attempts,
             MAX_ANALYSIS_REQUEST_ATTEMPT,
@@ -117,11 +122,13 @@ class AiAnalysisWorker:
     def close(self) -> None:
         if self._owns_gateway:
             self.gateway.close()
+        if self._owns_lab_gateway:
+            self.lab_gateway.close()
 
     def stop(self, *_: object) -> None:
         self.running = False
 
-    def process_one(self, db: Session, now: datetime | None = None) -> bool:
+    def process_analysis(self, db: Session, now: datetime | None = None) -> bool:
         current = now or datetime.now(timezone.utc)
         recover_expired_leases(
             db,
@@ -169,6 +176,22 @@ class AiAnalysisWorker:
             logger.warning("AI analysis job id=%s failed code=internal", job.id)
         return True
 
+    def process_one(self, db: Session, now: datetime | None = None) -> bool:
+        current = now or datetime.now(timezone.utc)
+        if process_lab_job(db, self.settings, self.lab_gateway, current):
+            self._consecutive_assistant_jobs = 0
+            return True
+        if self._consecutive_assistant_jobs >= 3 and self.process_analysis(db, current):
+            self._consecutive_assistant_jobs = 0
+            return True
+        if process_assistant_job(db, self.settings, self.lab_gateway, current):
+            self._consecutive_assistant_jobs += 1
+            return True
+        processed = self.process_analysis(db, current)
+        if processed:
+            self._consecutive_assistant_jobs = 0
+        return processed
+
     def run_once(self) -> bool:
         with SessionLocal() as db:
             return self.process_one(db)
@@ -197,7 +220,11 @@ def healthcheck(settings: Settings) -> bool:
             f"{settings.ai_gateway_url}/healthz",
             timeout=httpx.Timeout(5, connect=3),
         )
-        return response.status_code == 200
+        parser = httpx.get(
+            f"{settings.lab_parser_url}/healthz",
+            timeout=httpx.Timeout(5, connect=3),
+        )
+        return response.status_code == 200 and parser.status_code == 200
     except Exception:
         return False
 

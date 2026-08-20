@@ -1,6 +1,8 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { api } from "../api/client";
+import type { AuthSession } from "../api/types";
 import type { OverviewContext } from "../App";
-import { formatDateTime, relativeTime } from "../lib/format";
+import { formatDate, formatDateTime, formatKg, relativeTime } from "../lib/format";
 import { Icon, type IconName } from "./Icon";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 
@@ -12,6 +14,8 @@ const navItems: Array<{ to: string; label: string; icon: IconName; end?: boolean
   { to: "/composition", label: "Состав тела", icon: "composition" },
   { to: "/activity", label: "Активность", icon: "activity" },
   { to: "/recovery", label: "Восстановление", icon: "clock" },
+  { to: "/labs", label: "Анализы", icon: "composition" },
+  { to: "/assistant", label: "Ассистент", icon: "sparkle" },
 ];
 
 const statusLabels = {
@@ -22,7 +26,7 @@ const statusLabels = {
   unknown: "Статус уточняется",
 } as const;
 
-export function AppLayout({ overview }: { overview: OverviewContext }) {
+export function AppLayout({ overview, session, onLogout }: { overview: OverviewContext; session: AuthSession; onLogout: () => void }) {
   const sync = overview.data?.sync;
   const status = overview.error ? "error" : (sync?.status ?? "unknown");
   const lastSuccess = sync?.lastSuccessAt;
@@ -41,6 +45,8 @@ export function AppLayout({ overview }: { overview: OverviewContext }) {
 
           <div className="app-bar__tools">
             <ThemeSwitcher />
+            <NavLink className="profile-link" to="/profile" title={`Профиль ${session.username}`}>{session.username.slice(0, 1).toUpperCase()}</NavLink>
+            <button className="button button--ghost logout-button" type="button" onClick={async () => { await api.logout(); onLogout(); }}>Выйти</button>
             <div className="sync-box" title={lastSuccess ? `Последняя синхронизация: ${formatDateTime(lastSuccess)}` : undefined}>
               <span className={`sync-dot sync-dot--${status}`} />
               <span>
@@ -73,8 +79,8 @@ export function AppLayout({ overview }: { overview: OverviewContext }) {
           </nav>
           <div className="sidebar-note">
             <span>Старт программы</span>
-            <strong>15 августа 2026</strong>
-            <small>Цель — 76,5 кг</small>
+            <strong>{formatDate(overview.data?.plan.startDate)}</strong>
+            <small>Цель — {formatKg(overview.data?.plan.targetWeightKg)}</small>
           </div>
         </aside>
 

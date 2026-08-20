@@ -9,6 +9,7 @@ readonly AMIGO_COMPOSE_FILE="/srv/amigo/compose.yaml"
 readonly AMIGO_ENV_FILE="/srv/amigo/.env"
 readonly AMIGO_SECRETS_DIR="/srv/amigo/secrets"
 readonly AMIGO_IMPORT_DIR="/srv/amigo/data/import"
+readonly AMIGO_LAB_FILES_DIR="/srv/amigo/data/lab-files"
 readonly AMIGO_LEGACY_WEIGHT_IMPORT="/srv/amigo/data/import/legacy-weight.tsv"
 readonly AMIGO_ROLLBACK_ROOT="/srv/amigo-rollbacks"
 readonly AMIGO_STATE_DIR="/var/lib/amigo"
@@ -264,13 +265,11 @@ amigo_assert_release_rollback_compatible() {
     local previous_release=$2
     local candidate_release=$3
     local changed_path
+    local migration_change
     local -a protected_paths=(
-        compose.yaml
-        backend/alembic
         backend/app/ai_models.py
         backend/app/health_models.py
         backend/app/models.py
-        deploy/nginx
         deploy/prepare-ai-runtime.sh
     )
 
@@ -289,6 +288,13 @@ amigo_assert_release_rollback_compatible() {
         changed_path=${changed_path%%$'\n'*}
         amigo_die "candidate changes rollback-protected schema/runtime path: ${changed_path}"
     fi
+    migration_change="$(
+        git -C "${repository}" diff --name-status \
+            "${previous_release}" "${candidate_release}" -- backend/alembic/versions \
+            | awk '$1 != "A" { print; exit }'
+    )"
+    [[ -z "${migration_change}" ]] \
+        || amigo_die "candidate modifies or removes a historical migration: ${migration_change}"
 }
 
 amigo_count_exact_line() {
@@ -311,15 +317,20 @@ amigo_wait_for_http() {
     return 1
 }
 
-amigo_wait_for_origin_http_200() {
+amigo_wait_for_origin_http_status() {
     local path=$1
-    local attempts=${2:-15}
+    local expected_status=$2
+    local attempts=${3:-15}
     local attempt
     local status=""
 
     if [[ "${path}" != "/amigo/" \
         && "${path}" != "/amigo/api/v1/overview" ]]; then
         amigo_die "invalid Amigo origin verification path"
+        return 1
+    fi
+    if [[ ! "${expected_status}" =~ ^[1-5][0-9]{2}$ ]]; then
+        amigo_die "invalid Amigo origin verification status"
         return 1
     fi
     if [[ ! "${attempts}" =~ ^[1-9][0-9]*$ || ${attempts} -gt 60 ]]; then
@@ -333,12 +344,19 @@ amigo_wait_for_origin_http_200() {
                 --output /dev/null --write-out '%{http_code}' \
                 "http://127.0.0.1${path}" 2>/dev/null
         )" || status=""
-        if [[ "${status}" == "200" ]]; then
+        if [[ "${status}" == "${expected_status}" ]]; then
             return 0
         fi
         [[ ${attempt} -lt ${attempts} ]] && sleep 2
     done
     return 1
+}
+
+amigo_wait_for_origin_http_200() {
+    local path=$1
+    local attempts=${2:-15}
+
+    amigo_wait_for_origin_http_status "${path}" 200 "${attempts}"
 }
 
 amigo_handback_withings_tokens() {
@@ -382,6 +400,18 @@ amigo_revert_legacy_takeover() {
     local handback_ok=1
     local route_safe_for_legacy=${legacy_origin_was_healthy}
     local collectors_stopped=1
+    local runtime_stop_services=(web ingest ai-gateway db)
+    local configured_service
+
+    while IFS= read -r configured_service; do
+        if [[ "${configured_service}" == "lab-parser" ]]; then
+            runtime_stop_services=(web ingest ai-gateway lab-parser db)
+            break
+        fi
+    done < <(
+        amigo_compose_file_release \
+            "${compose_file}" "${release_sha}" config --services
+    )
 
     [[ "${token_imported}" =~ ^[01]$ \
         && "${route_enable_started}" =~ ^[01]$ \
@@ -426,7 +456,7 @@ amigo_revert_legacy_takeover() {
     fi
     if [[ ${route_safe_for_legacy} -eq 1 && ${collectors_stopped} -eq 1 ]]; then
         amigo_compose_file_release \
-            "${compose_file}" "${release_sha}" stop web ingest ai-gateway db
+            "${compose_file}" "${release_sha}" stop "${runtime_stop_services[@]}"
         if [[ ${handback_ok} -eq 1 ]]; then
             bash "${AMIGO_DEPLOY_DIR}/cron-control.sh" enable \
                 || amigo_log "WARNING: could not resume the exact legacy Withings cron"

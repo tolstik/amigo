@@ -24,7 +24,7 @@ export function ProgressPage() {
       <PageHeader
         eyebrow="Программа похудения"
         title="Прогресс и прогноз"
-        description="На этом экране учитываются только измерения с 15 августа 2026 года. Необычные замеры видны, но не влияют на тренд."
+        description={`На этом экране учитываются только измерения с ${formatDate(plan?.startDate)}. Необычные замеры видны, но не влияют на тренд.`}
         actions={<a className="button button--secondary" href={csvUrl("weight", "program")} download><Icon name="download" /> Скачать CSV</a>}
       />
 
@@ -44,7 +44,7 @@ export function ProgressPage() {
               title="Вес относительно плана"
               subtitle={`${series.data.meta.count} дней с замерами · московское время`}
               option={weightChartOption(series.data.points, true, series.data.projection, series.data.planProjection)}
-              ariaLabel="График прогресса веса, плана и прогноза с 15 августа 2026 года"
+              ariaLabel={`График прогресса веса, плана и прогноза с ${formatDate(plan?.startDate)}`}
               height={450}
               footer={<WeightTable points={series.data.points} />}
             />

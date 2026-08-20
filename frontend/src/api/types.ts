@@ -265,3 +265,91 @@ export interface AiAnalysis {
   dataAsOf: string | null;
   model: string | null;
 }
+
+export interface AuthSession {
+  authenticated: true;
+  username: string;
+  expires_at: string;
+}
+
+export interface UserProfile {
+  birth_date: string | null;
+  reference_sex: "male" | "female" | "unspecified" | null;
+  height_cm: number;
+  ai_data_consent_version: string | null;
+  ai_data_consent_at: string | null;
+}
+
+export type LabStatus = "within_reference" | "below_reference" | "above_reference" | "outside_reference" | "indeterminate";
+
+export interface LabResult {
+  id: string;
+  document_id: string;
+  analyte_id: string | null;
+  analyte_name: string;
+  value_numeric: number | null;
+  value_text: string | null;
+  comparator: string | null;
+  unit: string | null;
+  observed_on: string | null;
+  specimen: string | null;
+  method: string | null;
+  reference_low: number | null;
+  reference_high: number | null;
+  reference_text: string | null;
+  reference_source: "laboratory" | "catalog" | "user" | "none";
+  laboratory_flag: string | null;
+  status: LabStatus;
+  verification_status: "unverified" | "verified" | "corrected";
+  source_page: number | null;
+  deleted: boolean;
+}
+
+export interface LabResultInput {
+  analyte_name: string;
+  value_numeric: number | null;
+  value_text: string | null;
+  comparator: "<" | "<=" | "=" | ">=" | ">" | null;
+  unit: string | null;
+  observed_on: string | null;
+  specimen: string | null;
+  method: string | null;
+  reference_low: number | null;
+  reference_high: number | null;
+  reference_text: string | null;
+  source_page?: number | null;
+}
+
+export interface LabDocument {
+  id: string;
+  filename: string;
+  media_type: string;
+  size_bytes: number;
+  status: "queued" | "processing" | "complete" | "failed";
+  verified: boolean;
+  page_count: number | null;
+  error_code: string | null;
+  created_at: string;
+  completed_at: string | null;
+  result_count: number;
+  extracted_text?: string | null;
+  pages?: Array<{ page: number; text: string }> | null;
+  results?: LabResult[];
+}
+
+export interface AssistantSegment {
+  text: string;
+  evidence_keys: string[];
+}
+
+export interface AssistantMessage {
+  id: string;
+  role: "user" | "assistant";
+  status: "queued" | "streaming" | "validating" | "complete" | "failed";
+  content: string;
+  draft_segments: AssistantSegment[];
+  evidence_keys: string[];
+  error_code: string | null;
+  created_at: string;
+  updated_at: string;
+}

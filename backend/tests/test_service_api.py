@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.db import get_db
+from app.auth import require_session
 from app.main import app
 from app.ai_models import AiAnalysisJob, AiAnalysisResult
 from app.models import SyncState
@@ -71,6 +72,7 @@ def test_fastapi_is_read_only_and_returns_csv(db, add_group):
         yield db
 
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[require_session] = lambda: object()
     try:
         with TestClient(app) as client:
             response = client.get("/api/v1/overview")
@@ -100,6 +102,7 @@ def test_public_ai_gets_read_only_cached_state_without_invoking_codex(db, monkey
         yield db
 
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[require_session] = lambda: object()
     try:
         with TestClient(app) as client:
             analysis = client.get("/api/v1/ai-analysis")

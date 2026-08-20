@@ -1,7 +1,8 @@
 # Amigo v3
 
-Personal, public read-only health dashboard for weight-program progress,
-activity, recovery, and descriptive blood-pressure history. Withings remains
+Personal, authenticated health dashboard for weight-program progress, activity,
+recovery, descriptive blood-pressure history, laboratory results, and a
+context-aware assistant. Withings remains
 the only source of weight, body composition, blood pressure, and the pulse
 recorded during a blood-pressure session. Xiaomi Smart Band 9 Pro data,
 including ordinary heart-rate samples, follows
@@ -13,22 +14,25 @@ notifications and scheduled factual/AI-assisted reports to Telegram.
 
 ## Architecture
 
-The production Docker Compose stack has six services:
+The production Docker Compose stack has seven services:
 
-- `web` — FastAPI public read-only API and the built React dashboard;
+- `web` — authenticated FastAPI API, laboratory archive, and React dashboard;
 - `worker` — Withings synchronization, outbox, Telegram, and scheduling;
 - `db` — PostgreSQL 17;
 - `ingest` — signed Health Connect registration, pairing status, and batch
   ingestion;
 - `ai-worker` — PostgreSQL-backed asynchronous analysis queue;
-- `ai-gateway` — isolated, single-concurrency Codex CLI process boundary.
+- `ai-gateway` — isolated, single-concurrency Codex CLI process boundary;
+- `lab-parser` — non-root, database-free PDF/image text extraction and OCR.
 
 Only `web` and `ingest` are host-published, on loopback ports `18181` and
 `18182`. Origin nginx exposes the dashboard at
 `https://amigo.tolstik.ru/amigo/` and only the three exact signed-ingest
-routes under `/amigo-ingest/v1/`. The AI gateway has no host port.
-The dashboard is intentionally public and read-only; Health Connect is exposed
-there only as daily/weekly aggregates, without device or pairing metadata.
+routes under `/amigo-ingest/v1/`. The AI gateway and laboratory parser have no
+host ports. The dashboard, JSON APIs, CSV, laboratory originals, and assistant
+require the single local account; Android signed ingest is independent.
+Health Connect appears there only as daily/weekly aggregates, without device or
+pairing metadata.
 Its theme selector offers Light, Dark, Ocean, and Sunset. A fresh browser always
 starts in Light regardless of the operating-system setting; an explicit choice
 is persisted and applied to both the interface and charts.
@@ -50,12 +54,12 @@ Analysis is generated asynchronously with a SHA-256-pinned Codex CLI and the
 fixed `gpt-5.6-sol` model. The gateway runs `codex exec` in an ephemeral,
 read-only sandbox with a strict JSON schema and no database, Withings, Telegram,
 or Docker secrets. Results are validated against the supplied evidence keys and
-cached in PostgreSQL. Public GET requests only read that cache and never invoke
+cached in PostgreSQL. Authenticated GET requests only read that cache and never invoke
 Codex.
 
 The private snapshot includes the configured height of 176 cm and a
 deterministically calculated current BMI when a current Withings weight exists.
-Prompt contract `amigo-health-v2` requires recommendations to name a concrete
+Prompt contract `amigo-health-v3` requires recommendations to name a concrete
 action, a cadence or review period, and the exact supplied evidence. It may
 suggest repeat measurements, a journal, sustainable food/activity/sleep steps,
 or discussing a persistent pattern with a clinician. It cannot diagnose,
@@ -73,6 +77,35 @@ only a new or structurally changed measurement group requests another analysis.
 See the official OpenAI documentation for
 [`codex exec` and saved CLI authentication](https://learn.chatgpt.com/docs/non-interactive-mode)
 and the current [`gpt-5.6-sol` model](https://developers.openai.com/api/docs/models/gpt-5.6-sol).
+
+## Authentication, laboratory archive, and assistant
+
+The application has one local Argon2id account. Opaque sessions live in
+PostgreSQL for 90 days; only SHA-256 token digests are stored. Cookies are
+`Secure` and `SameSite=Strict`; every mutation requires the exact production
+Origin and CSRF token. The password is created or rotated only through the
+root-only CLI and is never passed as a process argument.
+
+Laboratory uploads accept PDF, JPG, PNG, and HEIC up to 20 MiB (PDF up to 50
+pages). Originals use random keys in root-only `/srv/amigo/data/lab-files`.
+`lab-parser` performs text extraction and OCR without database, secrets, Codex
+state, a shared file mount, or a host port. Results initially appear as
+`unverified`. Backend code—not AI—prefers a range from the document and computes
+the status and history. It can use a versioned catalog only when a reviewed
+catalog is explicitly enabled and matches analyte/specimen/unit/profile exactly.
+The initial fallback catalog is disabled, so only report-provided or
+user-entered intervals are evaluated. Original extraction and user edits are
+audited.
+
+Before the first upload or assistant question, the profile requires explicit
+`amigo-ai-data-v1` consent. The disclosure states that Codex CLI runs locally,
+but full extracted text and questions may be sent to OpenAI inference. The one
+persistent chat combines deterministic health/laboratory history, the last 12
+messages, an older local summary, and locally retrieved OCR chunks. Draft
+segments stream through PostgreSQL/SSE; only a fully validated final answer is
+retained as complete. The gateway uses ephemeral `codex app-server` turns with
+a strict output schema; see the official
+[`app-server` turns documentation](https://learn.chatgpt.com/docs/app-server#turns).
 
 ## Health Connect companion
 
@@ -113,6 +146,9 @@ Verify the checksum before installing it.
   plus a separate full text message.
 - Scheduled AI preparation begins at 08:45. If no validated AI result is ready,
   the report explicitly contains facts only.
+- New laboratory values, units, ranges, status, and verification mark are added
+  to the next scheduled digest without truncation. Originals, filenames, OCR
+  text, and assistant messages are never sent to Telegram.
 
 Blood pressure, heart, SpO2, and VO2 max charts remain descriptive and have no
 severity colors or app-side diagnosis. Validated AI can turn a repeated pattern
@@ -163,5 +199,6 @@ Markdown, source code, fixtures, command output, or logs.
 
 Follow [docs/runbook.md](docs/runbook.md). It preserves the legacy PHP
 application and shared cron jobs, creates a verified rollback snapshot, checks
-all six services and isolation boundaries, and records deployed hashes after
+all seven services, authentication, laboratory/AI isolation boundaries, and
+authenticated HTTPS/API/upload/SSE contracts, then records deployed hashes after
 cutover.

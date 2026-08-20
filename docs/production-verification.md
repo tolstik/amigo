@@ -11,8 +11,11 @@
       включая untracked source-файлы.
 - [ ] `/var/lib/amigo/current-release` совпадает с реально запущенным previous
       Amigo image; exact image tag/ID и Git object доступны. Candidate не меняет
-      rollback-protected Compose/nginx envelope, Alembic, ORM models или pinned
-      Codex runtime относительно previous release.
+      rollback-protected базовые ORM models, pinned Codex runtime и существующие
+      Alembic migration-файлы. Добавочные migration-файлы и новый Compose/nginx
+      envelope допустимы, потому что snapshot сохраняет точные previous
+      Compose/nginx files, image IDs и rollback tags, а recovery динамически
+      останавливает candidate services.
 - [ ] `/srv/amigo/.env` и ровно восемь файлов `/srv/amigo/secrets/`
       непустые, закрыты для group/world и не попали в Git или shell output.
 - [ ] В `/srv/amigo/.env` задано `AMIGO_USER_HEIGHT_CM=176`; Compose config
@@ -23,7 +26,10 @@
       `ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`.
       `auth.json` не открывался, не печатался и не копировался вручную.
 - [ ] `docker compose ... config --quiet` и `nginx -t` успешны; Compose описывает
-      ровно `web`, `worker`, `db`, `ingest`, `ai-worker`, `ai-gateway`.
+      ровно `web`, `worker`, `db`, `ingest`, `ai-worker`, `ai-gateway`, `lab-parser`.
+- [ ] Для первого auth cutover подготовлен пароль длиной минимум 14 символов;
+      он вводится только в скрытом `/dev/tty` prompt и не находится в environment,
+      argv, shell history, файлах или Markdown.
 - [ ] Public DNS ведёт на TLS edge; `curl` без `-k` принимает сертификат
       `amigo.tolstik.ru`. Origin и edge не смешиваются в одной TLS-проверке.
 - [ ] `/srv/www/amigo`, MariaDB `amigo` и обе ожидаемые строки crontab на месте.
@@ -33,12 +39,13 @@
       `SHA256SUMS` имеют `OK`, tar/gzip читаются, а каталог PostgreSQL dump
       проверен, если `db` был запущен. Metadata содержит exact previous SHA,
       application и PostgreSQL image IDs, защищённые rollback tags,
-      AI model/prompt, Compose hash и enabled managed route; snapshot содержит
-      previous Compose и точные managed nginx files.
+      AI model/prompt, `previous_auth_floor`, Compose hash и enabled managed
+      route; snapshot содержит previous Compose, точные managed nginx files и
+      архив laboratory originals.
 - [ ] Явно выбран один Telegram-режим: владелец разрешил одно
       помеченное smoke-сообщение либо выбран `--skip-telegram-test`.
       Historical import не создаёт уведомлений.
-- [ ] При повторном релизе работающие `worker`, `ai-worker` и `ingest` будут
+- [ ] При повторном релизе работающие `worker`, `ai-worker`, `ingest` и `lab-parser` будут
       остановлены до migrations/one-shot jobs и восстановлены при ранней
       ошибке; нет двух процессов, параллельно ротирующих Withings OAuth.
 - [ ] Existing `ai-worker` останавливается с timeout 120 секунд. После остановки
@@ -68,50 +75,62 @@
 
 ## Автоматические проверки после cutover
 
-- [ ] `db`, `web`, `worker`, `ingest`, `ai-worker`, `ai-gateway` имеют state
+- [ ] `db`, `web`, `worker`, `ingest`, `ai-worker`, `ai-gateway`, `lab-parser` имеют state
       `running` и health `healthy`; `pg_isready` успешен.
 - [ ] После `StartedAt` текущего worker container появился
       `withings-incremental` `JobRun` с `finished_at` и status `success`.
       Автоматическая проверка читала только job name/status/timestamps, не
       `details`, provider payload или секреты; run от прежнего container не
       засчитан.
-- [ ] Пять application services используют один immutable `amigo:<Git SHA>`;
+- [ ] Шесть application services используют один immutable `amigo:<Git SHA>`;
       OCI label `org.opencontainers.image.revision` каждого из них равен этому
       SHA; `db` использует `postgres:17-alpine`; SHA совпадает с
       `/var/lib/amigo/current-release` после фиксации cutover.
 - [ ] Docker network membership точное: `db`, `web`, `worker`, `ingest` входят
       только в `amigo_backend`; `ai-worker` — в `amigo_backend` и
-      `amigo_ai_private`; `ai-gateway` — только в `amigo_ai_private`.
+      `amigo_ai_private`/`amigo_lab_private`; `ai-gateway` — только в
+      `amigo_ai_private`; `lab-parser` — только в internal `amigo_lab_private`.
 - [ ] `web`, `ingest`, `ai-worker` имеют только PostgreSQL secret; `worker` —
-      ровно восемь ожидаемых mounts; `ai-gateway` — ноль Docker secrets.
+      ровно восемь ожидаемых mounts; `ai-gateway`/`lab-parser` — ноль Docker
+      secrets и database configuration.
 - [ ] `ai-worker` работает с `AMIGO_ENV=production`, AI включён, а gateway URL
-      равен ровно `http://ai-gateway:8090`; override на внешний endpoint
-      отклоняется fail-closed.
+      равен ровно `http://ai-gateway:8090`, parser URL —
+      `http://lab-parser:8085`; override на внешний endpoint отклоняется fail-closed.
 - [ ] Pinned Codex binary на host и read-only mount в `ai-gateway` имеют ожидаемый
-      SHA-256. Gateway health сообщает fixed model `gpt-5.6-sol`; synthetic
+      SHA-256. Gateway health сообщает fixed model `gpt-5.6-sol` и
+      `amigo-health-v3`; synthetic
       `python -m app.ai_smoke` прошёл без real health data.
 - [ ] `/srv/amigo/data/import/legacy-weight.tsv` root-owned, закрыт для group/world и
       смонтирован как read-only `/imports`.
+- [ ] `/srv/amigo/data/lab-files` — real root:root directory `0700`; `web` видит
+      `/lab-files` RW, `ai-worker` RO, `lab-parser` не имеет этого mount.
 - [ ] Listener `18181` — только `127.0.0.1:18181` для `web`; listener `18182` —
-      только `127.0.0.1:18182` для `ingest`. `ai-gateway:8090` не опубликован
-      в Docker и не слушает host.
+      только `127.0.0.1:18182` для `ingest`. `ai-gateway:8090` и
+      `lab-parser:8085` не опубликованы в Docker и не слушают host.
 - [ ] Direct `web`/`ingest` health отвечают; внешние `/healthz`,
       `/amigo/healthz`, `/amigo/internal/health`, `/amigo-ingest/healthz` и
-      `/amigo-ai/healthz` не возвращают 2xx.
+      `/amigo-ai/healthz` и `/amigo-lab-parser/healthz` не возвращают 2xx.
 - [ ] В `my.conf` ровно два managed marker, snippets совпадают с release,
       read/ingest rate-limit zones установлены, `nginx -t` успешен.
 - [ ] Origin с `Host: amigo.tolstik.ru` отвечает; exact `/amigo` возвращает
       `308`, `/amigo/` — `200`.
 - [ ] Public `https://amigo.tolstik.ru/amigo` возвращает относительный
-      `Location: /amigo/`; dashboard и public JSON API работают через
-      валидный TLS.
-- [ ] `/amigo/api/v1/overview`, `/amigo/api/v1/series/activity?range=30d`,
+      `Location: /amigo/`; login shell/assets работают через валидный TLS.
+- [ ] Без cookie auth session, overview, CSV, labs и assistant возвращают exact
+      `401`; signed Android ingest остаётся независимым.
+- [ ] Root-only short-lived verification session создаётся CLI без печати
+      token/cookie. С ней `/amigo/api/v1/overview`, `/amigo/api/v1/series/activity?range=30d`,
       `/amigo/api/v1/series/recovery?range=30d` и
       `/amigo/api/v1/ai-analysis` возвращают `no-store` JSON
       нужного контракта. Для завершения deployment AI status равен `fresh`,
       payload помечен `ai_generated`, model равен `gpt-5.6-sol`, prompt contract
-      равен `amigo-health-v2`, а каждая опубликованная рекомендация имеет
+      равен `amigo-health-v3`, а каждая опубликованная рекомендация имеет
       evidence keys.
+- [ ] Та же session проверяет profile, labs documents/summary/analytes,
+      assistant messages и CSV. Mutation с exact Origin, но без CSRF возвращает
+      `403`; пустой unsupported upload возвращает consent/validation rejection и
+      не создаёт document. Fake assistant ID проверяет `text/event-stream`,
+      `no-store`, `X-Accel-Buffering: no` без создания turn.
 - [ ] Пустой unsigned POST на точный
       `/amigo-ingest/v1/health-connect/batches` возвращает `400` с
       `missing_signature_header` до создания health record. Прочие ingest paths/methods
@@ -129,9 +148,10 @@
 - [ ] Failure-path test после `CUTOVER_STARTED` вызывает только
       `restore-previous-release.sh`; `rollback.sh --to-legacy` автоматически не
       вызывается даже при ошибке recovery.
-- [ ] Каждая post-nginx route проверка допускает только bounded stabilization
-      retry до exact HTTP 200; transient reload race не вызывает ложный откат,
-      но полный `verify-production.sh` после cutover остаётся обязательным.
+- [ ] Каждая post-nginx route проверка bounded: auth-capable shell ждёт exact
+      `200`, а recovery на release без auth — exact maintenance `503` плюс
+      рабочий signed-ingest rejection. Transient reload race не вызывает ложный
+      откат; полный `verify-production.sh` после cutover остаётся обязательным.
 - [ ] Recovery использует SHA/application и PostgreSQL image IDs/Compose/nginx
       из конкретного snapshot, оставляет legacy cron disabled и не меняет
       production checkout HEAD. Shared nginx config вне Amigo markers остаётся
@@ -153,7 +173,12 @@
 ## Ручная продуктовая проверка
 
 - [ ] Desktop и mobile: «Обзор», «Прогресс», «Вся история», «Давление»,
-      «Состав тела», «Активность» и «Восстановление» открываются без console errors.
+      «Состав тела», «Активность», «Восстановление», «Анализы», «Ассистент» и
+      «Профиль» открываются без console errors после login; защищённый deep link
+      сохраняется через форму входа, logout и повторный login работают.
+- [ ] Auth: неверный пароль не раскрывает существование пользователя; cookies
+      имеют `Secure`, `SameSite=Strict`, path `/amigo/`; password rotation
+      отзывает прежнюю session.
 - [ ] Программа начинается 15.08.2026 с базового веса 127,03 кг; более ранние
       веса видны только во всей истории и не влияют на KPI/forecast.
 - [ ] План теряет 4 кг за календарный месяц, интерполируется между
@@ -186,6 +211,18 @@
       присутствует только при наличии последнего доступного Withings weight,
       рассчитан детерминированно из него, имеет тот же `observed_on` и не
       создаётся моделью или из Health Connect weight.
+- [ ] В профиле сохранены корректные дата рождения/пол и осознанный
+      `amigo-ai-data-v1` consent. Без consent upload и новый assistant turn
+      возвращают понятный UI status.
+- [ ] PDF и image upload появляются в очереди; OCR/extraction не блокируют GET.
+      Результаты сначала `unverified`, source page/text позволяют сверку,
+      correction оставляет audit и снимает confirmation, confirm переводит
+      строки в verified. Диапазон бланка приоритетнее catalog; history отделяет
+      несовместимые units; delete убирает БД-историю и оригинал.
+- [ ] Assistant сохраняет один chat, показывает рекомендации, stream draft и
+      validated final после reconnect. В контекст попадают локально найденные
+      релевантные OCR chunks; clear history удаляет переписку. Static emergency
+      note видна постоянно.
 - [ ] AI-блок содержит только валидированный generated text: каждая рекомендация
       называет concrete action, cadence или review period и фактические evidence
       keys. Рекомендации идут перед наблюдениями и на overview, и в Telegram.
@@ -217,12 +254,15 @@
 - [ ] Расписание проверено в `Europe/Moscow`: daily в 09:00 во вторник–
       воскресенье, weekly в 09:00 понедельника вместо daily. Weekly отправляет
       фото и отдельный полный текст; при недоступном AI отправляются только
-      факты. Worker не зависит от host cron.
+      факты. Новые labs отправляются полностью с unit/range/status/verification,
+      но без filename/OCR/original/chat. Worker не зависит от host cron.
 
 ## Degraded-mode проверка
 
 - [ ] При неготовом AI остаются доступны графики, API и Withings/Health Connect
       импорт; UI/Telegram не показывают fallback narrative.
+- [ ] При parser/OCR failure document получает безопасный error/retry, а dashboard,
+      measurements и assistant history остаются доступны; payload/OCR не попал в лог.
 - [ ] При временной ошибке ingest Android сохраняет resumable progress и повторяет
       idempotent batch после восстановления; уже принятые данные не повреждены.
 - [ ] В логах degraded-сценария нет prompt, generated analysis, health payload,
@@ -233,7 +273,7 @@
 
 ## Завершение
 
-- [ ] `deploy/checkpoint.sh` записал public URL, Git SHA, image IDs всех шести
+- [ ] `deploy/checkpoint.sh` записал production URL, Git SHA, image IDs всех семи
       services, SHA-256 установленных Compose/nginx/Codex, результаты
       verification, exact previous-release recovery command и отдельную
       `rollback.sh --to-legacy` disaster command без секретов.

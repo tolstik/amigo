@@ -22,6 +22,7 @@ from app.ai_contracts import (
     snapshot_hash,
 )
 from app.ai_gateway import (
+    DISABLED_CODEX_FEATURES,
     AiGatewaySettings,
     CodexRunner,
     GatewayExecutionError,
@@ -109,6 +110,14 @@ def test_codex_runner_uses_fixed_safe_arguments_stdin_and_clean_environment(
     assert "--search" not in command
     assert not any("dangerously" in value for value in command)
     assert 'shell_environment_policy.inherit="none"' in command
+    assert 'web_search="disabled"' in command
+    for feature in DISABLED_CODEX_FEATURES:
+        positions = [
+            index
+            for index, value in enumerate(command[:-1])
+            if value == "--disable" and command[index + 1] == feature
+        ]
+        assert len(positions) == 1
     assert command[-1] == "-"
     assert b"Snapshot JSON" in captured["stdin"]
     assert "weight" not in " ".join(command)
@@ -120,6 +129,29 @@ def test_codex_runner_uses_fixed_safe_arguments_stdin_and_clean_environment(
             "items"
         ]["enum"] == ["activity.steps_7d"]
     assert result.model == AI_MODEL
+
+
+def test_app_server_command_disables_all_tool_producing_features(tmp_path):
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    binary_hash = sha256(Path("/bin/true").read_bytes()).hexdigest()
+    runner = CodexRunner(
+        AiGatewaySettings(
+            codex_binary="/bin/true",
+            codex_expected_sha256=binary_hash,
+            codex_home=codex_home,
+        )
+    )
+
+    command = runner._app_server_command("/bin/true")
+
+    assert 'web_search="disabled"' in command
+    assert 'shell_environment_policy.inherit="none"' in command
+    for feature in DISABLED_CODEX_FEATURES:
+        assert any(
+            value == "--disable" and command[index + 1] == feature
+            for index, value in enumerate(command[:-1])
+        )
 
 
 def test_codex_runner_rejects_binary_with_unexpected_hash(tmp_path):

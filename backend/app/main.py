@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from . import __version__
 from .api import router
+from .auth import auth_router, profile_router, require_session
+from .assistant_api import router as assistant_router
 from .health_api import public_router as health_public_router
+from .labs_api import router as labs_router
 from .config import get_settings
 from .db import SessionLocal
 
@@ -21,8 +24,12 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
-app.include_router(router)
-app.include_router(health_public_router)
+app.include_router(auth_router)
+app.include_router(profile_router, dependencies=[Depends(require_session)])
+app.include_router(router, dependencies=[Depends(require_session)])
+app.include_router(health_public_router, dependencies=[Depends(require_session)])
+app.include_router(labs_router, dependencies=[Depends(require_session)])
+app.include_router(assistant_router, dependencies=[Depends(require_session)])
 
 
 @app.middleware("http")

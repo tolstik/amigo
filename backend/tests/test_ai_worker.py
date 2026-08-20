@@ -155,6 +155,43 @@ def test_ai_worker_persists_validated_result(db):
     assert result.analysis["headline"] == "Ритм активности"
 
 
+def test_worker_offers_background_analysis_after_three_assistant_jobs(db, monkeypatch):
+    worker = AiAnalysisWorker(
+        settings(),
+        gateway=SuccessfulGateway(),
+        lab_gateway=object(),
+    )
+    calls: list[str] = []
+    analysis_available = False
+
+    def no_lab(*_args):
+        calls.append("lab")
+        return False
+
+    def assistant(*_args):
+        calls.append("assistant")
+        return True
+
+    def analysis(*_args):
+        calls.append("analysis")
+        return analysis_available
+
+    monkeypatch.setattr("app.ai_worker.process_lab_job", no_lab)
+    monkeypatch.setattr("app.ai_worker.process_assistant_job", assistant)
+    monkeypatch.setattr(worker, "process_analysis", analysis)
+
+    for _ in range(3):
+        assert worker.process_one(db, NOW) is True
+    assert calls == ["lab", "assistant"] * 3
+
+    analysis_available = True
+    assert worker.process_one(db, NOW) is True
+    assert calls[-2:] == ["lab", "analysis"]
+
+    assert worker.process_one(db, NOW) is True
+    assert calls[-2:] == ["lab", "assistant"]
+
+
 def test_ai_worker_retries_with_sanitized_error_code(db):
     enqueue_analysis(db, snapshot(), trigger="activity", now=NOW, debounce_seconds=0)
     worker = AiAnalysisWorker(settings(), gateway=FailingGateway())

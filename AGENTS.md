@@ -10,7 +10,7 @@
 - Before every production cutover, create and verify the backup described in `docs/runbook.md`.
 - Repeat deployments must use `deploy/deploy.sh` with exactly one notification
   mode (`--send-telegram-test` or `--skip-telegram-test`); the script stops an
-  existing data worker, AI worker, and signed-ingest service before migrations
+  existing data worker, AI worker, signed-ingest service, and laboratory parser before migrations
   and one-shot synchronization. After the verified snapshot exists, every
   failure restores the exact previous application and PostgreSQL images on the
   preserved PostgreSQL volume; it never restores the PostgreSQL dump.
@@ -19,6 +19,9 @@
   `rollback.sh --to-legacy SNAPSHOT`. From an already active legacy route/cron,
   first use `takeover-from-legacy.sh --resume-recorded-release SNAPSHOT` so the
   live MariaDB OAuth pair is handed safely back to PostgreSQL.
+- A previous release without `backend/app/auth.py` is never allowed to make the
+  dashboard public again: recovery installs the auth-floor maintenance route,
+  returns `503` for `/amigo/`, and keeps only signed Android ingest available.
 - A responding but unhealthy legacy origin may be bypassed only with takeover's
   explicit `--allow-unhealthy-legacy-origin` flag. In that mode failure reversal
   must never treat legacy as healthy, enable its Withings cron, or stop a
@@ -26,10 +29,10 @@
 - Before re-enabling the legacy Withings cron, stop the Amigo worker and
   complete the secret-free OAuth token handback from PostgreSQL to the single
   legacy MariaDB token row.
-- Production has exactly six Compose services: `web`, `worker`, `db`, `ingest`,
-  `ai-worker`, and `ai-gateway`. Only `web` and `ingest` may be host-published,
-  on `127.0.0.1:18181` and `127.0.0.1:18182`; `ai-gateway` must never have a
-  host-published port.
+- Production has exactly seven Compose services: `web`, `worker`, `db`, `ingest`,
+  `ai-worker`, `ai-gateway`, and `lab-parser`. Only `web` and `ingest` may be
+  host-published, on `127.0.0.1:18181` and `127.0.0.1:18182`; `ai-gateway` and
+  `lab-parser` must never have a host-published port.
 - The Codex binary and its dedicated auth state are prepared only with
   `deploy/prepare-ai-runtime.sh`. Never copy, print, inspect, or document
   `auth.json`; use `--refresh-auth` after an interactive login by the service
@@ -75,12 +78,14 @@
   deterministic. Visible observations and recommendations are generated only
   from a validated AI result; never add template or rule-based narrative
   fallback text.
-- The AI boundary sends only minimized, identifier-free derived facts and
-  bounded daily aggregate series to the pinned Codex CLI using the fixed
-  `gpt-5.6-sol` model. AI runs asynchronously after data changes or before a
-  scheduled digest. Public GET handlers only read the validated PostgreSQL
-  cache and must never call Codex or enqueue analysis.
-- Historical AI rows remain in PostgreSQL, but workers and public cache reads
+- The routine health-analysis boundary sends minimized, identifier-free derived
+  facts and bounded daily aggregate series to the pinned Codex CLI using the
+  fixed `gpt-5.6-sol` model. With explicit `amigo-ai-data-v1` consent, laboratory
+  extraction and assistant turns may also send full OCR text, the question, and
+  locally selected relevant chunks to OpenAI inference. AI runs asynchronously;
+  authenticated GET handlers only read PostgreSQL and never call Codex or enqueue
+  analysis.
+- Historical AI rows remain in PostgreSQL, but workers and authenticated cache reads
   consider only the active model and prompt contract. The explicit deployment
   enqueue may retry a failed/superseded same-key active job; background enqueue
   must not revive terminal history.
@@ -88,7 +93,7 @@
   one explicit retry while the persistent worker is stopped, and runs at most
   four foreground queue attempts. It must never add an unbounded gateway or AI
   retry loop.
-- AI prompt contract `amigo-health-v2` requires concrete actions, a cadence or
+- AI prompt contract `amigo-health-v3` requires concrete actions, a cadence or
   review period, and cited metric evidence; recommendations are shown before
   general observations in Telegram and on the overview dashboard. When any
   pressure, heart, SpO2, or VO2 evidence exists, validated output must contain
@@ -96,22 +101,34 @@
 - Production must keep AI enabled and must use exactly
   `http://ai-gateway:8090`; never redirect minimized health snapshots to an
   override endpoint.
-- The dashboard is intentionally public and read-only. Public Health Connect
-  data is limited to daily/weekly aggregates; do not expose device identity,
+- Dashboard, health APIs, CSV, laboratory archive, originals, and assistant are
+  protected by one local Argon2id account, 90-day opaque server sessions,
+  `Secure`/`SameSite=Strict` cookies, exact-Origin checks, and double-submit CSRF.
+  Android signed ingest remains independent. Never expose device identity,
   pairing state, signatures, nonces, raw provider payloads, or raw heart-rate
-  samples. Configuration, pairing, and integration mutations remain server-side
-  only.
+  samples through the authenticated dashboard.
+- Laboratory uploads support PDF/JPG/PNG/HEIC up to 20 MiB and PDF up to 50
+  pages. Originals use random keys in root-owned `/srv/amigo/data/lab-files`
+  (`0700`; files `0600`); `web` mounts it read-write, `ai-worker` read-only, and
+  the isolated non-root parser has no file mount, database, secret, or external
+  network. Extracted results publish as `unverified`; document ranges override
+  the versioned deterministic catalog, and user edits/confirmation are audited.
+- The persistent assistant uses `amigo-health-chat-v1`, the structured health and
+  laboratory history, the last 12 messages, a deterministic older summary, and
+  locally retrieved OCR chunks. Streaming drafts remain untrusted until the
+  final structured result passes the same evidence and medical-safety validation.
 - The dashboard offers Light, Dark, Ocean, and Sunset themes. With no stored
   choice it must always start in Light regardless of the operating-system color
   scheme; an explicit selection persists and recolors both UI and charts.
 - Daily Telegram reports run at `09:00 Europe/Moscow`; the Monday 09:00 weekly
   report replaces that day's daily report. Immediate Withings weight/pressure
-  notifications remain enabled. When AI is unavailable, Telegram explicitly
-  sends facts only.
+  notifications remain enabled. New laboratory facts include verification state
+  and are split without truncation; filenames, OCR text, originals, and chat are
+  never sent. When AI is unavailable, Telegram explicitly sends facts only.
 - `web`, `ingest`, and `ai-worker` receive only the PostgreSQL secret. `worker`
-  receives the eight integration/database secrets. `ai-gateway` receives no
-  Docker secrets or database access; only its pinned binary and dedicated Codex
-  auth state are mounted.
+  receives the eight integration/database secrets. `ai-gateway` and `lab-parser`
+  receive no Docker secrets or database access; only the gateway has its pinned
+  binary and dedicated Codex auth state mounted.
 
 ## Latest production checkpoint
 

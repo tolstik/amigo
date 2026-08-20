@@ -3,15 +3,18 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 import math
 import statistics
+from hashlib import sha256
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .ai_contracts import AnalysisSnapshot, SnapshotFact, SnapshotPoint, SnapshotSeries
+from .ai_contracts import AnalysisSnapshot, SnapshotFact, SnapshotLabResult, SnapshotPoint, SnapshotSeries
 from .ai_queue import AnalysisTrigger, enqueue_analysis
 from .config import Settings
 from .health_analytics import activity_series, recovery_series
+from .lab_models import LabResult
 from .service import overview, pressure_series, weight_series
 
 
@@ -284,8 +287,39 @@ def build_analysis_snapshot(
         _timestamp(activity.get("data_as_of")),
         _timestamp(recovery.get("data_as_of")),
     ]
+    laboratory_rows = [] if db is None else list(
+        db.scalars(
+            select(LabResult)
+            .where(LabResult.deleted.is_(False), LabResult.observed_on.is_not(None))
+            .order_by(LabResult.observed_on.desc(), LabResult.created_at.desc())
+            .limit(240)
+        )
+    )
+    laboratory = [
+        SnapshotLabResult(
+            key=f"lab.{sha256(row.id.encode()).hexdigest()[:20]}",
+            analyte=row.analyte_name,
+            value_numeric=float(row.value_numeric) if row.value_numeric is not None else None,
+            value_text=row.value_text,
+            comparator=row.comparator,
+            unit=row.unit,
+            observed_on=row.observed_on,
+            reference_low=float(row.reference_low) if row.reference_low is not None else None,
+            reference_high=float(row.reference_high) if row.reference_high is not None else None,
+            reference_text=row.reference_text,
+            reference_source=row.reference_source,
+            status=row.status,
+            verified=row.verification_status == "verified",
+        )
+        for row in reversed(laboratory_rows)
+    ]
+    source_candidates.extend(
+        row.updated_at.astimezone(timezone.utc)
+        for row in laboratory_rows
+        if row.updated_at is not None
+    )
     source_through = max((value for value in source_candidates if value is not None), default=current)
-    if not facts and not any(series_candidates):
+    if not facts and not any(series_candidates) and not laboratory:
         facts.append(
             SnapshotFact(
                 key="quality.no_health_data",
@@ -300,6 +334,7 @@ def build_analysis_snapshot(
         source_through=source_through,
         facts=facts,
         series=[value for value in series_candidates if value is not None],
+        labs=laboratory,
     )
 
 

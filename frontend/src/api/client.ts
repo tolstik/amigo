@@ -24,6 +24,12 @@ import type {
   WeightSeriesResponse,
   WeeklyActivityPoint,
   WeeklyWeightPoint,
+  AssistantMessage,
+  AuthSession,
+  LabDocument,
+  LabResult,
+  LabResultInput,
+  UserProfile,
 } from "./types";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -138,10 +144,10 @@ export function normalizeOverview(payload: unknown): Overview {
   return {
     generatedAt: string(body, "generated_at", "generatedAt", "as_of"),
     plan: {
-      startDate: string(body, "plan.start_date", "plan.startDate") ?? "2026-08-15",
-      startWeightKg: number(body, "plan.start_weight_kg", "plan.startWeightKg") ?? 127.03,
-      targetWeightKg: number(body, "plan.target_weight_kg", "plan.targetWeightKg") ?? 76.5,
-      targetDate: string(body, "plan.target_date", "plan.targetDate", "plan.planned_target_date") ?? "2027-09-04",
+      startDate: string(body, "plan.start_date", "plan.startDate") ?? "",
+      startWeightKg: number(body, "plan.start_weight_kg", "plan.startWeightKg") ?? 0,
+      targetWeightKg: number(body, "plan.target_weight_kg", "plan.targetWeightKg") ?? 0,
+      targetDate: string(body, "plan.target_date", "plan.targetDate", "plan.planned_target_date"),
       plannedTodayKg: number(
         body,
         "plan.planned_today_kg",
@@ -569,12 +575,27 @@ export function normalizeAiAnalysis(payload: unknown): AiAnalysis {
   };
 }
 
-async function fetchJson(path: string, signal?: AbortSignal): Promise<unknown> {
+function csrfToken(): string | null {
+  const prefix = "__Secure-amigo_csrf=";
+  const value = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix));
+  return value ? decodeURIComponent(value.slice(prefix.length)) : null;
+}
+
+async function requestJson(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<unknown> {
+  const headers = new Headers(init.headers);
+  headers.set("Accept", "application/json");
+  const method = (init.method ?? "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const csrf = csrfToken();
+    if (csrf) headers.set("X-CSRF-Token", csrf);
+  }
   const response = await fetch(`${API_ROOT}${path}`, {
+    ...init,
     signal,
     credentials: "same-origin",
-    headers: { Accept: "application/json" },
+    headers,
   });
+  if (response.status === 401) window.dispatchEvent(new Event("amigo:unauthorized"));
   if (!response.ok) {
     let detail = `Сервер вернул ${response.status}`;
     try {
@@ -589,11 +610,25 @@ async function fetchJson(path: string, signal?: AbortSignal): Promise<unknown> {
   return response.json();
 }
 
+async function fetchJson(path: string, signal?: AbortSignal): Promise<unknown> {
+  return requestJson(path, {}, signal);
+}
+
+function jsonBody(value: unknown): Pick<RequestInit, "method" | "headers" | "body"> {
+  return { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) };
+}
+
 function queryRange(range: Period): string {
   return `?${new URLSearchParams({ range }).toString()}`;
 }
 
 export const api = {
+  session: async (signal?: AbortSignal) => requestJson("/auth/session", {}, signal) as Promise<AuthSession>,
+  login: async (username: string, password: string) => requestJson("/auth/login", jsonBody({ username, password })) as Promise<AuthSession>,
+  logout: async () => requestJson("/auth/logout", { method: "POST" }),
+  profile: async (signal?: AbortSignal) => fetchJson("/profile", signal) as Promise<UserProfile>,
+  updateProfile: async (profile: Partial<{ birth_date: string | null; reference_sex: string | null; accept_ai_data_processing: boolean }>) =>
+    requestJson("/profile", { ...jsonBody(profile), method: "PATCH" }) as Promise<UserProfile>,
   overview: async (signal?: AbortSignal) => normalizeOverview(await fetchJson("/overview", signal)),
   weight: async (range: Period, signal?: AbortSignal) =>
     normalizeWeightSeries(await fetchJson(`/series/weight${queryRange(range)}`, signal), range),
@@ -612,7 +647,42 @@ export const api = {
       .map(normalizeInsight)
       .filter((item): item is Insight => item !== null);
   },
+  labDocuments: async (signal?: AbortSignal) => {
+    const body = await fetchJson("/labs/documents", signal) as { items: LabDocument[] };
+    return body.items;
+  },
+  labDocument: async (id: string, signal?: AbortSignal) => fetchJson(`/labs/documents/${id}`, signal) as Promise<LabDocument>,
+  uploadLab: async (file: File) => {
+    const form = new FormData();
+    form.set("file", file);
+    return requestJson("/labs/documents", { method: "POST", body: form }) as Promise<LabDocument>;
+  },
+  confirmLab: async (id: string) => requestJson(`/labs/documents/${id}/confirm`, { method: "POST" }) as Promise<LabDocument>,
+  retryLab: async (id: string) => requestJson(`/labs/documents/${id}/retry`, { method: "POST" }) as Promise<LabDocument>,
+  deleteLab: async (id: string) => requestJson(`/labs/documents/${id}`, { method: "DELETE" }),
+  patchLabResult: async (id: string, patch: Record<string, unknown>) =>
+    requestJson(`/labs/results/${id}`, { ...jsonBody(patch), method: "PATCH" }) as Promise<LabResult>,
+  createLabResult: async (documentId: string, result: LabResultInput) =>
+    requestJson(`/labs/documents/${documentId}/results`, jsonBody(result)) as Promise<LabResult>,
+  labSummary: async (signal?: AbortSignal) => fetchJson("/labs/summary", signal) as Promise<{ items: LabResult[]; counts: Record<string, number> }>,
+  labHistory: async (analyteId: string, signal?: AbortSignal) =>
+    fetchJson(`/labs/analytes/${encodeURIComponent(analyteId)}/history`, signal) as Promise<{ analyte_id: string; items: LabResult[] }>,
+  assistantMessages: async (signal?: AbortSignal) =>
+    fetchJson("/assistant/messages", signal) as Promise<{ items: AssistantMessage[]; recommendations: AiNarrativeItem[] }>,
+  sendAssistantMessage: async (content: string, clientRequestId: string) =>
+    requestJson("/assistant/messages", jsonBody({ content, client_request_id: clientRequestId })) as Promise<AssistantMessage>,
+  retryAssistantMessage: async (id: string) =>
+    requestJson(`/assistant/messages/${id}/retry`, { method: "POST" }) as Promise<AssistantMessage>,
+  clearAssistantHistory: async () => requestJson("/assistant/history", { method: "DELETE" }),
 };
+
+export function assistantEventsUrl(messageId: string): string {
+  return `${API_ROOT}/assistant/messages/${messageId}/events`;
+}
+
+export function labDownloadUrl(documentId: string): string {
+  return `${API_ROOT}/labs/documents/${documentId}/download`;
+}
 
 export function csvUrl(kind: "weight" | "pressure" | "composition" | "activity" | "recovery", range: Period): string {
   return `${API_ROOT}/export/${kind}.csv?${new URLSearchParams({ range }).toString()}`;

@@ -31,6 +31,12 @@ PREVIOUS_IMAGE_ID="$(docker image inspect --format '{{.Id}}' "${PREVIOUS_IMAGE_R
     || amigo_die "previous application image has an invalid immutable ID"
 PREVIOUS_IMAGE_ROLLBACK_REFERENCE="amigo-rollback:${PREVIOUS_RELEASE_SHA}-${PREVIOUS_IMAGE_ID:7:12}"
 readonly PREVIOUS_IMAGE_REFERENCE PREVIOUS_IMAGE_ID PREVIOUS_IMAGE_ROLLBACK_REFERENCE
+if git -C "${AMIGO_APP_DIR}" cat-file -e "${PREVIOUS_RELEASE_SHA}:backend/app/auth.py" 2>/dev/null; then
+    PREVIOUS_AUTH_FLOOR="enabled"
+else
+    PREVIOUS_AUTH_FLOOR="disabled"
+fi
+readonly PREVIOUS_AUTH_FLOOR
 amigo_assert_image_revision "${PREVIOUS_IMAGE_REFERENCE}" "${PREVIOUS_RELEASE_SHA}"
 docker image tag "${PREVIOUS_IMAGE_ID}" "${PREVIOUS_IMAGE_ROLLBACK_REFERENCE}"
 [[ "$(docker image inspect --format '{{.Id}}' "${PREVIOUS_IMAGE_ROLLBACK_REFERENCE}")" \
@@ -59,7 +65,8 @@ install -d -o root -g root -m 0700 \
     "${STAGING_DIR}/crontab" \
     "${STAGING_DIR}/nginx" \
     "${STAGING_DIR}/release" \
-    "${STAGING_DIR}/release/nginx"
+    "${STAGING_DIR}/release/nginx" \
+    "${STAGING_DIR}/data"
 
 backup_failed() {
     local status=$?
@@ -81,7 +88,26 @@ git -C "${AMIGO_APP_DIR}" show \
 amigo_compose_file_release \
     "${STAGING_DIR}/release/compose.yaml" "${PREVIOUS_RELEASE_SHA}" config --quiet
 
-for previous_service in web worker ingest ai-worker ai-gateway; do
+mapfile -t PREVIOUS_SERVICES < <(
+    amigo_compose_file_release \
+        "${STAGING_DIR}/release/compose.yaml" "${PREVIOUS_RELEASE_SHA}" config --services
+)
+readonly -a PREVIOUS_SERVICES
+previous_has_service() {
+    local expected=$1
+    local service
+    for service in "${PREVIOUS_SERVICES[@]}"; do
+        [[ "${service}" == "${expected}" ]] && return 0
+    done
+    return 1
+}
+for required_previous_service in db web worker ingest ai-worker ai-gateway; do
+    previous_has_service "${required_previous_service}" \
+        || amigo_die "previous release Compose is missing required service: ${required_previous_service}"
+done
+
+for previous_service in web worker ingest ai-worker ai-gateway lab-parser; do
+    previous_has_service "${previous_service}" || continue
     previous_container=$(amigo_compose_file_release \
         "${STAGING_DIR}/release/compose.yaml" "${PREVIOUS_RELEASE_SHA}" \
         ps -q "${previous_service}")
@@ -173,6 +199,16 @@ if [[ -n "${postgres_container}" ]] \
     POSTGRES_DUMP_CREATED=1
 fi
 
+amigo_log "archiving protected laboratory originals"
+tar \
+    --acls \
+    --xattrs \
+    --numeric-owner \
+    --one-file-system \
+    -C "${AMIGO_APP_DIR}/data" \
+    -czf "${STAGING_DIR}/data/lab-files.tar.gz" \
+    "lab-files"
+
 amigo_log "capturing crontabs"
 crontab -u "${AMIGO_LEGACY_CRON_USER}" -l \
     >"${STAGING_DIR}/crontab/${AMIGO_LEGACY_CRON_USER}.crontab" \
@@ -246,6 +282,7 @@ nginx -T >"${STAGING_DIR}/nginx/nginx-T.txt" 2>&1
     printf 'previous_database_rollback_image=%s\n' "${PREVIOUS_DATABASE_ROLLBACK_REFERENCE}"
     printf 'previous_ai_model=%s\n' "${PREVIOUS_AI_MODEL}"
     printf 'previous_ai_prompt_version=%s\n' "${PREVIOUS_AI_PROMPT_VERSION}"
+    printf 'previous_auth_floor=%s\n' "${PREVIOUS_AUTH_FLOOR}"
     printf 'previous_managed_route_state=enabled\n'
     printf 'previous_compose_sha256=%s\n' \
         "$(sha256sum "${STAGING_DIR}/release/compose.yaml" | awk '{ print $1 }')"
@@ -255,6 +292,7 @@ nginx -T >"${STAGING_DIR}/nginx/nginx-T.txt" 2>&1
 amigo_log "verifying archives and database dump"
 tar -tzf "${STAGING_DIR}/legacy-www-amigo.tar.gz" >/dev/null
 tar -tzf "${STAGING_DIR}/nginx-config.tar.gz" >/dev/null
+tar -tzf "${STAGING_DIR}/data/lab-files.tar.gz" >/dev/null
 gzip -t "${STAGING_DIR}/legacy-mariadb-amigo.sql.gz"
 gzip -dc "${STAGING_DIR}/legacy-mariadb-amigo.sql.gz" \
     | awk '/(Current Database: `amigo`|CREATE DATABASE.*`amigo`)/ { found = 1 } END { exit(found ? 0 : 1) }' \

@@ -61,7 +61,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for service in web worker ingest ai-worker ai-gateway db; do
+for service in web worker ingest ai-worker ai-gateway lab-parser db; do
     container_id=$(amigo_compose ps -q "${service}")
     [[ -n "${container_id}" ]] || amigo_die "cannot record image for missing service: ${service}"
     image_ref=$(docker inspect --format '{{.Config.Image}}' "${container_id}")
@@ -83,7 +83,7 @@ done
     printf -- '- Installed config SHA-256: Compose `%s`; nginx locations `%s`; nginx rate limit `%s`.\n' \
         "${COMPOSE_SHA256}" "${NGINX_SNIPPET_SHA256}" "${NGINX_HTTP_SHA256}"
     printf -- '- Pinned Codex: `0.148.0` (`sha256:%s`).\n' "${CODEX_BINARY_SHA256}"
-    printf -- '- Verification: all six Compose services healthy; application services use the release image; PostgreSQL ready; the current worker completed a successful post-start Withings incremental job; web and ingest are bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; container secret boundaries, pinned Codex hash, isolated unpublished AI gateway, fixed `gpt-5.6-sol` gateway health and public AI payload, direct health, hidden public health routes, exact unsigned-ingest rejection, origin proxy, public HTTPS dashboard and overview/activity/recovery/AI JSON, hashed JavaScript/CSS cache policy, relative `308`, security headers, cron isolation, previous-release recovery assets, and the explicit legacy disaster-fallback guard passed.\n'
+    printf -- '- Verification: all seven Compose services healthy; application services use the release image; PostgreSQL ready; the current worker completed a successful post-start Withings incremental job; web and ingest are bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; authentication, exact Origin/CSRF, short-lived authenticated API/CSV/upload/SSE checks, root-only laboratory storage, parser/gateway isolation and unpublished ports, container secret boundaries, pinned Codex hash, fixed `gpt-5.6-sol`/`amigo-health-v3` gateway health, signed-ingest rejection, origin proxy, HTTPS login shell, hidden health routes, immutable frontend assets, cron isolation, previous-release auth-floor recovery assets, and the explicit legacy disaster-fallback guard passed.\n'
     printf -- '- Installed image references and IDs:\n\n'
     cat "${TEMP_IMAGES}"
     printf -- '- Previous-release recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh %s`\n' "${SNAPSHOT}"

@@ -82,6 +82,7 @@ readonly PREVIOUS_RELEASE_SHA
     || amigo_die "candidate SHA is already the recorded release; refusing a mutable same-SHA rebuild"
 amigo_assert_release_rollback_compatible \
     "${AMIGO_APP_DIR}" "${PREVIOUS_RELEASE_SHA}" "${RELEASE_SHA}"
+bash "${SCRIPT_DIR}/test-release-recovery.sh" "${PREVIOUS_RELEASE_SHA}"
 [[ -n "$(docker image inspect --format '{{.Id}}' "amigo:${PREVIOUS_RELEASE_SHA}")" ]] \
     || amigo_die "recorded previous release image is unavailable"
 export AMIGO_IMAGE_TAG="${RELEASE_SHA}"
@@ -91,7 +92,7 @@ amigo_log "automatic recovery target: ${PREVIOUS_RELEASE_SHA}"
 [[ ! -L "${AMIGO_APP_DIR}/data" && ! -L "${AMIGO_IMPORT_DIR}" ]] \
     || amigo_die "application data/import paths must not be symlinks"
 install -d -o root -g root -m 0700 \
-    "${AMIGO_APP_DIR}/data" "${AMIGO_IMPORT_DIR}"
+    "${AMIGO_APP_DIR}/data" "${AMIGO_IMPORT_DIR}" "${AMIGO_LAB_FILES_DIR}"
 
 amigo_compose config --quiet
 nginx -t >/dev/null
@@ -105,6 +106,8 @@ EXISTING_AI_WORKER_STOPPED=0
 EXISTING_AI_WORKER_WAS_RUNNING=0
 EXISTING_INGEST_STOPPED=0
 EXISTING_INGEST_WAS_RUNNING=0
+EXISTING_LAB_PARSER_STOPPED=0
+EXISTING_LAB_PARSER_WAS_RUNNING=0
 
 deploy_error() {
     local status=$1
@@ -140,6 +143,11 @@ deploy_error() {
             amigo_log "restarting the previous ingest service after the failed pre-cutover deployment"
             amigo_compose start ingest \
                 || amigo_log "WARNING: could not restart the previous ingest service"
+        fi
+        if [[ ${EXISTING_LAB_PARSER_STOPPED} -eq 1 && ${EXISTING_LAB_PARSER_WAS_RUNNING} -eq 1 ]]; then
+            amigo_log "restarting the previous lab parser after the failed pre-cutover deployment"
+            amigo_compose start lab-parser \
+                || amigo_log "WARNING: could not restart the previous lab parser"
         fi
         if [[ -n "${SNAPSHOT}" ]]; then
             amigo_log "production route was not changed; snapshot is ${SNAPSHOT}"
@@ -191,6 +199,14 @@ if [[ -n "${existing_ingest_container}" ]] \
     amigo_log "stopping the existing ingest service before migration"
     amigo_compose stop ingest
 fi
+existing_lab_parser_container=$(amigo_compose ps -q lab-parser)
+if [[ -n "${existing_lab_parser_container}" ]] \
+    && [[ "$(docker inspect --format '{{.State.Status}}' "${existing_lab_parser_container}")" == "running" ]]; then
+    EXISTING_LAB_PARSER_WAS_RUNNING=1
+    EXISTING_LAB_PARSER_STOPPED=1
+    amigo_log "stopping the existing isolated laboratory parser before migration"
+    amigo_compose stop lab-parser
+fi
 
 amigo_log "starting PostgreSQL"
 amigo_compose up -d db
@@ -205,6 +221,29 @@ done
 amigo_log "running schema migration and idempotent bootstrap"
 amigo_compose run --rm --no-deps worker python -m app.cli migrate
 amigo_compose run --rm --no-deps worker python -m app.cli bootstrap
+
+if amigo_compose run --rm --no-deps --user 0 worker python -m app.cli auth-status; then
+    amigo_log "local authentication is already configured"
+else
+    auth_status=$?
+    [[ ${auth_status} -eq 75 ]] \
+        || amigo_die "authentication status returned unexpected code ${auth_status}"
+    [[ -r /dev/tty && -w /dev/tty ]] \
+        || amigo_die "first authentication cutover requires an interactive root TTY"
+    amigo_log "first authentication cutover requires the local account password"
+    IFS= read -r -s -p 'New Amigo password (minimum 14 characters): ' AMIGO_NEW_PASSWORD </dev/tty
+    printf '\n' >/dev/tty
+    IFS= read -r -s -p 'Repeat Amigo password: ' AMIGO_NEW_PASSWORD_CONFIRM </dev/tty
+    printf '\n' >/dev/tty
+    [[ "${AMIGO_NEW_PASSWORD}" == "${AMIGO_NEW_PASSWORD_CONFIRM}" ]] \
+        || amigo_die "password confirmation does not match"
+    (( ${#AMIGO_NEW_PASSWORD} >= 14 )) \
+        || amigo_die "password must contain at least 14 characters"
+    printf '%s\n' "${AMIGO_NEW_PASSWORD}" \
+        | amigo_compose run --rm --no-deps --user 0 -T worker \
+            python -m app.cli auth-set-password --password-stdin
+    unset AMIGO_NEW_PASSWORD AMIGO_NEW_PASSWORD_CONFIRM
+fi
 
 if [[ ${SEND_TELEGRAM_TEST} -eq 1 ]]; then
     amigo_log "sending the explicitly authorized, labelled Telegram smoke message"
@@ -254,8 +293,9 @@ amigo_compose up -d web
 amigo_wait_for_http "${AMIGO_DIRECT_HEALTH_URL}" 60 \
     || amigo_die "web health endpoint did not become ready"
 
-amigo_log "starting isolated Codex gateway and validating structured output"
-amigo_compose up -d --wait --wait-timeout 180 ai-gateway
+amigo_log "starting isolated Codex gateway and laboratory parser"
+amigo_compose up -d --wait --wait-timeout 180 ai-gateway lab-parser
+EXISTING_LAB_PARSER_STOPPED=0
 amigo_compose run --rm --no-deps ai-worker python -m app.ai_smoke
 
 amigo_log "preparing one exact current AI retry while the persistent AI worker is stopped"

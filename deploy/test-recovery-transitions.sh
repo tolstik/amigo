@@ -31,6 +31,10 @@ amigo_compose_file_release() {
     local compose_file=$1
     local release_sha=$2
     shift 2
+    if [[ "$*" == "config --services" ]]; then
+        printf '%s\n' db web worker ingest ai-worker ai-gateway lab-parser
+        return 0
+    fi
     trace "compose ${compose_file} ${release_sha} $*"
     if [[ "$*" == "stop worker ai-worker" ]]; then
         return "${MOCK_COLLECTOR_STOP_STATUS}"
@@ -127,7 +131,7 @@ reset_mocks
 amigo_revert_legacy_takeover \
     "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 0 0 1
 assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
-compose ${TEST_COMPOSE} ${TEST_RELEASE} stop web ingest ai-gateway db
+compose ${TEST_COMPOSE} ${TEST_RELEASE} stop web ingest ai-gateway lab-parser db
 cron enable"
 
 reset_mocks
@@ -136,7 +140,7 @@ amigo_revert_legacy_takeover \
 assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
 handback ${TEST_COMPOSE} ${TEST_RELEASE}
 nginx disable ${TEST_SNAPSHOT}
-compose ${TEST_COMPOSE} ${TEST_RELEASE} stop web ingest ai-gateway db
+compose ${TEST_COMPOSE} ${TEST_RELEASE} stop web ingest ai-gateway lab-parser db
 cron enable"
 
 reset_mocks
@@ -161,7 +165,7 @@ amigo_revert_legacy_takeover \
     "${TEST_COMPOSE}" "${TEST_RELEASE}" "${TEST_SNAPSHOT}" 1 0 1
 assert_trace "compose ${TEST_COMPOSE} ${TEST_RELEASE} stop worker ai-worker
 handback ${TEST_COMPOSE} ${TEST_RELEASE}
-compose ${TEST_COMPOSE} ${TEST_RELEASE} stop web ingest ai-gateway db
+compose ${TEST_COMPOSE} ${TEST_RELEASE} stop web ingest ai-gateway lab-parser db
 cron disable"
 
 reset_mocks

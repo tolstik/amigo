@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 from datetime import datetime, timezone
+import getpass
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
 from .db import SessionLocal
+from .auth import PASSWORD_MIN_LENGTH, auth_is_configured, create_verification_session, set_password
 from .ai_contracts import (
     AI_MODEL,
     AI_PROMPT_VERSION,
@@ -132,6 +134,21 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("migrate", help="apply all database migrations")
     commands.add_parser("health", help="check database connectivity")
+    auth_password = commands.add_parser(
+        "auth-set-password",
+        help="create or rotate the single-user password and revoke existing sessions",
+    )
+    auth_password.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="read exactly one password line from standard input",
+    )
+    commands.add_parser("auth-status", help="report whether local authentication is configured")
+    verification = commands.add_parser(
+        "auth-verification-session",
+        help="write a short-lived root-only deployment verification session",
+    )
+    verification.add_argument("--directory", required=True)
     commands.add_parser("bootstrap", help="migrate, seed the plan, and import OAuth tokens from secrets")
     commands.add_parser("telegram-test", help="send an explicitly marked non-health test message")
     commands.add_parser("ai-enqueue", help="enqueue an immediate minimized AI snapshot")
@@ -170,6 +187,61 @@ def build_parser() -> argparse.ArgumentParser:
 
 def execute(args: argparse.Namespace) -> int:
     settings = get_settings()
+    if args.command in {"auth-set-password", "auth-status", "auth-verification-session"} and os.geteuid() != 0:
+        print("authentication administration requires root", file=sys.stderr)
+        return 77
+    if args.command == "auth-status":
+        with SessionLocal() as db:
+            configured = auth_is_configured(db)
+        print("configured" if configured else "not configured")
+        return 0 if configured else 75
+    if args.command == "auth-set-password":
+        if args.password_stdin:
+            password = sys.stdin.readline().rstrip("\r\n")
+            if not password or sys.stdin.readline() != "":
+                print("standard input must contain exactly one password line", file=sys.stderr)
+                return 64
+        else:
+            if not sys.stdin.isatty():
+                print("interactive TTY required; use --password-stdin for automation", file=sys.stderr)
+                return 64
+            password = getpass.getpass("New Amigo password: ")
+            confirmation = getpass.getpass("Repeat Amigo password: ")
+            if password != confirmation:
+                print("passwords do not match", file=sys.stderr)
+                return 65
+        if len(password) < PASSWORD_MIN_LENGTH:
+            print(f"password must contain at least {PASSWORD_MIN_LENGTH} characters", file=sys.stderr)
+            return 65
+        try:
+            with SessionLocal() as db:
+                set_password(db, settings.auth_username, password)
+        finally:
+            password = ""
+        print("authentication password updated; existing sessions revoked")
+        return 0
+    if args.command == "auth-verification-session":
+        directory = Path(args.directory)
+        if directory.resolve() != Path("/verification") or not directory.is_dir():
+            raise RuntimeError("verification directory must be the explicit /verification mount")
+        target = directory / "session.json"
+        with SessionLocal() as db:
+            session_token, csrf_token, expires_at = create_verification_session(db, settings)
+        descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o400)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(
+                    {"session": session_token, "csrf": csrf_token, "expires_at": expires_at.isoformat()},
+                    stream,
+                    separators=(",", ":"),
+                )
+                stream.flush()
+                os.fsync(stream.fileno())
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+        print("verification session written")
+        return 0
     if args.command == "generate-encryption-key":
         print(Fernet.generate_key().decode())
         return 0

@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 
 AI_MODEL = "gpt-5.6-sol"
-AI_PROMPT_VERSION = "amigo-health-v2"
-SNAPSHOT_SCHEMA_VERSION = "1"
+AI_PROMPT_VERSION = "amigo-health-v3"
+SNAPSHOT_SCHEMA_VERSION = "2"
 MAX_ANALYSIS_REQUEST_ATTEMPT = 4
 
 MetricKey = Annotated[
@@ -36,6 +36,7 @@ MetricScope = Literal[
     "pressure",
     "quality",
     "correlation",
+    "laboratory",
 ]
 MetricPeriod = Literal[
     "current",
@@ -81,6 +82,7 @@ AnalysisScope = Literal[
     "pressure",
     "general",
     "measurement",
+    "laboratory",
 ]
 RecommendationScope = Literal[
     "weight",
@@ -92,6 +94,7 @@ RecommendationScope = Literal[
     "medical",
     "general",
     "measurement",
+    "laboratory",
 ]
 AnalysisTone = Literal["positive", "neutral", "attention", "achievement"]
 
@@ -142,12 +145,35 @@ class SnapshotSeries(StrictModel):
         return self
 
 
+class SnapshotLabResult(StrictModel):
+    key: MetricKey
+    analyte: Annotated[str, StringConstraints(min_length=1, max_length=240)]
+    value_numeric: float | None = None
+    value_text: Annotated[str | None, StringConstraints(max_length=240)] = None
+    comparator: Literal["<", "<=", "=", ">=", ">"] | None = None
+    unit: Annotated[str | None, StringConstraints(max_length=80)] = None
+    observed_on: date
+    reference_low: float | None = None
+    reference_high: float | None = None
+    reference_text: Annotated[str | None, StringConstraints(max_length=240)] = None
+    reference_source: Literal["laboratory", "catalog", "user", "none"]
+    status: Literal[
+        "within_reference",
+        "below_reference",
+        "above_reference",
+        "outside_reference",
+        "indeterminate",
+    ]
+    verified: bool
+
+
 class AnalysisSnapshot(StrictModel):
-    schema_version: Literal["1"] = SNAPSHOT_SCHEMA_VERSION
+    schema_version: Literal["2"] = SNAPSHOT_SCHEMA_VERSION
     source_through: datetime
     timezone: Literal["Europe/Moscow"] = "Europe/Moscow"
     facts: Annotated[list[SnapshotFact], Field(max_length=96)] = Field(default_factory=list)
     series: Annotated[list[SnapshotSeries], Field(max_length=12)] = Field(default_factory=list)
+    labs: Annotated[list[SnapshotLabResult], Field(max_length=240)] = Field(default_factory=list)
 
     @field_validator("source_through")
     @classmethod
@@ -158,9 +184,13 @@ class AnalysisSnapshot(StrictModel):
 
     @model_validator(mode="after")
     def useful_unique_payload(self) -> AnalysisSnapshot:
-        if not self.facts and not self.series:
+        if not self.facts and not self.series and not self.labs:
             raise ValueError("snapshot must contain at least one metric")
-        keys = [item.key for item in self.facts] + [item.key for item in self.series]
+        keys = (
+            [item.key for item in self.facts]
+            + [item.key for item in self.series]
+            + [item.key for item in self.labs]
+        )
         if len(keys) != len(set(keys)):
             raise ValueError("snapshot metric keys must be unique")
         return self
@@ -277,7 +307,7 @@ class AiAnalysis(StrictModel):
 
 class GatewayAnalyzeRequest(StrictModel):
     snapshot_hash: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-    prompt_version: Literal["amigo-health-v2"] = AI_PROMPT_VERSION
+    prompt_version: Literal["amigo-health-v3"] = AI_PROMPT_VERSION
     model: Literal["gpt-5.6-sol"] = AI_MODEL
     attempt: Annotated[int, Field(ge=1, le=MAX_ANALYSIS_REQUEST_ATTEMPT)] = 1
     snapshot: AnalysisSnapshot
@@ -291,7 +321,7 @@ class GatewayAnalyzeRequest(StrictModel):
 
 class GatewayAnalyzeResponse(StrictModel):
     snapshot_hash: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-    prompt_version: Literal["amigo-health-v2"] = AI_PROMPT_VERSION
+    prompt_version: Literal["amigo-health-v3"] = AI_PROMPT_VERSION
     model: Literal["gpt-5.6-sol"] = AI_MODEL
     generated_at: datetime
     duration_ms: Annotated[int, Field(ge=0, le=600_000)]
@@ -309,6 +339,7 @@ def canonical_snapshot_payload(snapshot: AnalysisSnapshot) -> dict[str, Any]:
     payload = snapshot.model_dump(mode="json")
     payload["facts"] = sorted(payload["facts"], key=lambda item: item["key"])
     payload["series"] = sorted(payload["series"], key=lambda item: item["key"])
+    payload["labs"] = sorted(payload["labs"], key=lambda item: item["key"])
     for series in payload["series"]:
         series["points"] = sorted(series["points"], key=lambda item: item["day"])
     return payload
@@ -338,6 +369,7 @@ def snapshot_evidence_keys(snapshot: AnalysisSnapshot) -> frozenset[str]:
     return frozenset(
         [item.key for item in snapshot.facts]
         + [item.key for item in snapshot.series]
+        + [item.key for item in snapshot.labs]
     )
 
 

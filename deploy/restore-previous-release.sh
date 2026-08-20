@@ -50,6 +50,9 @@ PREVIOUS_AI_MODEL="$(amigo_snapshot_metadata_value "${SNAPSHOT}" previous_ai_mod
 PREVIOUS_AI_PROMPT_VERSION="$(
     amigo_snapshot_metadata_value "${SNAPSHOT}" previous_ai_prompt_version
 )"
+PREVIOUS_AUTH_FLOOR="$(
+    amigo_snapshot_metadata_value "${SNAPSHOT}" previous_auth_floor
+)"
 PREVIOUS_ROUTE_STATE="$(
     amigo_snapshot_metadata_value "${SNAPSHOT}" previous_managed_route_state
 )"
@@ -63,7 +66,7 @@ CANDIDATE_RELEASE_SHA="$(amigo_snapshot_metadata_value "${SNAPSHOT}" candidate_g
 readonly PREVIOUS_RELEASE_SHA PREVIOUS_IMAGE_REFERENCE PREVIOUS_IMAGE_ID
 readonly PREVIOUS_IMAGE_ROLLBACK_REFERENCE PREVIOUS_DATABASE_IMAGE_REFERENCE
 readonly PREVIOUS_DATABASE_IMAGE_ID PREVIOUS_DATABASE_ROLLBACK_REFERENCE
-readonly PREVIOUS_AI_MODEL PREVIOUS_AI_PROMPT_VERSION
+readonly PREVIOUS_AI_MODEL PREVIOUS_AI_PROMPT_VERSION PREVIOUS_AUTH_FLOOR
 readonly PREVIOUS_ROUTE_STATE PREVIOUS_CRON_STATE PREVIOUS_COMPOSE_SHA256 CANDIDATE_RELEASE_SHA
 
 [[ "${PREVIOUS_RELEASE_SHA}" =~ ^[0-9a-f]{40,64}$ ]] \
@@ -86,6 +89,8 @@ readonly PREVIOUS_ROUTE_STATE PREVIOUS_CRON_STATE PREVIOUS_COMPOSE_SHA256 CANDID
     || amigo_die "snapshot previous AI model is invalid"
 [[ "${PREVIOUS_AI_PROMPT_VERSION}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] \
     || amigo_die "snapshot previous AI prompt version is invalid"
+[[ "${PREVIOUS_AUTH_FLOOR}" == "enabled" || "${PREVIOUS_AUTH_FLOOR}" == "disabled" ]] \
+    || amigo_die "snapshot previous auth-floor state is invalid"
 [[ "${PREVIOUS_ROUTE_STATE}" == "enabled" ]] \
     || amigo_die "snapshot was not taken from an active managed Amigo route"
 [[ "${PREVIOUS_CRON_STATE}" == "disabled" ]] \
@@ -119,6 +124,24 @@ readonly CURRENT_PREVIOUS_DATABASE_IMAGE_ID
 amigo_compose_file_release \
     "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" config --quiet
 
+mapfile -t PREVIOUS_SERVICES < <(
+    amigo_compose_file_release \
+        "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" config --services
+)
+readonly -a PREVIOUS_SERVICES
+previous_has_service() {
+    local expected=$1
+    local service
+    for service in "${PREVIOUS_SERVICES[@]}"; do
+        [[ "${service}" == "${expected}" ]] && return 0
+    done
+    return 1
+}
+for required_previous_service in db web worker ingest ai-worker ai-gateway; do
+    previous_has_service "${required_previous_service}" \
+        || amigo_die "snapshot previous Compose is missing required service: ${required_previous_service}"
+done
+
 if ! amigo_assert_managed_route_active || ! amigo_assert_legacy_cron_disabled; then
     amigo_log "previous-release recovery is valid only while the managed Amigo route owns production"
     amigo_log "from legacy state use: sudo ${SCRIPT_DIR}/takeover-from-legacy.sh --resume-recorded-release ${SNAPSHOT}"
@@ -138,6 +161,12 @@ recovery_error() {
     amigo_log "previous-release recovery failed at line ${line} (status ${status})"
     if [[ ${RECOVERY_STARTED} -eq 1 && ${RECOVERY_COMMITTED} -eq 0 ]]; then
         amigo_log "stopping Amigo collectors fail-closed; legacy collection remains disabled"
+        if declare -p CANDIDATE_STOP_SERVICES >/dev/null 2>&1 \
+            && [[ ${#CANDIDATE_STOP_SERVICES[@]} -gt 0 ]]; then
+            amigo_compose_release \
+                "${CANDIDATE_RELEASE_SHA}" stop "${CANDIDATE_STOP_SERVICES[@]}" \
+                || amigo_log "WARNING: could not stop every candidate service"
+        fi
         amigo_compose_file_release \
             "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" stop worker ai-worker
         bash "${SCRIPT_DIR}/cron-control.sh" disable \
@@ -154,9 +183,19 @@ trap 'recovery_error 143 "${LINENO}"' TERM
 
 RECOVERY_STARTED=1
 amigo_log "stopping candidate application services before immutable release recovery"
-amigo_compose_file_release \
-    "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" \
-    stop worker ai-worker ingest ai-gateway web
+mapfile -t CANDIDATE_SERVICES < <(amigo_compose_release "${CANDIDATE_RELEASE_SHA}" config --services)
+CANDIDATE_STOP_SERVICES=()
+for candidate_service in worker ai-worker ingest ai-gateway lab-parser web; do
+    for configured_service in "${CANDIDATE_SERVICES[@]}"; do
+        if [[ "${candidate_service}" == "${configured_service}" ]]; then
+            CANDIDATE_STOP_SERVICES+=("${candidate_service}")
+            break
+        fi
+    done
+done
+[[ ${#CANDIDATE_STOP_SERVICES[@]} -gt 0 ]] \
+    || amigo_die "candidate Compose has no recoverable application services"
+amigo_compose_release "${CANDIDATE_RELEASE_SHA}" stop "${CANDIDATE_STOP_SERVICES[@]}"
 
 amigo_log "restoring exact application and PostgreSQL image references from protected rollback tags"
 docker image tag "${PREVIOUS_IMAGE_ROLLBACK_REFERENCE}" "${PREVIOUS_IMAGE_REFERENCE}"
@@ -193,20 +232,43 @@ recovered_database_container=$(amigo_compose_file_release \
 amigo_log "confirming exclusive Withings ownership for the previous Amigo worker"
 bash "${SCRIPT_DIR}/cron-control.sh" disable
 
-amigo_log "starting previous web, ingest, and isolated AI gateway images"
+amigo_log "starting previous web, ingest, and isolated processing services"
+PREVIOUS_FRONT_SERVICES=(web ingest ai-gateway)
+if previous_has_service lab-parser; then
+    PREVIOUS_FRONT_SERVICES+=(lab-parser)
+fi
 amigo_compose_file_release \
     "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" \
     up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 \
-    web ingest ai-gateway
+    "${PREVIOUS_FRONT_SERVICES[@]}"
 amigo_wait_for_http "${AMIGO_DIRECT_HEALTH_URL}" 60 \
     || amigo_die "previous web health endpoint did not become ready"
 amigo_wait_for_http "http://127.0.0.1:18182/healthz" 60 \
     || amigo_die "previous ingest health endpoint did not become ready"
 
-amigo_log "restoring the exact pre-cutover managed nginx files"
-bash "${SCRIPT_DIR}/nginx-control.sh" restore "${SNAPSHOT}"
-amigo_wait_for_origin_http_200 "/amigo/api/v1/overview" 15 \
-    || amigo_die "previous Amigo origin did not stabilize at HTTP 200 after route restore"
+if [[ "${PREVIOUS_AUTH_FLOOR}" == "enabled" ]]; then
+    amigo_log "restoring the authentication-capable pre-cutover managed nginx files"
+    bash "${SCRIPT_DIR}/nginx-control.sh" restore "${SNAPSHOT}"
+    amigo_wait_for_origin_http_200 "/amigo/" 15 \
+        || amigo_die "previous authenticated Amigo shell did not stabilize at HTTP 200"
+else
+    amigo_log "previous release lacks authentication; enforcing the dashboard auth floor"
+    bash "${SCRIPT_DIR}/nginx-control.sh" maintenance "${SNAPSHOT}"
+    amigo_wait_for_origin_http_status "/amigo/" 503 15 \
+        || amigo_die "auth-floor maintenance route did not stabilize at HTTP 503"
+    ingest_rejection_status="$(
+        curl --silent --show-error --max-time 10 \
+            --header 'Host: amigo.tolstik.ru' \
+            --header 'Content-Type: application/json' \
+            --request POST \
+            --data '{}' \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            http://127.0.0.1/amigo-ingest/v1/health-connect/batches
+    )"
+    [[ "${ingest_rejection_status}" == "400" ]] \
+        || amigo_die "signed-ingest auth-floor route is unavailable"
+fi
 
 AI_TABLE_STATE="$(
     amigo_compose_file_release \
@@ -280,7 +342,8 @@ else
         "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" stop ai-worker >/dev/null
 fi
 
-for previous_service in web worker ingest ai-worker ai-gateway; do
+for previous_service in web worker ingest ai-worker ai-gateway lab-parser; do
+    previous_has_service "${previous_service}" || continue
     previous_container=$(amigo_compose_file_release \
         "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" \
         ps --all -q "${previous_service}")
@@ -294,7 +357,11 @@ for previous_service in web worker ingest ai-worker ai-gateway; do
         || amigo_die "recovered ${previous_service} does not use the previous image ID"
 done
 
-for healthy_service in db web worker ingest ai-gateway; do
+PREVIOUS_HEALTHY_SERVICES=(db web worker ingest ai-gateway)
+if previous_has_service lab-parser; then
+    PREVIOUS_HEALTHY_SERVICES+=(lab-parser)
+fi
+for healthy_service in "${PREVIOUS_HEALTHY_SERVICES[@]}"; do
     healthy_container=$(amigo_compose_file_release \
         "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" ps -q "${healthy_service}")
     [[ -n "${healthy_container}" ]] || amigo_die "recovered service is not running: ${healthy_service}"

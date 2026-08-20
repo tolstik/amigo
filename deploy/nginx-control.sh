@@ -9,14 +9,15 @@ readonly SCRIPT_DIR
 source "${SCRIPT_DIR}/lib/common.sh"
 
 usage() {
-    printf 'Usage: %s enable|disable|restore /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ\n' "${0##*/}" >&2
+    printf 'Usage: %s enable|disable|restore|maintenance /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ\n' "${0##*/}" >&2
     exit 2
 }
 
 [[ $# -eq 2 ]] || usage
 readonly ACTION=$1
 readonly SNAPSHOT=$2
-[[ "${ACTION}" == "enable" || "${ACTION}" == "disable" || "${ACTION}" == "restore" ]] \
+[[ "${ACTION}" == "enable" || "${ACTION}" == "disable" \
+    || "${ACTION}" == "restore" || "${ACTION}" == "maintenance" ]] \
     || usage
 
 amigo_require_root
@@ -29,6 +30,8 @@ amigo_assert_snapshot "${SNAPSHOT}"
     || amigo_die "repository nginx snippet is missing"
 [[ -f "${SCRIPT_DIR}/nginx/amigo.http.conf" ]] \
     || amigo_die "repository nginx HTTP configuration is missing"
+[[ -f "${SCRIPT_DIR}/nginx/amigo.maintenance.locations.conf" ]] \
+    || amigo_die "repository auth-floor maintenance snippet is missing"
 [[ -f "${SCRIPT_DIR}/nginx/route_config.py" ]] \
     || amigo_die "nginx route transformer is missing"
 if [[ "${ACTION}" == "restore" ]]; then
@@ -132,6 +135,13 @@ if [[ "${ACTION}" == "restore" ]]; then
         "${SNAPSHOT}/nginx/amigo-v2-locations.conf" "${SNIPPET_CANDIDATE}"
     install -o root -g root -m 0644 \
         "${SNAPSHOT}/nginx/amigo-v2-http.conf" "${HTTP_CANDIDATE}"
+elif [[ "${ACTION}" == "maintenance" ]]; then
+    python3 "${SCRIPT_DIR}/nginx/route_config.py" enable \
+        <"${AMIGO_NGINX_CONFIG}" >"${CANDIDATE_FILE}"
+    install -o root -g root -m 0644 \
+        "${SCRIPT_DIR}/nginx/amigo.maintenance.locations.conf" "${SNIPPET_CANDIDATE}"
+    install -o root -g root -m 0644 \
+        "${SCRIPT_DIR}/nginx/amigo.http.conf" "${HTTP_CANDIDATE}"
 else
     python3 "${SCRIPT_DIR}/nginx/route_config.py" "${ACTION}" \
         <"${AMIGO_NGINX_CONFIG}" >"${CANDIDATE_FILE}"
@@ -154,6 +164,8 @@ trap - ERR HUP INT TERM
 
 if [[ "${ACTION}" == "restore" ]]; then
     amigo_log "pre-cutover Amigo snippets restored without replacing shared nginx content"
+elif [[ "${ACTION}" == "maintenance" ]]; then
+    amigo_log "auth-floor maintenance route enabled; signed Android ingest remains available"
 else
     amigo_log "nginx Amigo route ${ACTION}d and configuration reload succeeded"
 fi

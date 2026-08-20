@@ -163,6 +163,30 @@ amigo_assert_image_revision "${PREVIOUS_IMAGE_SOURCE}" "${PREVIOUS_RELEASE_SHA}"
 amigo_compose_file_release \
     "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" config --quiet
 
+mapfile -t PREVIOUS_SERVICES < <(
+    amigo_compose_file_release \
+        "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" config --services
+)
+readonly -a PREVIOUS_SERVICES
+previous_has_service() {
+    local expected=$1
+    local service
+    for service in "${PREVIOUS_SERVICES[@]}"; do
+        [[ "${service}" == "${expected}" ]] && return 0
+    done
+    return 1
+}
+for required_previous_service in db web worker ingest ai-worker ai-gateway; do
+    previous_has_service "${required_previous_service}" \
+        || amigo_die "recorded Compose is missing required service: ${required_previous_service}"
+done
+if git -C "${AMIGO_APP_DIR}" cat-file -e "${PREVIOUS_RELEASE_SHA}:backend/app/auth.py" 2>/dev/null; then
+    PREVIOUS_AUTH_FLOOR="enabled"
+else
+    PREVIOUS_AUTH_FLOOR="disabled"
+fi
+readonly PREVIOUS_AUTH_FLOOR
+
 amigo_assert_managed_route_inactive
 LEGACY_CRONTAB_STATE="$(mktemp /run/amigo-legacy-takeover-crontab.XXXXXX)"
 readonly LEGACY_CRONTAB_STATE
@@ -262,9 +286,13 @@ trap 'takeover_error 143 "${LINENO}"' TERM
 
 TAKEOVER_STARTED=1
 amigo_log "stopping any residual Amigo collectors before ownership transfer"
+TAKEOVER_STOP_SERVICES=(worker ai-worker ingest ai-gateway web)
+if previous_has_service lab-parser; then
+    TAKEOVER_STOP_SERVICES+=(lab-parser)
+fi
 amigo_compose_file_release \
     "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" \
-    stop worker ai-worker ingest ai-gateway web
+    stop "${TAKEOVER_STOP_SERVICES[@]}"
 
 amigo_log "restoring the exact recorded application image reference"
 docker image tag "${PREVIOUS_IMAGE_SOURCE}" "${PREVIOUS_IMAGE_REFERENCE}"
@@ -432,9 +460,13 @@ else
 fi
 
 amigo_log "starting the recorded Amigo release before moving the public route"
+TAKEOVER_START_SERVICES=(web ingest ai-gateway worker)
+if previous_has_service lab-parser; then
+    TAKEOVER_START_SERVICES+=(lab-parser)
+fi
 amigo_compose_file_release "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" \
     up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 \
-    web ingest ai-gateway worker
+    "${TAKEOVER_START_SERVICES[@]}"
 if [[ ${AI_WORKER_DEGRADED} -eq 0 ]]; then
     amigo_compose_file_release "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" \
         up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 ai-worker
@@ -450,11 +482,18 @@ amigo_wait_for_http "http://127.0.0.1:18182/healthz" 60 \
     || amigo_die "recorded release ingest endpoint did not become ready"
 
 ROUTE_ENABLE_STARTED=1
-bash "${SCRIPT_DIR}/nginx-control.sh" enable "${SNAPSHOT}"
-amigo_wait_for_origin_http_200 "/amigo/api/v1/overview" 15 \
-    || amigo_die "recorded Amigo origin did not stabilize at HTTP 200 after route enable"
+if [[ "${PREVIOUS_AUTH_FLOOR}" == "enabled" ]]; then
+    bash "${SCRIPT_DIR}/nginx-control.sh" enable "${SNAPSHOT}"
+    amigo_wait_for_origin_http_200 "/amigo/" 15 \
+        || amigo_die "recorded authenticated Amigo shell did not stabilize at HTTP 200"
+else
+    bash "${SCRIPT_DIR}/nginx-control.sh" maintenance "${SNAPSHOT}"
+    amigo_wait_for_origin_http_status "/amigo/" 503 15 \
+        || amigo_die "recorded public release was not contained behind the auth floor"
+fi
 
-for resumed_service in web worker ingest ai-worker ai-gateway; do
+for resumed_service in web worker ingest ai-worker ai-gateway lab-parser; do
+    previous_has_service "${resumed_service}" || continue
     resumed_container=$(amigo_compose_file_release \
         "${PREVIOUS_COMPOSE}" "${PREVIOUS_RELEASE_SHA}" \
         ps --all -q "${resumed_service}")

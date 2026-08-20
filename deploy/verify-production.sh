@@ -10,35 +10,59 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 amigo_require_root
 amigo_require_commands \
-    awk cmp crontab curl docker git grep mariadb mktemp nginx python3 rm rmdir sha256sum sleep ss stat
+    awk cmp crontab curl docker git grep install mariadb mktemp nginx python3 rm rmdir \
+    sha256sum sleep ss stat
 amigo_require_production_layout
 
 TMP_DIR="$(mktemp -d /run/amigo-verify.XXXXXX)"
 readonly TMP_DIR
+readonly VERIFICATION_DIR="${TMP_DIR}/verification"
+readonly SESSION_DESCRIPTOR="${VERIFICATION_DIR}/session.json"
+readonly AUTH_CURL_CONFIG="${TMP_DIR}/auth.curl"
+readonly ORIGIN_NO_CSRF_CURL_CONFIG="${TMP_DIR}/origin-no-csrf.curl"
 readonly DASHBOARD_HEADERS="${TMP_DIR}/dashboard.headers"
 readonly DASHBOARD_BODY="${TMP_DIR}/dashboard.body"
 readonly API_HEADERS="${TMP_DIR}/api.headers"
 readonly API_BODY="${TMP_DIR}/api.body"
+readonly CSV_HEADERS="${TMP_DIR}/csv.headers"
+readonly CSV_BODY="${TMP_DIR}/csv.body"
 readonly INGEST_HEADERS="${TMP_DIR}/ingest.headers"
 readonly INGEST_BODY="${TMP_DIR}/ingest.body"
+readonly UPLOAD_HEADERS="${TMP_DIR}/upload.headers"
+readonly UPLOAD_BODY="${TMP_DIR}/upload.body"
+readonly UNSUPPORTED_FILE="${TMP_DIR}/unsupported.txt"
+readonly SSE_HEADERS="${TMP_DIR}/sse.headers"
+readonly SSE_BODY="${TMP_DIR}/sse.body"
 readonly ASSET_HEADERS="${TMP_DIR}/asset.headers"
 readonly REDIRECT_HEADERS="${TMP_DIR}/redirect.headers"
 readonly CRONTAB_FILE="${TMP_DIR}/tolstik.crontab"
 
 cleanup() {
     rm -f -- \
+        "${SESSION_DESCRIPTOR}" \
+        "${AUTH_CURL_CONFIG}" \
+        "${ORIGIN_NO_CSRF_CURL_CONFIG}" \
         "${DASHBOARD_HEADERS}" \
         "${DASHBOARD_BODY}" \
         "${API_HEADERS}" \
         "${API_BODY}" \
+        "${CSV_HEADERS}" \
+        "${CSV_BODY}" \
         "${INGEST_HEADERS}" \
         "${INGEST_BODY}" \
+        "${UPLOAD_HEADERS}" \
+        "${UPLOAD_BODY}" \
+        "${UNSUPPORTED_FILE}" \
+        "${SSE_HEADERS}" \
+        "${SSE_BODY}" \
         "${ASSET_HEADERS}" \
         "${REDIRECT_HEADERS}" \
         "${CRONTAB_FILE}"
+    rmdir -- "${VERIFICATION_DIR}" 2>/dev/null || true
     rmdir -- "${TMP_DIR}" 2>/dev/null || true
 }
 trap cleanup EXIT
+install -d -o root -g root -m 0700 "${VERIFICATION_DIR}"
 
 check_service() {
     local service=$1
@@ -100,28 +124,54 @@ require_header() {
         || amigo_die "required response header is missing: ${header_pattern}"
 }
 
-amigo_log "validating Compose and containers"
+public_status() {
+    local path=$1
+    curl --silent --show-error --max-time 20 \
+        --proto '=https' \
+        --tlsv1.2 \
+        --output /dev/null \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}${path}"
+}
+
+published_port_count() {
+    local container_id=$1
+    docker inspect "${container_id}" | python3 -c '
+import json, sys
+ports = json.load(sys.stdin)[0]["NetworkSettings"].get("Ports") or {}
+print(sum(bool(bindings) for bindings in ports.values()))
+'
+}
+
+amigo_log "validating the exact seven-service Compose topology"
 amigo_compose config --quiet
-check_service db
-check_service web
-check_service worker
-check_service ingest
-check_service ai-worker
-check_service ai-gateway
+mapfile -t COMPOSE_SERVICES < <(amigo_compose config --services)
+[[ ${#COMPOSE_SERVICES[@]} -eq 7 ]] \
+    || amigo_die "Compose must contain exactly seven services"
+for expected_service in db web worker ingest ai-worker ai-gateway lab-parser; do
+    service_found=0
+    for configured_service in "${COMPOSE_SERVICES[@]}"; do
+        [[ "${configured_service}" == "${expected_service}" ]] && service_found=1
+    done
+    [[ ${service_found} -eq 1 ]] \
+        || amigo_die "Compose is missing required service: ${expected_service}"
+    check_service "${expected_service}"
+done
 amigo_compose exec -T db pg_isready -U amigo -d amigo >/dev/null
 
 require_service_networks db "amigo_backend"
 require_service_networks web "amigo_backend"
 require_service_networks worker "amigo_backend"
 require_service_networks ingest "amigo_backend"
-require_service_networks ai-worker "amigo_ai_private amigo_backend"
+require_service_networks ai-worker "amigo_ai_private amigo_backend amigo_lab_private"
 require_service_networks ai-gateway "amigo_ai_private"
+require_service_networks lab-parser "amigo_lab_private"
 amigo_log "PASS every service has exactly the expected Docker network membership"
 
 CURRENT_RELEASE="$(amigo_current_release)"
 EXPECTED_IMAGE="amigo:${CURRENT_RELEASE}"
 readonly CURRENT_RELEASE EXPECTED_IMAGE
-for application_service in web worker ingest ai-worker ai-gateway; do
+for application_service in web worker ingest ai-worker ai-gateway lab-parser; do
     application_container=$(amigo_compose ps -q "${application_service}")
     actual_image=$(docker inspect --format '{{.Config.Image}}' "${application_container}")
     [[ "${actual_image}" == "${EXPECTED_IMAGE}" ]] \
@@ -130,17 +180,18 @@ for application_service in web worker ingest ai-worker ai-gateway; do
         --format '{{if .Config.Labels}}{{index .Config.Labels "org.opencontainers.image.revision"}}{{end}}' \
         "${application_container}")
     [[ "${actual_revision}" == "${CURRENT_RELEASE}" ]] \
-        || amigo_die "${application_service} OCI revision is '${actual_revision}', expected ${CURRENT_RELEASE}"
+        || amigo_die "${application_service} OCI revision differs from ${CURRENT_RELEASE}"
 done
 db_container=$(amigo_compose ps -q db)
-db_image=$(docker inspect --format '{{.Config.Image}}' "${db_container}")
-[[ "${db_image}" == "postgres:17-alpine" ]] \
-    || amigo_die "db runs ${db_image}, expected postgres:17-alpine"
-amigo_log "PASS all five application services use the Git-SHA image tag and matching OCI revision; db uses the pinned release tag"
+[[ "$(docker inspect --format '{{.Config.Image}}' "${db_container}")" == "postgres:17-alpine" ]] \
+    || amigo_die "db does not use postgres:17-alpine"
+amigo_log "PASS all six application services use the release image and PostgreSQL uses its pinned tag"
 
 worker_container=$(amigo_compose ps -q worker)
+web_container=$(amigo_compose ps -q web)
 ai_worker_container=$(amigo_compose ps -q ai-worker)
 gateway_container=$(amigo_compose ps -q ai-gateway)
+parser_container=$(amigo_compose ps -q lab-parser)
 readonly POSTGRES_SECRET_DESTINATION="/run/secrets/postgres_password"
 readonly WORKER_SECRET_DESTINATIONS="/run/secrets/app_encryption_key /run/secrets/postgres_password /run/secrets/telegram_bot_token /run/secrets/telegram_chat_id /run/secrets/withings_access_token /run/secrets/withings_client_id /run/secrets/withings_client_secret /run/secrets/withings_refresh_token"
 for postgres_only_service in web ingest ai-worker; do
@@ -152,20 +203,32 @@ done
     || amigo_die "worker does not have exactly the expected eight secret mounts"
 [[ -z "$(secret_destinations "${gateway_container}")" ]] \
     || amigo_die "AI gateway unexpectedly receives Docker secrets"
+[[ -z "$(secret_destinations "${parser_container}")" ]] \
+    || amigo_die "laboratory parser unexpectedly receives Docker secrets"
 amigo_log "PASS PostgreSQL-only, integration, and zero-secret container boundaries"
 
 ai_worker_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${ai_worker_container}")"
 grep --fixed-strings --line-regexp --quiet 'AMIGO_ENV=production' <<<"${ai_worker_environment}" \
-    || amigo_die "AI worker is not running with the production settings boundary"
+    || amigo_die "AI worker is not running with production settings"
 grep --fixed-strings --line-regexp --quiet 'AMIGO_AI_ENABLED=true' <<<"${ai_worker_environment}" \
     || amigo_die "AI worker does not have generated analysis enabled"
 grep --fixed-strings --line-regexp --quiet \
     'AMIGO_AI_GATEWAY_URL=http://ai-gateway:8090' <<<"${ai_worker_environment}" \
     || amigo_die "AI worker can send snapshots outside the isolated gateway"
 grep --fixed-strings --line-regexp --quiet \
+    'AMIGO_LAB_PARSER_URL=http://lab-parser:8085' <<<"${ai_worker_environment}" \
+    || amigo_die "AI worker does not use the isolated laboratory parser"
+grep --fixed-strings --line-regexp --quiet \
     'AMIGO_USER_HEIGHT_CM=176' <<<"${ai_worker_environment}" \
     || amigo_die "AI worker does not use the configured 176 cm profile height"
-amigo_log "PASS production AI worker is pinned to the isolated gateway and 176 cm profile height"
+for isolated_container in "${gateway_container}" "${parser_container}"; do
+    isolated_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${isolated_container}")"
+    if grep --quiet --extended-regexp '^(DATABASE_URL|POSTGRES_PASSWORD_FILE|AMIGO_ENCRYPTION_KEY_FILE)=' \
+        <<<"${isolated_environment}"; then
+        amigo_die "isolated inference/parser container unexpectedly receives database configuration"
+    fi
+done
+amigo_log "PASS local AI and parser boundaries are pinned and database-free"
 
 worker_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${worker_container}")"
 grep --fixed-strings --line-regexp --quiet 'AMIGO_WEEKLY_DIGEST_DAY=mon' <<<"${worker_environment}" \
@@ -174,7 +237,7 @@ grep --fixed-strings --line-regexp --quiet 'AMIGO_WEEKLY_DIGEST_TIME=09:00' <<<"
     || amigo_die "worker weekly digest time differs from 09:00"
 grep --fixed-strings --line-regexp --quiet 'AMIGO_DAILY_DIGEST_TIME=09:00' <<<"${worker_environment}" \
     || amigo_die "worker daily digest time differs from 09:00"
-amigo_log "PASS production Telegram daily/weekly schedule is pinned to 09:00 Europe/Moscow"
+amigo_log "PASS Telegram daily/weekly schedule is pinned to 09:00 Europe/Moscow"
 
 WORKER_STARTED_AT="$(docker inspect --format '{{.State.StartedAt}}' "${worker_container}")"
 readonly WORKER_STARTED_AT
@@ -227,9 +290,7 @@ for ((attempt = 1; attempt <= 30; attempt += 1)); do
             amigo_die "unexpected privacy-safe worker verification result"
             ;;
     esac
-    if [[ ${attempt} -lt 30 ]]; then
-        sleep 3
-    fi
+    [[ ${attempt} -lt 30 ]] && sleep 3
 done
 [[ ${WORKER_INCREMENTAL_VERIFIED} -eq 1 ]] \
     || amigo_die "current worker did not finish a successful post-start Withings incremental job"
@@ -241,29 +302,40 @@ readonly CODEX_EXPECTED_SHA256="ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d
 [[ -f "${CODEX_RUNTIME_BINARY}" && ! -L "${CODEX_RUNTIME_BINARY}" ]] \
     || amigo_die "pinned Codex runtime binary is missing or is a symlink"
 [[ "$(sha256sum "${CODEX_RUNTIME_BINARY}" | awk '{print $1}')" == "${CODEX_EXPECTED_SHA256}" ]] \
-    || amigo_die "host Codex runtime binary hash differs from the pinned 0.148.0 release"
+    || amigo_die "host Codex runtime binary hash differs from pinned 0.148.0"
 codex_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/opt/amigo/codex"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${gateway_container}")"
 [[ "${codex_mount}" == "${CODEX_RUNTIME_BINARY}|false" ]] \
-    || amigo_die "AI gateway Codex binary mount is missing, writable, or sourced unexpectedly"
+    || amigo_die "AI gateway Codex mount is missing, writable, or sourced unexpectedly"
 container_codex_hash="$(docker exec "${gateway_container}" sha256sum "${CODEX_CONTAINER_BINARY}" | awk '{print $1}')"
 [[ "${container_codex_hash}" == "${CODEX_EXPECTED_SHA256}" ]] \
     || amigo_die "running AI gateway sees an unpinned Codex binary"
-amigo_log "PASS Codex 0.148.0 binary and read-only gateway mount match the pinned SHA-256"
+amigo_log "PASS Codex 0.148.0 binary and read-only mount match the pinned SHA-256"
 
 docker exec "${gateway_container}" python -c '
 import json
 import urllib.request
-
 with urllib.request.urlopen("http://127.0.0.1:8090/healthz", timeout=3) as response:
     payload = json.load(response)
-if payload != {
-    "status": "ok",
-    "model": "gpt-5.6-sol",
-    "prompt_version": "amigo-health-v2",
-}:
+if payload != {"status": "ok", "model": "gpt-5.6-sol", "prompt_version": "amigo-health-v3"}:
     raise SystemExit(1)
-' || amigo_die "AI gateway health does not report the fixed Sol model and v2 prompt contract"
-amigo_log "PASS AI gateway health reports fixed gpt-5.6-sol and amigo-health-v2"
+' || amigo_die "AI gateway health does not report the fixed model and v3 contract"
+docker exec "${parser_container}" python -c '
+import json
+import urllib.request
+with urllib.request.urlopen("http://127.0.0.1:8085/healthz", timeout=3) as response:
+    payload = json.load(response)
+if payload != {"status": "ok"}:
+    raise SystemExit(1)
+' || amigo_die "laboratory parser health contract failed"
+docker exec "${ai_worker_container}" python -c '
+import json
+import urllib.request
+with urllib.request.urlopen("http://lab-parser:8085/healthz", timeout=3) as response:
+    payload = json.load(response)
+if payload != {"status": "ok"}:
+    raise SystemExit(1)
+' || amigo_die "AI worker cannot reach the isolated laboratory parser"
+amigo_log "PASS fixed gpt-5.6-sol/v3 gateway and isolated parser health contracts"
 
 [[ -s "${AMIGO_LEGACY_WEIGHT_IMPORT}" && ! -L "${AMIGO_LEGACY_WEIGHT_IMPORT}" ]] \
     || amigo_die "root-only legacy weight import is missing"
@@ -274,14 +346,28 @@ readonly IMPORT_MODE_NUMERIC=$((8#${IMPORT_MODE}))
     || amigo_die "legacy weight import is readable by group/world"
 [[ "$(stat -c '%U' "${AMIGO_LEGACY_WEIGHT_IMPORT}")" == "root" ]] \
     || amigo_die "legacy weight import is not owned by root"
-WEB_CONTAINER="$(amigo_compose ps -q web)"
 IMPORT_MOUNT_RW="$(docker inspect \
     --format '{{range .Mounts}}{{if eq .Destination "/imports"}}{{.RW}}{{end}}{{end}}' \
-    "${WEB_CONTAINER}")"
-readonly WEB_CONTAINER IMPORT_MOUNT_RW
+    "${web_container}")"
 [[ "${IMPORT_MOUNT_RW}" == "false" ]] \
     || amigo_die "web /imports mount is missing or is not read-only"
-amigo_log "PASS legacy import is root-only on host and read-only in the container"
+
+[[ -d "${AMIGO_LAB_FILES_DIR}" && ! -L "${AMIGO_LAB_FILES_DIR}" ]] \
+    || amigo_die "protected laboratory storage is missing or is a symlink"
+[[ "$(stat -c '%a' "${AMIGO_LAB_FILES_DIR}")" == "700" ]] \
+    || amigo_die "laboratory storage mode is not exactly 0700"
+[[ "$(stat -c '%U:%G' "${AMIGO_LAB_FILES_DIR}")" == "root:root" ]] \
+    || amigo_die "laboratory storage is not owned by root:root"
+web_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/lab-files"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${web_container}")"
+ai_worker_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/lab-files"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${ai_worker_container}")"
+parser_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/lab-files"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${parser_container}")"
+[[ "${web_lab_mount}" == "${AMIGO_LAB_FILES_DIR}|true" ]] \
+    || amigo_die "web laboratory storage mount is missing or not writable"
+[[ "${ai_worker_lab_mount}" == "${AMIGO_LAB_FILES_DIR}|false" ]] \
+    || amigo_die "AI worker laboratory storage mount is missing or writable"
+[[ -z "${parser_lab_mount}" ]] \
+    || amigo_die "isolated parser unexpectedly mounts laboratory originals"
+amigo_log "PASS root-only laboratory originals and least-privilege mounts"
 
 check_loopback_listener() {
     local port=$1
@@ -295,25 +381,18 @@ check_loopback_listener() {
 
 check_loopback_listener 18181 web
 check_loopback_listener 18182 ingest
-amigo_log "PASS web and ingest ports are bound only to their loopback listeners"
-
-gateway_published_ports="$(docker inspect "${gateway_container}" | python3 -c '
-import json, sys
-ports = json.load(sys.stdin)[0]["NetworkSettings"].get("Ports") or {}
-print(sum(bool(bindings) for bindings in ports.values()))
-')"
-[[ "${gateway_published_ports}" -eq 0 ]] \
+[[ "$(published_port_count "${gateway_container}")" -eq 0 ]] \
     || amigo_die "AI gateway unexpectedly publishes a Docker port"
+[[ "$(published_port_count "${parser_container}")" -eq 0 ]] \
+    || amigo_die "laboratory parser unexpectedly publishes a Docker port"
 [[ -z "$(ss -H -ltn 'sport = :8090')" ]] \
-    || amigo_die "AI gateway port 8090 is unexpectedly listening on the host"
-amigo_log "PASS AI gateway has no published Docker or host listener"
+    || amigo_die "AI gateway port 8090 unexpectedly listens on the host"
+[[ -z "$(ss -H -ltn 'sport = :8085')" ]] \
+    || amigo_die "laboratory parser port 8085 unexpectedly listens on the host"
+amigo_log "PASS only web and ingest publish loopback ports; gateway/parser remain unpublished"
 
-curl --fail --silent --show-error --max-time 10 \
-    --output /dev/null "${AMIGO_DIRECT_HEALTH_URL}"
-curl --fail --silent --show-error --max-time 10 \
-    --output /dev/null "http://127.0.0.1:18182/healthz"
-amigo_log "PASS direct web and ingest health endpoints"
-
+curl --fail --silent --show-error --max-time 10 --output /dev/null "${AMIGO_DIRECT_HEALTH_URL}"
+curl --fail --silent --show-error --max-time 10 --output /dev/null "http://127.0.0.1:18182/healthz"
 nginx -t >/dev/null
 [[ "$(grep -Ec '^[[:space:]]*# BEGIN AMIGO V2 ROUTE[[:space:]]*$' "${AMIGO_NGINX_CONFIG}")" -eq 2 ]] \
     || amigo_die "origin nginx config does not contain exactly two managed route markers"
@@ -329,14 +408,10 @@ ORIGIN_REDIRECT_STATUS="$(
         --write-out '%{http_code}' \
         http://127.0.0.1/amigo
 )"
-readonly ORIGIN_REDIRECT_STATUS
 [[ "${ORIGIN_REDIRECT_STATUS}" == "308" ]] \
     || amigo_die "origin /amigo redirect returned ${ORIGIN_REDIRECT_STATUS}, expected 308"
-curl --fail --silent --show-error --max-time 10 \
-    --header 'Host: amigo.tolstik.ru' \
-    --output /dev/null \
-    http://127.0.0.1/amigo/
-amigo_log "PASS origin nginx route and redirect"
+amigo_wait_for_origin_http_200 "/amigo/" 15 \
+    || amigo_die "authenticated application shell did not stabilize at origin"
 
 PUBLIC_REDIRECT_STATUS="$(
     curl --silent --show-error --max-time 15 \
@@ -347,12 +422,11 @@ PUBLIC_REDIRECT_STATUS="$(
         --write-out '%{http_code}' \
         https://amigo.tolstik.ru/amigo
 )"
-readonly PUBLIC_REDIRECT_STATUS
 [[ "${PUBLIC_REDIRECT_STATUS}" == "308" ]] \
     || amigo_die "public /amigo redirect returned ${PUBLIC_REDIRECT_STATUS}, expected 308"
 grep --ignore-case --quiet --extended-regexp '^location:[[:space:]]*/amigo/[[:space:]]*$' \
     "${REDIRECT_HEADERS}" \
-    || amigo_die "public /amigo redirect is not the required relative /amigo/ redirect"
+    || amigo_die "public /amigo redirect is not relative"
 
 curl --fail --silent --show-error --max-time 20 \
     --proto '=https' \
@@ -360,12 +434,12 @@ curl --fail --silent --show-error --max-time 20 \
     --dump-header "${DASHBOARD_HEADERS}" \
     --output "${DASHBOARD_BODY}" \
     "${AMIGO_PUBLIC_URL}"
-[[ -s "${DASHBOARD_BODY}" ]] || amigo_die "public dashboard returned an empty body"
+[[ -s "${DASHBOARD_BODY}" ]] || amigo_die "login shell returned an empty body"
 require_header '^cache-control:.*no-store' "${DASHBOARD_HEADERS}"
 require_header '^x-robots-tag:.*noindex.*noarchive' "${DASHBOARD_HEADERS}"
 require_header '^x-content-type-options:[[:space:]]*nosniff' "${DASHBOARD_HEADERS}"
 require_header '^content-security-policy:' "${DASHBOARD_HEADERS}"
-amigo_log "PASS public dashboard, TLS, and defensive headers"
+amigo_log "PASS public login shell, TLS, relative redirect, and defensive headers"
 
 mapfile -t FRONTEND_ASSET_PATHS < <(python3 - "${DASHBOARD_BODY}" <<'PY'
 from pathlib import Path
@@ -381,9 +455,8 @@ if not any(path.endswith(".css") for path in paths):
 print(*paths, sep="\n")
 PY
 )
-readonly -a FRONTEND_ASSET_PATHS
 [[ ${#FRONTEND_ASSET_PATHS[@]} -ge 2 ]] \
-    || amigo_die "public dashboard is missing its hashed JavaScript or CSS asset"
+    || amigo_die "login shell is missing hashed JavaScript or CSS assets"
 for asset_path in "${FRONTEND_ASSET_PATHS[@]}"; do
     curl --fail --silent --show-error --max-time 20 \
         --proto '=https' \
@@ -393,18 +466,70 @@ for asset_path in "${FRONTEND_ASSET_PATHS[@]}"; do
         "https://amigo.tolstik.ru${asset_path}"
     require_header '^cache-control:[[:space:]]*public,[[:space:]]*max-age=31536000,[[:space:]]*immutable' \
         "${ASSET_HEADERS}"
-    [[ "$(grep --ignore-case --count '^cache-control:' "${ASSET_HEADERS}")" -eq 1 ]] \
-        || amigo_die "hashed asset returned conflicting Cache-Control headers"
 done
-amigo_log "PASS hashed frontend JavaScript and CSS assets have one immutable cache policy"
+amigo_log "PASS hashed frontend assets retain immutable caching"
 
-check_public_json_api() {
+for protected_path in \
+    api/v1/auth/session \
+    api/v1/overview \
+    api/v1/export/weight.csv \
+    api/v1/labs/documents \
+    api/v1/labs/documents/00000000-0000-0000-0000-000000000000/results \
+    api/v1/assistant/messages; do
+    [[ "$(public_status "${protected_path}")" == "401" ]] \
+        || amigo_die "unauthenticated protected route did not return 401: ${protected_path}"
+done
+amigo_log "PASS dashboard JSON, CSV, laboratory, and assistant data require authentication"
+
+amigo_compose run --rm --no-deps --user 0 \
+    --volume "${VERIFICATION_DIR}:/verification" \
+    worker python -m app.cli auth-verification-session --directory /verification >/dev/null
+[[ -f "${SESSION_DESCRIPTOR}" && ! -L "${SESSION_DESCRIPTOR}" ]] \
+    || amigo_die "verification session descriptor is missing"
+[[ "$(stat -c '%a' "${SESSION_DESCRIPTOR}")" == "400" ]] \
+    || amigo_die "verification session descriptor mode is not 0400"
+
+python3 - \
+    "${SESSION_DESCRIPTOR}" \
+    "${AUTH_CURL_CONFIG}" \
+    "${ORIGIN_NO_CSRF_CURL_CONFIG}" <<'PY'
+from pathlib import Path
+import json
+import os
+import sys
+
+source, authenticated, no_csrf = map(Path, sys.argv[1:])
+payload = json.loads(source.read_text(encoding="utf-8"))
+session = payload["session"]
+csrf = payload["csrf"]
+if not isinstance(session, str) or not isinstance(csrf, str) or not session or not csrf:
+    raise SystemExit(1)
+cookie = f"__Secure-amigo_session={session}; __Secure-amigo_csrf={csrf}"
+common = [
+    "silent",
+    "show-error",
+    "max-time = 20",
+    'proto = "=https"',
+    "tlsv1.2",
+    f'cookie = "{cookie}"',
+]
+documents = {
+    authenticated: common + [
+        'header = "Origin: https://amigo.tolstik.ru"',
+        f'header = "X-CSRF-Token: {csrf}"',
+    ],
+    no_csrf: common + ['header = "Origin: https://amigo.tolstik.ru"'],
+}
+for target, lines in documents.items():
+    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write("\n".join(lines) + "\n")
+PY
+
+check_authenticated_json_api() {
     local path=$1
     local contract=$2
-    local label=$3
-    curl --fail --silent --show-error --max-time 20 \
-        --proto '=https' \
-        --tlsv1.2 \
+    curl --config "${AUTH_CURL_CONFIG}" \
         --dump-header "${API_HEADERS}" \
         --output "${API_BODY}" \
         "${AMIGO_PUBLIC_URL}${path}"
@@ -418,42 +543,152 @@ payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 contract = sys.argv[2]
 if not isinstance(payload, dict):
     raise SystemExit("API response is not an object")
-if contract == "overview":
+if contract == "session":
+    if payload.get("authenticated") is not True or not isinstance(payload.get("expires_at"), str):
+        raise SystemExit("session contract is incomplete")
+elif contract == "profile":
+    if not isinstance(payload.get("height_cm"), (int, float)):
+        raise SystemExit("profile contract is incomplete")
+elif contract == "overview":
     if not isinstance(payload.get("weight"), dict) or not isinstance(payload.get("pressure"), dict):
         raise SystemExit("overview contract is incomplete")
 elif contract in {"activity", "recovery"}:
     if not isinstance(payload.get("daily"), list) or not isinstance(payload.get("weekly"), list):
-        raise SystemExit(f"{contract} series contract is incomplete")
+        raise SystemExit(f"{contract} contract is incomplete")
 elif contract == "ai":
-    if payload.get("ai_generated") is not True:
-        raise SystemExit("AI payload is not marked as generated")
-    if payload.get("status") != "fresh":
-        raise SystemExit("AI payload is not a fresh validated result")
-    if payload.get("prompt_version") != "amigo-health-v2":
-        raise SystemExit("AI payload does not use amigo-health-v2")
+    if payload.get("ai_generated") is not True or payload.get("status") != "fresh":
+        raise SystemExit("AI payload is not a fresh generated result")
+    if payload.get("prompt_version") != "amigo-health-v3":
+        raise SystemExit("AI payload does not use amigo-health-v3")
     if payload.get("model") != "gpt-5.6-sol":
-        raise SystemExit("AI payload does not use the fixed gpt-5.6-sol model")
+        raise SystemExit("AI payload does not use gpt-5.6-sol")
     recommendations = payload.get("recommendations")
     if not isinstance(recommendations, list) or not recommendations:
         raise SystemExit("AI payload has no validated recommendations")
-    for recommendation in recommendations:
-        if not isinstance(recommendation, dict):
-            raise SystemExit("AI recommendation is not an object")
-        if not isinstance(recommendation.get("text"), str):
-            raise SystemExit("AI recommendation has no text")
-        evidence = recommendation.get("evidence_ids")
-        if not isinstance(evidence, list) or not evidence:
-            raise SystemExit("AI recommendation has no evidence keys")
+elif contract in {"documents", "lab-summary", "analytes", "assistant"}:
+    if not isinstance(payload.get("items"), list):
+        raise SystemExit(f"{contract} items contract is incomplete")
+    if contract == "lab-summary" and not isinstance(payload.get("counts"), dict):
+        raise SystemExit("laboratory summary counts are missing")
+    if contract == "assistant" and not isinstance(payload.get("recommendations"), list):
+        raise SystemExit("assistant recommendations are missing")
 else:
     raise SystemExit("unknown verification contract")
 PY
-    amigo_log "PASS public ${label} API returns the expected no-store JSON contract"
 }
 
-check_public_json_api "api/v1/overview" overview overview
-check_public_json_api "api/v1/series/activity?range=30d" activity activity
-check_public_json_api "api/v1/series/recovery?range=30d" recovery recovery
-check_public_json_api "api/v1/ai-analysis" ai AI-analysis
+check_authenticated_json_api "api/v1/auth/session" session
+check_authenticated_json_api "api/v1/profile" profile
+check_authenticated_json_api "api/v1/overview" overview
+check_authenticated_json_api "api/v1/series/activity?range=30d" activity
+check_authenticated_json_api "api/v1/series/recovery?range=30d" recovery
+check_authenticated_json_api "api/v1/ai-analysis" ai
+check_authenticated_json_api "api/v1/labs/documents" documents
+check_authenticated_json_api "api/v1/labs/summary" lab-summary
+check_authenticated_json_api "api/v1/labs/analytes" analytes
+check_authenticated_json_api "api/v1/assistant/messages" assistant
+
+curl --config "${AUTH_CURL_CONFIG}" \
+    --dump-header "${CSV_HEADERS}" \
+    --output "${CSV_BODY}" \
+    "${AMIGO_PUBLIC_URL}api/v1/export/weight.csv"
+[[ -s "${CSV_BODY}" ]] || amigo_die "authenticated CSV export is empty"
+require_header '^content-type:[[:space:]]*text/csv' "${CSV_HEADERS}"
+amigo_log "PASS authenticated session/profile, dashboard, lab, assistant, AI-v3, and CSV contracts"
+
+install -o root -g root -m 0600 /dev/null "${UNSUPPORTED_FILE}"
+CSRF_REJECTION_STATUS="$(
+    curl --config "${ORIGIN_NO_CSRF_CURL_CONFIG}" \
+        --request POST \
+        --form "file=@${UNSUPPORTED_FILE};type=text/plain" \
+        --output "${UPLOAD_BODY}" \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}api/v1/labs/documents"
+)"
+[[ "${CSRF_REJECTION_STATUS}" == "403" ]] \
+    || amigo_die "authenticated upload without CSRF returned ${CSRF_REJECTION_STATUS}, expected 403"
+
+LAB_CREATE_CSRF_STATUS="$(
+    curl --config "${ORIGIN_NO_CSRF_CURL_CONFIG}" \
+        --request POST \
+        --header 'Content-Type: application/json' \
+        --data '{"analyte_name":"verification","value_text":"present"}' \
+        --output "${UPLOAD_BODY}" \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}api/v1/labs/documents/00000000-0000-0000-0000-000000000000/results"
+)"
+[[ "${LAB_CREATE_CSRF_STATUS}" == "403" ]] \
+    || amigo_die "manual laboratory result without CSRF returned ${LAB_CREATE_CSRF_STATUS}, expected 403"
+
+LAB_CREATE_ROUTE_STATUS="$(
+    curl --config "${AUTH_CURL_CONFIG}" \
+        --request POST \
+        --header 'Content-Type: application/json' \
+        --data '{"analyte_name":"verification","value_text":"present"}' \
+        --output "${UPLOAD_BODY}" \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}api/v1/labs/documents/00000000-0000-0000-0000-000000000000/results"
+)"
+[[ "${LAB_CREATE_ROUTE_STATUS}" == "404" ]] \
+    || amigo_die "manual laboratory result allowlist returned ${LAB_CREATE_ROUTE_STATUS}, expected safe 404"
+
+curl --config "${AUTH_CURL_CONFIG}" \
+    --output "${API_BODY}" \
+    "${AMIGO_PUBLIC_URL}api/v1/labs/documents"
+LAB_DOCUMENT_COUNT_BEFORE="$(python3 - "${API_BODY}" <<'PY'
+from pathlib import Path
+import json
+import sys
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(len(payload["items"]))
+PY
+)"
+UPLOAD_REJECTION_STATUS="$(
+    curl --config "${AUTH_CURL_CONFIG}" \
+        --request POST \
+        --form "file=@${UNSUPPORTED_FILE};type=text/plain" \
+        --dump-header "${UPLOAD_HEADERS}" \
+        --output "${UPLOAD_BODY}" \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}api/v1/labs/documents"
+)"
+[[ "${UPLOAD_REJECTION_STATUS}" == "409" || "${UPLOAD_REJECTION_STATUS}" == "422" ]] \
+    || amigo_die "safe unsupported upload returned unexpected status ${UPLOAD_REJECTION_STATUS}"
+python3 - "${UPLOAD_BODY}" <<'PY'
+from pathlib import Path
+import json
+import sys
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if payload.get("detail") not in {"ai_data_consent_required", "empty_file", "unsupported_file_type"}:
+    raise SystemExit(1)
+PY
+curl --config "${AUTH_CURL_CONFIG}" \
+    --output "${API_BODY}" \
+    "${AMIGO_PUBLIC_URL}api/v1/labs/documents"
+LAB_DOCUMENT_COUNT_AFTER="$(python3 - "${API_BODY}" <<'PY'
+from pathlib import Path
+import json
+import sys
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(len(payload["items"]))
+PY
+)"
+[[ "${LAB_DOCUMENT_COUNT_AFTER}" == "${LAB_DOCUMENT_COUNT_BEFORE}" ]] \
+    || amigo_die "safe upload rejection unexpectedly created a laboratory document"
+amigo_log "PASS exact Origin/CSRF boundary and safe upload rejection without stored data"
+
+curl --config "${AUTH_CURL_CONFIG}" \
+    --dump-header "${SSE_HEADERS}" \
+    --output "${SSE_BODY}" \
+    "${AMIGO_PUBLIC_URL}api/v1/assistant/messages/00000000-0000-0000-0000-000000000000/events"
+require_header '^content-type:[[:space:]]*text/event-stream' "${SSE_HEADERS}"
+require_header '^cache-control:.*no-store' "${SSE_HEADERS}"
+require_header '^x-accel-buffering:[[:space:]]*no' "${SSE_HEADERS}"
+grep --quiet --fixed-strings 'event: error' "${SSE_BODY}" \
+    || amigo_die "authenticated SSE route did not return its bounded not-found event"
+[[ "$(public_status 'api/v1/assistant/messages/00000000-0000-0000-0000-000000000000/events')" == "401" ]] \
+    || amigo_die "unauthenticated assistant SSE route did not return 401"
+amigo_log "PASS authenticated no-buffer SSE route without creating a chat turn"
 
 INGEST_REJECTION_STATUS="$(
     curl --disable --silent --show-error --max-time 20 \
@@ -467,7 +702,6 @@ INGEST_REJECTION_STATUS="$(
         --write-out '%{http_code}' \
         'https://amigo.tolstik.ru/amigo-ingest/v1/health-connect/batches'
 )"
-readonly INGEST_REJECTION_STATUS
 [[ "${INGEST_REJECTION_STATUS}" == "400" ]] \
     || amigo_die "unsigned exact ingest route returned ${INGEST_REJECTION_STATUS}, expected 400"
 require_header '^cache-control:.*no-store' "${INGEST_HEADERS}"
@@ -475,32 +709,32 @@ python3 - "${INGEST_BODY}" <<'PY'
 from pathlib import Path
 import json
 import sys
-
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 if payload != {"detail": {"code": "missing_signature_header"}}:
-    raise SystemExit("unsigned ingest rejection contract changed")
+    raise SystemExit(1)
 PY
-amigo_log "PASS exact ingest route rejects an unsigned empty request before any health record can be created"
+amigo_log "PASS signed ingest stays independent and rejects unsigned empty input exactly"
 
 for hidden_path in \
     healthz \
     amigo/healthz \
     amigo/internal/health \
     amigo-ingest/healthz \
-    amigo-ai/healthz; do
-    external_health_status=$(
+    amigo-ai/healthz \
+    amigo-lab-parser/healthz; do
+    external_health_status="$(
         curl --silent --show-error --location --max-time 15 \
             --proto '=https' \
             --tlsv1.2 \
             --output /dev/null \
             --write-out '%{http_code}' \
             "https://amigo.tolstik.ru/${hidden_path}"
-    )
+    )"
     if [[ "${external_health_status}" =~ ^2 ]]; then
         amigo_die "health endpoint is externally published: /${hidden_path}"
     fi
 done
-amigo_log "PASS direct and prefixed health endpoints are not externally published"
+amigo_log "PASS internal health endpoints are not externally published"
 
 crontab -u "${AMIGO_LEGACY_CRON_USER}" -l >"${CRONTAB_FILE}"
 [[ "$(amigo_count_exact_line "${AMIGO_LEGACY_WITHINGS_CRON_LINE}" "${CRONTAB_FILE}")" -eq 0 ]] \

@@ -76,8 +76,17 @@ done
     || amigo_die "production checkout is dirty; deploy an exact committed revision"
 RELEASE_SHA="$(git -C "${AMIGO_APP_DIR}" rev-parse HEAD)"
 readonly RELEASE_SHA
+PREVIOUS_RELEASE_SHA="$(amigo_recorded_release)"
+readonly PREVIOUS_RELEASE_SHA
+[[ "${RELEASE_SHA}" != "${PREVIOUS_RELEASE_SHA}" ]] \
+    || amigo_die "candidate SHA is already the recorded release; refusing a mutable same-SHA rebuild"
+amigo_assert_release_rollback_compatible \
+    "${AMIGO_APP_DIR}" "${PREVIOUS_RELEASE_SHA}" "${RELEASE_SHA}"
+[[ -n "$(docker image inspect --format '{{.Id}}' "amigo:${PREVIOUS_RELEASE_SHA}")" ]] \
+    || amigo_die "recorded previous release image is unavailable"
 export AMIGO_IMAGE_TAG="${RELEASE_SHA}"
 amigo_log "candidate Git SHA: ${RELEASE_SHA}"
+amigo_log "automatic recovery target: ${PREVIOUS_RELEASE_SHA}"
 
 [[ ! -L "${AMIGO_APP_DIR}/data" && ! -L "${AMIGO_IMPORT_DIR}" ]] \
     || amigo_die "application data/import paths must not be symlinks"
@@ -90,7 +99,6 @@ nginx -t >/dev/null
 SNAPSHOT=""
 CUTOVER_STARTED=0
 CUTOVER_COMMITTED=0
-REHEARSAL_ROUTE_DISABLED=0
 EXISTING_WORKER_STOPPED=0
 EXISTING_WORKER_WAS_RUNNING=0
 EXISTING_AI_WORKER_STOPPED=0
@@ -105,22 +113,17 @@ deploy_error() {
     trap '' HUP INT TERM
     set +e
     amigo_log "deployment failed at line ${line} (status ${status})"
-    if [[ ${REHEARSAL_ROUTE_DISABLED} -eq 1 && -n "${SNAPSHOT}" ]]; then
-        amigo_log "restoring the verified v2 route after an interrupted rollback rehearsal"
-        if bash "${SCRIPT_DIR}/nginx-control.sh" enable "${SNAPSHOT}"; then
-            REHEARSAL_ROUTE_DISABLED=0
-        else
-            amigo_log "WARNING: could not restore the v2 route before automatic rollback"
-        fi
-    fi
     if [[ ${CUTOVER_COMMITTED} -eq 1 ]]; then
         amigo_log "runtime cutover remains healthy; finish the release-state/checkpoint step manually"
     elif [[ ${CUTOVER_STARTED} -eq 1 && -n "${SNAPSHOT}" ]]; then
-        amigo_log "starting automatic rollback to the verified legacy route"
-        AMIGO_DEPLOY_LOCK_HELD=1 bash "${SCRIPT_DIR}/rollback.sh" "${SNAPSHOT}"
-        rollback_status=$?
-        if [[ ${rollback_status} -ne 0 ]]; then
-            amigo_log "AUTOMATIC ROLLBACK FAILED; use: sudo ${SCRIPT_DIR}/rollback.sh ${SNAPSHOT}"
+        amigo_log "starting automatic recovery of the immutable previous Amigo release"
+        AMIGO_DEPLOY_LOCK_HELD=1 bash \
+            "${SCRIPT_DIR}/restore-previous-release.sh" "${SNAPSHOT}"
+        recovery_status=$?
+        if [[ ${recovery_status} -ne 0 ]]; then
+            amigo_log "AUTOMATIC PREVIOUS-RELEASE RECOVERY FAILED"
+            amigo_log "legacy was not activated; explicit disaster fallback requires:"
+            amigo_log "sudo ${SCRIPT_DIR}/rollback.sh --to-legacy ${SNAPSHOT}"
         fi
     else
         if [[ ${EXISTING_WORKER_STOPPED} -eq 1 && ${EXISTING_WORKER_WAS_RUNNING} -eq 1 ]]; then
@@ -151,9 +154,16 @@ trap 'deploy_error 143 "${LINENO}"' TERM
 
 SNAPSHOT="$(AMIGO_DEPLOY_LOCK_HELD=1 bash "${SCRIPT_DIR}/pre-cutover-backup.sh")"
 amigo_assert_snapshot "${SNAPSHOT}"
+[[ "$(amigo_snapshot_metadata_value "${SNAPSHOT}" previous_release_sha)" \
+    == "${PREVIOUS_RELEASE_SHA}" ]] \
+    || amigo_die "snapshot previous release differs from the deploy recovery target"
+[[ -n "$(amigo_snapshot_metadata_value "${SNAPSHOT}" previous_application_rollback_image)" ]]
+[[ -n "$(amigo_snapshot_metadata_value "${SNAPSHOT}" previous_database_image_id)" ]]
+[[ -n "$(amigo_snapshot_metadata_value "${SNAPSHOT}" previous_database_rollback_image)" ]]
 bash "${SCRIPT_DIR}/prepare-ai-runtime.sh"
 
 amigo_log "pulling PostgreSQL and building immutable application images"
+CUTOVER_STARTED=1
 amigo_compose pull db
 amigo_compose build --pull web
 
@@ -171,7 +181,7 @@ if [[ -n "${existing_ai_worker_container}" ]] \
     EXISTING_AI_WORKER_WAS_RUNNING=1
     EXISTING_AI_WORKER_STOPPED=1
     amigo_log "stopping the existing AI worker before migration"
-    amigo_compose stop ai-worker
+    amigo_compose stop --timeout 120 ai-worker
 fi
 existing_ingest_container=$(amigo_compose ps -q ingest)
 if [[ -n "${existing_ingest_container}" ]] \
@@ -203,8 +213,7 @@ else
     amigo_log "skipping the Telegram smoke message as explicitly selected"
 fi
 
-amigo_log "transferring Withings collection ownership away from the legacy cron"
-CUTOVER_STARTED=1
+amigo_log "confirming Withings collection ownership remains with Amigo"
 bash "${SCRIPT_DIR}/cron-control.sh" disable
 
 amigo_log "performing full import with historical notifications suppressed"
@@ -249,11 +258,56 @@ amigo_log "starting isolated Codex gateway and validating structured output"
 amigo_compose up -d --wait --wait-timeout 180 ai-gateway
 amigo_compose run --rm --no-deps ai-worker python -m app.ai_smoke
 
-amigo_log "preparing the first cached AI analysis from minimized production aggregates"
-amigo_compose run --rm --no-deps ai-worker python -m app.cli ai-enqueue
-amigo_compose run --rm --no-deps \
-    --env AMIGO_WORKER_ONCE=true \
-    ai-worker python -m app.ai_worker
+amigo_log "preparing one exact current AI retry while the persistent AI worker is stopped"
+amigo_compose run --rm --no-deps ai-worker \
+    python -m app.cli ai-retry-current --worker-stopped
+AI_ANALYSIS_READY=0
+for ai_attempt in {1..4}; do
+    if amigo_compose run --rm --no-deps ai-worker python -m app.cli ai-ready; then
+        ai_ready_status=0
+    else
+        ai_ready_status=$?
+    fi
+    case "${ai_ready_status}" in
+        0)
+            AI_ANALYSIS_READY=1
+            break
+            ;;
+        75)
+            ;;
+        *)
+            amigo_die "AI readiness check returned unexpected status ${ai_ready_status}"
+            ;;
+    esac
+
+    amigo_log "running bounded foreground AI analysis attempt ${ai_attempt}/4"
+    amigo_compose run --rm --no-deps \
+        --env AMIGO_WORKER_ONCE=true \
+        ai-worker python -m app.ai_worker
+
+    if amigo_compose run --rm --no-deps ai-worker python -m app.cli ai-ready; then
+        ai_ready_status=0
+    else
+        ai_ready_status=$?
+    fi
+    case "${ai_ready_status}" in
+        0)
+            AI_ANALYSIS_READY=1
+            break
+            ;;
+        75)
+            ;;
+        *)
+            amigo_die "AI readiness check returned unexpected status ${ai_ready_status}"
+            ;;
+    esac
+    if [[ ${ai_attempt} -lt 4 ]]; then
+        amigo_log "current AI result is not ready; removing retry backoff before the next attempt"
+        amigo_compose run --rm --no-deps ai-worker python -m app.cli ai-enqueue
+    fi
+done
+[[ ${AI_ANALYSIS_READY} -eq 1 ]] \
+    || amigo_die "current validated AI analysis was not ready after four foreground attempts"
 
 amigo_log "starting the signed Health Connect ingestion endpoint"
 amigo_compose up -d --wait --wait-timeout 180 ingest
@@ -270,25 +324,8 @@ amigo_compose up -d --wait --wait-timeout 180 worker ai-worker
 EXISTING_WORKER_STOPPED=0
 EXISTING_AI_WORKER_STOPPED=0
 bash "${SCRIPT_DIR}/verify-production.sh"
-
-amigo_log "rehearsing the route-only rollback while keeping all data intact"
-REHEARSAL_ROUTE_DISABLED=1
-bash "${SCRIPT_DIR}/nginx-control.sh" disable "${SNAPSHOT}"
-REHEARSAL_LEGACY_STATUS="$(
-    curl --silent --show-error --max-time 15 \
-        --header 'Host: amigo.tolstik.ru' \
-        --output /dev/null \
-        --write-out '%{http_code}' \
-        http://127.0.0.1/amigo/
-)"
-readonly REHEARSAL_LEGACY_STATUS
-[[ "${REHEARSAL_LEGACY_STATUS}" == "200" ]] \
-    || amigo_die "route rollback rehearsal did not expose the preserved legacy dashboard"
-bash "${SCRIPT_DIR}/nginx-control.sh" enable "${SNAPSHOT}"
-REHEARSAL_ROUTE_DISABLED=0
-bash "${SCRIPT_DIR}/verify-production.sh"
-CUTOVER_COMMITTED=1
 amigo_record_current_release "${RELEASE_SHA}"
+CUTOVER_COMMITTED=1
 
 amigo_log "runtime cutover passed; writing mandatory documentation and memory checkpoint"
 bash "${SCRIPT_DIR}/checkpoint.sh" "${SNAPSHOT}"

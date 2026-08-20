@@ -9,6 +9,10 @@
 
 - [ ] Выбран точный Git SHA; `/srv/amigo` root-owned и полностью чист,
       включая untracked source-файлы.
+- [ ] `/var/lib/amigo/current-release` совпадает с реально запущенным previous
+      Amigo image; exact image tag/ID и Git object доступны. Candidate не меняет
+      rollback-protected Compose/nginx envelope, Alembic, ORM models или pinned
+      Codex runtime относительно previous release.
 - [ ] `/srv/amigo/.env` и ровно восемь файлов `/srv/amigo/secrets/`
       непустые, закрыты для group/world и не попали в Git или shell output.
 - [ ] В `/srv/amigo/.env` задано `AMIGO_USER_HEIGHT_CM=176`; Compose config
@@ -27,13 +31,29 @@
       PostgreSQL data.
 - [ ] Создан конкретный `/srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ`; все строки
       `SHA256SUMS` имеют `OK`, tar/gzip читаются, а каталог PostgreSQL dump
-      проверен, если `db` был запущен.
+      проверен, если `db` был запущен. Metadata содержит exact previous SHA,
+      application и PostgreSQL image IDs, защищённые rollback tags,
+      AI model/prompt, Compose hash и enabled managed route; snapshot содержит
+      previous Compose и точные managed nginx files.
 - [ ] Явно выбран один Telegram-режим: владелец разрешил одно
       помеченное smoke-сообщение либо выбран `--skip-telegram-test`.
       Historical import не создаёт уведомлений.
 - [ ] При повторном релизе работающие `worker`, `ai-worker` и `ingest` будут
       остановлены до migrations/one-shot jobs и восстановлены при ранней
       ошибке; нет двух процессов, параллельно ротирующих Withings OAuth.
+- [ ] Existing `ai-worker` останавливается с timeout 120 секунд. После остановки
+      ровно один `ai-retry-current --worker-stopped` предшествует AI attempts;
+      `ai-ready` принимает только exit `0/75`, foreground worker запускается не
+      более четырёх раз, а `ai-enqueue` выполняется только между failed attempts
+      1–3. Отдельного gateway retry loop нет.
+- [ ] Если production до подготовки находился на legacy route/cron, сначала
+      успешно выполнен `takeover-from-legacy.sh --resume-recorded-release`:
+      current OAuth pair взята из live MariaDB через root-only handoff, записана
+      в PostgreSQL и проверена suppressed sync. Stale token secret files не
+      использовались; уже запущенный legacy PHP завершился до чтения токенов;
+      после takeover managed route активен, legacy cron disabled. Для snapshot
+      `20260820T055833Z` прошла явная legacy-v0 проверка recorded SHA/OCI image и
+      exact force-recreate application containers.
 - [ ] До первого Withings API request legacy collector переведён в единственный
       disabled-marker; после full sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.
@@ -97,9 +117,31 @@
       единственный immutable cache header.
 - [ ] Активной точной `get_withings.php` строки нет, disabled-marker ровно
       один, точная общая `send_telergam.php all` сохранена.
-- [ ] `/srv/www/amigo` и MariaDB `amigo` существуют. Route-only rehearsal
-      показал legacy dashboard, затем Amigo v3 route возвращён и полный verification
-      повторно прошёл.
+- [ ] `/srv/www/amigo` и MariaDB `amigo` существуют как explicit disaster
+      fallback, но успешный deploy не переключал public route на legacy.
+
+## Previous-release recovery contract
+
+- [ ] Failure-path test после `CUTOVER_STARTED` вызывает только
+      `restore-previous-release.sh`; `rollback.sh --to-legacy` автоматически не
+      вызывается даже при ошибке recovery.
+- [ ] Recovery использует SHA/application и PostgreSQL image IDs/Compose/nginx
+      из конкретного snapshot, оставляет legacy cron disabled и не меняет
+      production checkout HEAD. Shared nginx config вне Amigo markers остаётся
+      текущим.
+- [ ] Recovery не выполняет автоматический `pg_restore`; PostgreSQL volume и уже
+      принятые Withings/Health Connect данные сохраняются.
+- [ ] Active AI jobs с другим model/prompt меняют только metadata status на
+      `superseded` до старта previous `ai-worker`. Если metadata cleanup не
+      подтверждён, AI worker остаётся stopped/degraded, а `worker`, web и ingest
+      продолжают работать.
+- [ ] Explicit legacy fallback без обязательного `--to-legacy` отклоняется до
+      любых изменений route, cron, OAuth или Compose.
+- [ ] Mocked transition test подтверждает, что failure до/после route enable
+      возвращает cron только после legacy route, а при ошибке route restore
+      оставляет Amigo web/db работающими и оба collectors выключенными. Ошибка
+      остановки Amigo collector никогда не включает legacy cron и не выполняет
+      OAuth handback.
 
 ## Ручная продуктовая проверка
 
@@ -186,8 +228,10 @@
 
 - [ ] `deploy/checkpoint.sh` записал public URL, Git SHA, image IDs всех шести
       services, SHA-256 установленных Compose/nginx/Codex, результаты
-      verification и точный rollback snapshot без секретов.
+      verification, exact previous-release recovery command и отдельную
+      `rollback.sh --to-legacy` disaster command без секретов.
 - [ ] Изменения `AGENTS.md`, runbook и `production-checkpoint.md` перенесены в
       канонический Git и закоммичены.
 - [ ] Владелец получил production URL, APK или ссылку на release, а также точную
-      rollback command. Deployment объявлен завершённым только после этих пунктов.
+      previous-release recovery command. Legacy disaster command явно помечена
+      как ручная. Deployment объявлен завершённым только после этих пунктов.

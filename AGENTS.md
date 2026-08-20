@@ -11,8 +11,14 @@
 - Repeat deployments must use `deploy/deploy.sh` with exactly one notification
   mode (`--send-telegram-test` or `--skip-telegram-test`); the script stops an
   existing data worker, AI worker, and signed-ingest service before migrations
-  and one-shot synchronization and restarts them automatically after an early
-  pre-cutover failure.
+  and one-shot synchronization. After the verified snapshot exists, every
+  failure restores the exact previous application and PostgreSQL images on the
+  preserved PostgreSQL volume; it never restores the PostgreSQL dump.
+- Automatic recovery must call `restore-previous-release.sh` and must never
+  activate legacy PHP. Legacy is an explicit disaster fallback requiring
+  `rollback.sh --to-legacy SNAPSHOT`. From an already active legacy route/cron,
+  first use `takeover-from-legacy.sh --resume-recorded-release SNAPSHOT` so the
+  live MariaDB OAuth pair is handed safely back to PostgreSQL.
 - Before re-enabling the legacy Withings cron, stop the Amigo worker and
   complete the secret-free OAuth token handback from PostgreSQL to the single
   legacy MariaDB token row.
@@ -70,6 +76,10 @@
   consider only the active model and prompt contract. The explicit deployment
   enqueue may retry a failed/superseded same-key active job; background enqueue
   must not revive terminal history.
+- Deployment AI readiness permits only `ai-ready` exits `0` and `75`, prepares
+  one explicit retry while the persistent worker is stopped, and runs at most
+  four foreground queue attempts. It must never add an unbounded gateway or AI
+  retry loop.
 - AI prompt contract `amigo-health-v2` requires concrete actions, a cadence or
   review period, and cited metric evidence; recommendations are shown before
   general observations in Telegram and on the overview dashboard. When any

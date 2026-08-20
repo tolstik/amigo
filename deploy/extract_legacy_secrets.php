@@ -161,9 +161,13 @@ $database = @new mysqli($dbHost, $dbUser, $dbPassword, 'amigo');
 if ($database->connect_errno !== 0) {
     fail_closed("cannot read the legacy integration database");
 }
-$result = @$database->query('SELECT access_token, refresh_token FROM amigo.seting LIMIT 1');
+$result = @$database->query('SELECT access_token, refresh_token FROM amigo.seting');
 if ($result === false) {
     fail_closed("cannot read the legacy Withings token row");
+}
+if ($result->num_rows !== 1) {
+    $database->close();
+    fail_closed("legacy Withings token table must contain exactly one row");
 }
 $row = $result->fetch_assoc();
 $database->close();

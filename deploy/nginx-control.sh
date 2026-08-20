@@ -9,14 +9,15 @@ readonly SCRIPT_DIR
 source "${SCRIPT_DIR}/lib/common.sh"
 
 usage() {
-    printf 'Usage: %s enable|disable /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ\n' "${0##*/}" >&2
+    printf 'Usage: %s enable|disable|restore /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ\n' "${0##*/}" >&2
     exit 2
 }
 
 [[ $# -eq 2 ]] || usage
 readonly ACTION=$1
 readonly SNAPSHOT=$2
-[[ "${ACTION}" == "enable" || "${ACTION}" == "disable" ]] || usage
+[[ "${ACTION}" == "enable" || "${ACTION}" == "disable" || "${ACTION}" == "restore" ]] \
+    || usage
 
 amigo_require_root
 amigo_require_commands \
@@ -30,6 +31,14 @@ amigo_assert_snapshot "${SNAPSHOT}"
     || amigo_die "repository nginx HTTP configuration is missing"
 [[ -f "${SCRIPT_DIR}/nginx/route_config.py" ]] \
     || amigo_die "nginx route transformer is missing"
+if [[ "${ACTION}" == "restore" ]]; then
+    for restore_file in \
+        "${SNAPSHOT}/nginx/amigo-v2-locations.conf" \
+        "${SNAPSHOT}/nginx/amigo-v2-http.conf"; do
+        [[ -f "${restore_file}" && ! -L "${restore_file}" ]] \
+            || amigo_die "snapshot managed nginx file is missing or is a symlink: ${restore_file}"
+    done
+fi
 [[ ! -e "${AMIGO_NGINX_SNIPPET}" || ( -f "${AMIGO_NGINX_SNIPPET}" && ! -L "${AMIGO_NGINX_SNIPPET}" ) ]] \
     || amigo_die "installed nginx snippet is not a regular file"
 [[ ! -e "${AMIGO_NGINX_HTTP_CONFIG}" || ( -f "${AMIGO_NGINX_HTTP_CONFIG}" && ! -L "${AMIGO_NGINX_HTTP_CONFIG}" ) ]] \
@@ -113,13 +122,24 @@ trap 'abort_transaction 129 "nginx route operation received SIGHUP"' HUP
 trap 'abort_transaction 130 "nginx route operation received SIGINT"' INT
 trap 'abort_transaction 143 "nginx route operation received SIGTERM"' TERM
 
-python3 "${SCRIPT_DIR}/nginx/route_config.py" "${ACTION}" \
-    <"${AMIGO_NGINX_CONFIG}" >"${CANDIDATE_FILE}"
-
-install -o root -g root -m 0644 \
-    "${SCRIPT_DIR}/nginx/amigo.locations.conf" "${SNIPPET_CANDIDATE}"
-install -o root -g root -m 0644 \
-    "${SCRIPT_DIR}/nginx/amigo.http.conf" "${HTTP_CANDIDATE}"
+if [[ "${ACTION}" == "restore" ]]; then
+    # The origin file is shared with unrelated services. Rebuild only the
+    # Amigo-owned marker region against the current file so a later manual
+    # recovery cannot erase unrelated nginx changes made after the snapshot.
+    python3 "${SCRIPT_DIR}/nginx/route_config.py" enable \
+        <"${AMIGO_NGINX_CONFIG}" >"${CANDIDATE_FILE}"
+    install -o root -g root -m 0644 \
+        "${SNAPSHOT}/nginx/amigo-v2-locations.conf" "${SNIPPET_CANDIDATE}"
+    install -o root -g root -m 0644 \
+        "${SNAPSHOT}/nginx/amigo-v2-http.conf" "${HTTP_CANDIDATE}"
+else
+    python3 "${SCRIPT_DIR}/nginx/route_config.py" "${ACTION}" \
+        <"${AMIGO_NGINX_CONFIG}" >"${CANDIDATE_FILE}"
+    install -o root -g root -m 0644 \
+        "${SCRIPT_DIR}/nginx/amigo.locations.conf" "${SNIPPET_CANDIDATE}"
+    install -o root -g root -m 0644 \
+        "${SCRIPT_DIR}/nginx/amigo.http.conf" "${HTTP_CANDIDATE}"
+fi
 NGINX_TRANSACTION_STARTED=1
 mv -- "${SNIPPET_CANDIDATE}" "${AMIGO_NGINX_SNIPPET}"
 mv -- "${HTTP_CANDIDATE}" "${AMIGO_NGINX_HTTP_CONFIG}"
@@ -132,4 +152,8 @@ systemctl reload nginx
 NGINX_TRANSACTION_COMMITTED=1
 trap - ERR HUP INT TERM
 
-amigo_log "nginx Amigo route ${ACTION}d and configuration reload succeeded"
+if [[ "${ACTION}" == "restore" ]]; then
+    amigo_log "pre-cutover Amigo snippets restored without replacing shared nginx content"
+else
+    amigo_log "nginx Amigo route ${ACTION}d and configuration reload succeeded"
+fi

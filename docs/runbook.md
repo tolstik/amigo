@@ -69,15 +69,22 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
 - `/srv/cron` — общий каталог. Скрипты управляют только точной строкой
   `*/1 07-08 * * *  php /srv/cron/get_withings.php`. Строка
   `*/1 * * * *  php /srv/cron/send_telergam.php all` остаётся без изменений.
-- Rollback snapshots находятся только в
+- Recovery/disaster snapshots находятся только в
   `/srv/amigo-rollbacks/<UTC timestamp>`, имеют root-only права и не удаляются
   автоматически.
+- Ошибка repeat deployment автоматически возвращает immutable image предыдущего
+  Amigo-релиза. Legacy PHP никогда не включается автоматически: это отдельный
+  явно подтверждаемый disaster fallback.
 
 ## Подготовка релиза
 
 1. Разместить чистый root-owned Git checkout нужного commit в `/srv/amigo`.
    Tracked и untracked source-файлы должны быть чисты; `.env`, `secrets/` и `data/`
    остаются ignored runtime state.
+   `/var/lib/amigo/current-release` должен указывать на реально запущенный
+   предыдущий Amigo image. Candidate обязан пройти консервативную rollback-
+   compatibility проверку: без изменений Compose/nginx envelope, Alembic,
+   ORM models и pinned Codex runtime относительно записанного release.
 2. Создать `/srv/amigo/.env` из `.env.example`, оставить
    `AMIGO_USER_HEIGHT_CM=176`, установить `0600` и выполнить:
 
@@ -150,6 +157,9 @@ sudo bash /srv/amigo/deploy/pre-cutover-backup.sh
   проверяется через `pg_restore --list`;
 - crontab `tolstik` и `root`;
 - полный `/etc/nginx`, `my.conf` и `nginx -T`;
+- previous release SHA, exact application и PostgreSQL image IDs, защищённые
+  rollback tags, Compose envelope, active AI model/prompt и точные pre-cutover
+  managed nginx files;
 - несекретные metadata и `SHA256SUMS`.
 
 Архивы, SQL gzip, PostgreSQL dump и все SHA-256 проверяются до атомарного
@@ -182,33 +192,46 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
 
 1. Проверка layout, прав secret files, чистого Git SHA, Compose и nginx.
 2. Проверенный legacy/PostgreSQL snapshot и подготовка pinned Codex runtime.
-3. Pull PostgreSQL image и сборка одного Git-SHA image для пяти application
-   services.
-4. Остановка уже работающих `worker`, `ai-worker` и `ingest`, запуск `db`,
-   migrations, bootstrap и, только в выбранном режиме, Telegram smoke. При
-   ранней ошибке все ранее работавшие сервисы запускаются снова.
+3. После создания защищённых rollback image tags включается automatic recovery,
+   затем выполняются pull PostgreSQL image и сборка одного Git-SHA image для
+   пяти application services. Повторная сборка того же SHA запрещена.
+4. Остановка уже работающих `worker`, `ai-worker` и `ingest` (`ai-worker`
+   получает до 120 секунд на штатное завершение), запуск `db`,
+   migrations, bootstrap и, только в выбранном режиме, Telegram smoke.
 5. Отключение только точной legacy Withings cron-строки, full sync без
    historical notifications, немедленный OAuth token handback в одну legacy
    MariaDB строку и импорт legacy-only весов из root-only TSV.
 6. Запуск `web` без workers и direct health на `127.0.0.1:18181`.
 7. Запуск изолированного `ai-gateway`; synthetic smoke через `ai-worker`
    проверяет auth, sandbox, model и JSON schema без реальных health data.
-8. Постановка минимизированного production snapshot в AI queue и одноразовая
-   обработка для первого кэша.
+8. При всё ещё остановленном persistent `ai-worker` один
+   `ai-retry-current --worker-stopped` готовит exact current job. `ai-ready`
+   принимает только `0` (готово) или `75` (ещё не готово); любой другой exit
+   fatal. Выполняется не более четырёх foreground one-shot workers, и только
+   между неуспешными попытками 1–3 вызывается `ai-enqueue` для снятия backoff.
+   Gateway smoke/retry не повторяется.
 9. Запуск `ingest`, затем атомарная установка nginx route. Публичный dashboard
    разрешает только `GET`/`HEAD`/`OPTIONS`; ingest имеет точные rate-limited
    routes и body limit 1 MiB.
-10. Запуск `worker` и `ai-worker`, полный verification, route-only rollback
-    rehearsal и повторный verification. Проверка ждёт, пока текущий container
+10. Запуск `worker` и `ai-worker` и полный verification. Проверка ждёт, пока
+    текущий container
     `worker` завершит новый `withings-incremental` `JobRun` со статусом
     `success`; старый успешный run не засчитывается.
 11. Запись `/var/lib/amigo/current-release` и обязательный
     documentation/memory checkpoint.
 
-До nginx cutover public legacy route не меняется. Любая ошибка после передачи
-сбора останавливает новые workers/services, возвращает свежую OAuth-пару legacy,
-включает точную cron-строку и запускает rollback. Ошибка checkpoint после
-двух verification не откатывает здоровый runtime, но deploy не завершён до
+До nginx cutover действующий managed Amigo route не меняется. Любая ошибка после
+начала передачи сбора вызывает `restore-previous-release.sh`: candidate services
+останавливаются, legacy cron остаётся выключенным, exact previous application и
+PostgreSQL images запускаются на сохранённом PostgreSQL volume, а pre-cutover
+Amigo snippets/route возвращаются атомарно без замены остального shared
+`my.conf`.
+PostgreSQL dump автоматически не восстанавливается, чтобы не терять уже принятые
+Withings/Health Connect записи. Активные AI jobs другого model/prompt переводятся
+только по metadata в `superseded`; если это невозможно, previous AI worker остаётся
+остановленным в degraded mode. Legacy fallback при ошибке recovery только
+предлагается оператору и никогда не запускается автоматически. Ошибка checkpoint
+после verification не откатывает здоровый runtime, но deploy не завершён до
 коммита документов.
 
 ## Codex auth и AI-эксплуатация
@@ -376,23 +399,74 @@ cadence/review period и evidence, не содержать диагноз, ле�
   UI показывает только фактически доступные HRV/SpO2/VO2/sleep/workout поля.
 - **Withings worker недоступен.** Не включать legacy cron, пока Amigo worker может
   писать/ротировать OAuth. Для возврата legacy collector выполнить только
-  полный documented rollback с token handback.
+  явный documented disaster fallback с token handback.
 
 Логи и диагностический output не должны содержать health payload, prompt, generated
 analysis, auth, headers или токены. Для ingest rejection допустим только
 стабильный `detail.code`, без device ID, batch ID и validation details.
 
-## Rollback
+## Previous-release recovery
 
-Rollback всегда принимает конкретный проверенный snapshot; `latest`, glob и
-неявный выбор запрещены:
+При ошибке после начала cutover `deploy.sh` вызывает эту операцию автоматически.
+Для ручного повтора используется только конкретный snapshot нового формата;
+`latest`, glob и неявный выбор запрещены:
 
 ```bash
-sudo bash /srv/amigo/deploy/rollback.sh \
+sudo bash /srv/amigo/deploy/restore-previous-release.sh \
   /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ
 ```
 
-Скрипт:
+Recovery проверяет текущие managed route и disabled legacy cron, записанные
+previous SHA/application и PostgreSQL image IDs/Compose hash, останавливает
+candidate, оставляет legacy Withings cron выключенным, запускает предыдущие
+`web`, `worker`, `ingest`, `ai-worker`, `ai-gateway` и PostgreSQL на сохранённом
+volume. Оно восстанавливает только Amigo-owned nginx snippets, сохраняя другие
+изменения shared `my.conf`, ждёт нового minute run-key и затем новый успешный
+incremental run.
+Production checkout остаётся на candidate commit; фактический runtime определяет
+`/var/lib/amigo/current-release`. Автоматического `pg_restore` нет.
+
+## Возврат из уже активного legacy state
+
+Если прежний disaster fallback уже остановил Compose, снял managed route и включил
+legacy cron, сначала безопасно вернуть recorded Amigo release:
+
+```bash
+sudo bash /srv/amigo/deploy/takeover-from-legacy.sh \
+  --resume-recorded-release \
+  /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ
+```
+
+Для текущего `/srv/amigo-rollbacks/20260820T055833Z` поддерживается проверенный
+старый формат snapshot: recorded SHA берётся из root-only release marker,
+Compose допускается только после rollback-compatibility gate, а установленный
+image сверяется по OCI revision и принудительно пересоздаёт application
+containers. Новые snapshots используют полный release envelope.
+
+Команда отключает только exact legacy collector и ждёт целую cron-границу плюс
+подтверждённое отсутствие уже запущенного `get_withings.php`. Затем она читает
+текущую OAuth-пару прямо из live MariaDB во временный root-only `/run` handoff,
+сверяет Withings client credentials, шифрует пару в существующую PostgreSQL row
+и выполняет notification-suppressed sync. Старые `secrets/withings_*token` для
+takeover не используются. До включения managed route свежая пара возвращается
+также в выключенный legacy fallback. При ошибке takeover Amigo collectors
+останавливаются, актуальная пара возвращается legacy, а Amigo web/db
+останавливаются только после подтверждённого возврата route. Если route или
+token handback невозможно подтвердить, collectors остаются выключенными
+fail-closed и обслуживающий активный route backend не останавливается. После
+успешного takeover обычный deploy создаст snapshot нового формата.
+
+## Explicit legacy disaster fallback
+
+Legacy включается только вручную с обязательным флагом `--to-legacy` и конкретным
+проверенным snapshot:
+
+```bash
+sudo bash /srv/amigo/deploy/rollback.sh --to-legacy \
+  /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ
+```
+
+Disaster fallback:
 
 1. Останавливает `worker`, `ai-worker`, `ingest` и `ai-gateway`.
 2. Убирает только managed nginx route и проверяет HTTP 200 legacy origin.
@@ -404,11 +478,12 @@ sudo bash /srv/amigo/deploy/rollback.sh \
 
 Android-приложение при rollback может остаться установленным: ingest закрыт,
 а локальная Health Connect история сохранится для будущего resumable backfill.
-Rollback не восстанавливает PostgreSQL dump автоматически; volume сохраняется,
+Legacy fallback не восстанавливает PostgreSQL dump автоматически; volume сохраняется,
 а dump служит для отдельного аварийного восстановления.
 
-Для повторного cutover исправить причину, вернуть чистый release и снова запустить
-`deploy.sh`; не применять `down -v`.
+Для повторного cutover сначала выполнить takeover выше, убедиться, что recorded
+Amigo release снова владеет OAuth/collection, затем вернуть чистый candidate и
+запустить `deploy.sh`; не применять `down -v`.
 
 ## Documentation checkpoint
 

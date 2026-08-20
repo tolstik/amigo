@@ -10,9 +10,15 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from .ai_contracts import AnalysisSnapshot, GatewayAnalyzeRequest, GatewayAnalyzeResponse
+from .ai_contracts import (
+    MAX_ANALYSIS_REQUEST_ATTEMPT,
+    AnalysisSnapshot,
+    GatewayAnalyzeRequest,
+    GatewayAnalyzeResponse,
+)
 from .ai_models import AiAnalysisJob
 from .ai_queue import (
+    ALLOWED_ERROR_CODES,
     claim_analysis_job,
     complete_analysis_job,
     fail_analysis_job,
@@ -27,8 +33,9 @@ logger = logging.getLogger("amigo.ai.worker")
 
 class GatewayClientError(RuntimeError):
     def __init__(self, code: str):
-        super().__init__(code)
-        self.code = code
+        normalized = code if code in ALLOWED_ERROR_CODES else "internal"
+        super().__init__(normalized)
+        self.code = normalized
 
 
 class AiGatewayClient:
@@ -50,6 +57,10 @@ class AiGatewayClient:
                 snapshot_hash=job.snapshot_hash,
                 prompt_version=job.prompt_version,
                 model=job.model,
+                attempt=min(
+                    MAX_ANALYSIS_REQUEST_ATTEMPT,
+                    max(1, job.attempts),
+                ),
                 snapshot=snapshot,
             )
         except ValueError as exc:
@@ -97,6 +108,10 @@ class AiAnalysisWorker:
         self.settings = settings or get_settings()
         self.gateway = gateway or AiGatewayClient(self.settings)
         self._owns_gateway = gateway is None
+        self.max_attempts = min(
+            self.settings.ai_max_attempts,
+            MAX_ANALYSIS_REQUEST_ATTEMPT,
+        )
         self.running = True
 
     def close(self) -> None:
@@ -111,14 +126,14 @@ class AiAnalysisWorker:
         recover_expired_leases(
             db,
             now=current,
-            max_attempts=self.settings.ai_max_attempts,
+            max_attempts=self.max_attempts,
             backoff_base_seconds=self.settings.ai_backoff_base_seconds,
         )
         job = claim_analysis_job(
             db,
             now=current,
             lease_seconds=self.settings.ai_lease_seconds,
-            max_attempts=self.settings.ai_max_attempts,
+            max_attempts=self.max_attempts,
         )
         if job is None:
             return False
@@ -137,7 +152,7 @@ class AiAnalysisWorker:
                 job,
                 exc.code,
                 now=current,
-                max_attempts=self.settings.ai_max_attempts,
+                max_attempts=self.max_attempts,
                 backoff_base_seconds=self.settings.ai_backoff_base_seconds,
             )
             logger.warning("AI analysis job id=%s failed code=%s", job.id, exc.code)
@@ -148,7 +163,7 @@ class AiAnalysisWorker:
                 job,
                 "internal",
                 now=current,
-                max_attempts=self.settings.ai_max_attempts,
+                max_attempts=self.max_attempts,
                 backoff_base_seconds=self.settings.ai_backoff_base_seconds,
             )
             logger.warning("AI analysis job id=%s failed code=internal", job.id)

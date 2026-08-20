@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 AI_MODEL = "gpt-5.6-sol"
 AI_PROMPT_VERSION = "amigo-health-v2"
 SNAPSHOT_SCHEMA_VERSION = "1"
+MAX_ANALYSIS_REQUEST_ATTEMPT = 4
 
 MetricKey = Annotated[
     str,
@@ -278,6 +279,7 @@ class GatewayAnalyzeRequest(StrictModel):
     snapshot_hash: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
     prompt_version: Literal["amigo-health-v2"] = AI_PROMPT_VERSION
     model: Literal["gpt-5.6-sol"] = AI_MODEL
+    attempt: Annotated[int, Field(ge=1, le=MAX_ANALYSIS_REQUEST_ATTEMPT)] = 1
     snapshot: AnalysisSnapshot
 
     @model_validator(mode="after")
@@ -332,29 +334,40 @@ def analysis_request_key(
     return sha256(f"{digest}\n{prompt_version}\n{model}".encode("utf-8")).hexdigest()
 
 
-def validate_analysis_evidence(analysis: AiAnalysis, snapshot: AnalysisSnapshot) -> None:
+def snapshot_evidence_keys(snapshot: AnalysisSnapshot) -> frozenset[str]:
+    return frozenset(
+        [item.key for item in snapshot.facts]
+        + [item.key for item in snapshot.series]
+    )
+
+
+def snapshot_medical_evidence_keys(snapshot: AnalysisSnapshot) -> frozenset[str]:
     facts = {item.key: item for item in snapshot.facts}
     series = {item.key: item for item in snapshot.series}
-    known = facts.keys() | series.keys()
-
-    def is_medical_evidence(key: str) -> bool:
-        return bool(
-            (facts.get(key) and facts[key].scope in {"pressure", "heart", "oxygen", "vo2"})
-            or (
-                series.get(key)
-                and series[key].scope in {"pressure", "heart", "oxygen", "vo2"}
-            )
-            or ".spo2" in key
-            or "oxygen_saturation" in key
+    return frozenset(
+        key
+        for key in snapshot_evidence_keys(snapshot)
+        if (facts.get(key) and facts[key].scope in {"pressure", "heart", "oxygen", "vo2"})
+        or (
+            series.get(key)
+            and series[key].scope in {"pressure", "heart", "oxygen", "vo2"}
         )
+        or ".spo2" in key
+        or "oxygen_saturation" in key
+    )
+
+
+def validate_analysis_evidence(analysis: AiAnalysis, snapshot: AnalysisSnapshot) -> None:
+    known = snapshot_evidence_keys(snapshot)
+    medical = snapshot_medical_evidence_keys(snapshot)
 
     for item in [*analysis.observations, *analysis.recommendations]:
         if not set(item.evidence_keys).issubset(known):
             raise ValueError("analysis cites an unknown metric")
-    has_medical_evidence = any(is_medical_evidence(key) for key in known)
+    has_medical_evidence = bool(medical)
     has_bounded_medical_recommendation = False
     for recommendation in analysis.recommendations:
-        uses_medical_metric = any(is_medical_evidence(key) for key in recommendation.evidence_keys)
+        uses_medical_metric = any(key in medical for key in recommendation.evidence_keys)
         if uses_medical_metric and recommendation.scope not in {"medical", "measurement"}:
             raise ValueError(
                 "pressure, heart, oxygen, and VO2 recommendations must be medical or measurement scoped"

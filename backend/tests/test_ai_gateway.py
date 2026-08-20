@@ -6,18 +6,29 @@ import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app.ai_contracts import (
     AI_MODEL,
     AI_PROMPT_VERSION,
+    MAX_ANALYSIS_REQUEST_ATTEMPT,
     AiAnalysis,
     AnalysisSnapshot,
     GatewayAnalyzeRequest,
     GatewayAnalyzeResponse,
     SnapshotFact,
+    SnapshotPoint,
+    SnapshotSeries,
     snapshot_hash,
 )
-from app.ai_gateway import AiGatewaySettings, CodexRunner, build_analysis_prompt, create_app
+from app.ai_gateway import (
+    AiGatewaySettings,
+    CodexRunner,
+    GatewayExecutionError,
+    build_analysis_output_schema,
+    build_analysis_prompt,
+    create_app,
+)
 
 
 NOW = datetime(2026, 8, 19, 18, 0, tzinfo=timezone.utc)
@@ -76,6 +87,8 @@ def test_codex_runner_uses_fixed_safe_arguments_stdin_and_clean_environment(
             captured["stdin"] = input
             captured["timeout"] = timeout
             command = captured["command"]
+            schema = Path(command[command.index("--output-schema") + 1])
+            captured["schema"] = json.loads(schema.read_text(encoding="utf-8"))
             output = Path(command[command.index("--output-last-message") + 1])
             output.write_text(json.dumps(analysis_dict()), encoding="utf-8")
             return (None, None)
@@ -102,6 +115,10 @@ def test_codex_runner_uses_fixed_safe_arguments_stdin_and_clean_environment(
     assert "DATABASE_URL" not in captured["kwargs"]["env"]
     assert "TELEGRAM_BOT_TOKEN" not in captured["kwargs"]["env"]
     assert captured["kwargs"]["start_new_session"] is True
+    for definition in ("AiObservation", "AiRecommendation"):
+        assert captured["schema"]["$defs"][definition]["properties"]["evidence_keys"][
+            "items"
+        ]["enum"] == ["activity.steps_7d"]
     assert result.model == AI_MODEL
 
 
@@ -131,6 +148,72 @@ def test_analysis_prompt_demands_specific_actions_bounded_medical_guidance_and_d
     assert "Never recalculate or classify BMI" in prompt
     assert "`observed_on` is the actual measurement date" in prompt
     assert "never imply that it is fresher than that date" in prompt
+    assert "Final contract checklist" in prompt
+    assert 'Allowed evidence keys: ["activity.steps_7d"]' in prompt
+    assert "including negated caveats" in prompt
+    assert "validator-blocked stems" in prompt
+    assert "`диагноз`" in prompt
+    assert "Queue retry correction" not in prompt
+
+
+def test_retry_prompt_adds_fixed_correction_without_prior_output():
+    request = request_payload().model_copy(update={"attempt": 2})
+
+    prompt = build_analysis_prompt(request)
+
+    assert f"Queue retry correction (2/{MAX_ANALYSIS_REQUEST_ATTEMPT})" in prompt
+    assert "Generate a complete new object" in prompt
+    assert "do not assume or reconstruct earlier output" in prompt
+    assert "prior candidate text" not in prompt
+
+
+def test_request_specific_schema_enumerates_evidence_and_requires_medical_recommendation():
+    medical_evidence = "pressure." + "systolic7d"
+    snapshot = AnalysisSnapshot(
+        source_through=NOW,
+        facts=[
+            SnapshotFact(
+                key="weight.change28d",
+                scope="weight",
+                period="28d",
+                value=-1.2,
+                unit="kg",
+            ),
+            SnapshotFact(
+                key=medical_evidence,
+                scope="pressure",
+                period="7d",
+                value=128,
+                unit="mmhg",
+            ),
+        ],
+        series=[
+            SnapshotSeries(
+                key="heart.resting90d",
+                scope="heart",
+                unit="bpm",
+                points=[SnapshotPoint(day="2026-08-19", value=62)],
+            )
+        ],
+    )
+
+    schema = build_analysis_output_schema(snapshot)
+    expected = [
+        "heart.resting90d",
+        medical_evidence,
+        "weight.change28d",
+    ]
+    for definition in ("AiObservation", "AiRecommendation"):
+        assert schema["$defs"][definition]["properties"]["evidence_keys"]["items"][
+            "enum"
+        ] == expected
+    assert schema["properties"]["recommendations"]["minItems"] == 1
+
+
+def test_request_specific_schema_allows_empty_recommendations_without_medical_evidence():
+    schema = build_analysis_output_schema(request_payload().snapshot)
+
+    assert "minItems" not in schema["properties"]["recommendations"]
 
 
 class FakeRunner:
@@ -167,3 +250,68 @@ def test_gateway_sanitizes_validation_errors_and_returns_valid_contract(tmp_path
     health = client.get("/healthz")
     assert health.status_code == 200
     assert health.json()["model"] == AI_MODEL
+
+
+def test_codex_runner_leaves_invalid_output_for_queue_level_retry(monkeypatch, tmp_path):
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    binary_hash = sha256(Path("/bin/true").read_bytes()).hexdigest()
+    settings = AiGatewaySettings(
+        codex_binary="/bin/true",
+        codex_expected_sha256=binary_hash,
+        codex_home=codex_home,
+        codex_work_dir=tmp_path / "work",
+    )
+    calls = 0
+
+    class InvalidProcess:
+        pid = 999_999
+        returncode = 0
+
+        def __init__(self, command, **_kwargs):
+            self.command = command
+
+        def communicate(self, input=None, timeout=None):
+            nonlocal calls
+            calls += 1
+            output = Path(self.command[self.command.index("--output-last-message") + 1])
+            invalid = analysis_dict()
+            invalid["headline"] = "Это медицинский диагноз"
+            output.write_text(json.dumps(invalid), encoding="utf-8")
+            return (None, None)
+
+    monkeypatch.setattr("app.ai_gateway.subprocess.Popen", InvalidProcess)
+
+    with pytest.raises(GatewayExecutionError, match="invalid_response"):
+        CodexRunner(settings).run(request_payload())
+
+    assert calls == 1
+
+
+class UnsafeErrorRunner:
+    def resolved_binary(self):
+        return "/bin/true"
+
+    def run(self, _request):
+        raise GatewayExecutionError("private generated output")
+
+
+def test_gateway_normalizes_unknown_execution_code_before_http_and_logs(
+    caplog, tmp_path
+):
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    client = TestClient(
+        create_app(AiGatewaySettings(codex_home=codex_home), UnsafeErrorRunner())
+    )
+
+    with caplog.at_level("WARNING", logger="amigo.ai.gateway"):
+        response = client.post(
+            "/analyze",
+            json=request_payload().model_dump(mode="json"),
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "internal"}
+    assert "private generated output" not in caplog.text
+    assert "code=internal" in caplog.text

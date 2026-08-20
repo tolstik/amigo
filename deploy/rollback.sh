@@ -9,12 +9,13 @@ readonly SCRIPT_DIR
 source "${SCRIPT_DIR}/lib/common.sh"
 
 usage() {
-    printf 'Usage: %s /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ\n' "${0##*/}" >&2
+    printf 'Usage: %s --to-legacy /srv/amigo-rollbacks/YYYYMMDDTHHMMSSZ\n' "${0##*/}" >&2
+    printf 'This is an explicit disaster fallback, not a previous-release rollback.\n' >&2
     exit 2
 }
 
-[[ $# -eq 1 ]] || usage
-readonly SNAPSHOT=$1
+[[ $# -eq 2 && $1 == "--to-legacy" ]] || usage
+readonly SNAPSHOT=$2
 
 amigo_require_root
 amigo_require_commands \
@@ -94,7 +95,8 @@ trap 'rollback_error 129 "${LINENO}"' HUP
 trap 'rollback_error 130 "${LINENO}"' INT
 trap 'rollback_error 143 "${LINENO}"' TERM
 
-amigo_log "stopping data collection, Health Connect ingestion, and cloud AI before rollback"
+amigo_log "starting explicitly authorized disaster fallback to the preserved legacy application"
+amigo_log "stopping data collection, Health Connect ingestion, and cloud AI before fallback"
 WORKER_STOPPED=1
 amigo_compose stop worker ai-worker ingest ai-gateway
 
@@ -139,5 +141,5 @@ readonly ROLLED_BACK_AT
 chmod 0600 "${AMIGO_STATE_DIR}/rollbacks/${ROLLED_BACK_AT}.txt"
 
 trap - ERR HUP INT TERM
-amigo_log "ROLLBACK COMPLETE: legacy route and exact Withings cron are active"
+amigo_log "LEGACY DISASTER FALLBACK COMPLETE: legacy route and exact Withings cron are active"
 amigo_log "new Compose data was preserved; recovery snapshot: ${SNAPSHOT}"

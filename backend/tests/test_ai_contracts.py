@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from app.ai_contracts import (
     AI_MODEL,
     AI_PROMPT_VERSION,
+    MAX_ANALYSIS_REQUEST_ATTEMPT,
     AiAnalysis,
     AiObservation,
     AiRecommendation,
@@ -18,9 +19,12 @@ from app.ai_contracts import (
     SnapshotSeries,
     analysis_request_key,
     canonical_snapshot_json,
+    snapshot_evidence_keys,
     snapshot_hash,
+    snapshot_medical_evidence_keys,
     validate_analysis_evidence,
 )
+from app.config import Settings
 
 
 NOW = datetime(2026, 8, 19, 18, 0, tzinfo=timezone.utc)
@@ -103,6 +107,33 @@ def test_gateway_contract_is_pinned_to_sol():
         )
 
 
+def test_gateway_request_attempt_is_bounded_and_does_not_change_snapshot_hash():
+    snapshot = AnalysisSnapshot(source_through=NOW, facts=[fact("weight.latest_kg", 120)])
+    digest = snapshot_hash(snapshot)
+
+    first = GatewayAnalyzeRequest(snapshot_hash=digest, snapshot=snapshot)
+    retry = GatewayAnalyzeRequest(
+        snapshot_hash=digest,
+        snapshot=snapshot,
+        attempt=MAX_ANALYSIS_REQUEST_ATTEMPT,
+    )
+
+    assert first.attempt == 1
+    assert retry.attempt == MAX_ANALYSIS_REQUEST_ATTEMPT
+    assert first.snapshot_hash == retry.snapshot_hash
+    for invalid_attempt in (0, MAX_ANALYSIS_REQUEST_ATTEMPT + 1):
+        with pytest.raises(ValidationError):
+            GatewayAnalyzeRequest(
+                snapshot_hash=digest,
+                snapshot=snapshot,
+                attempt=invalid_attempt,
+            )
+
+
+def test_worker_default_attempt_cap_matches_gateway_request_contract():
+    assert Settings.model_fields["ai_max_attempts"].default == MAX_ANALYSIS_REQUEST_ATTEMPT
+
+
 def test_model_migration_changes_the_deduplication_key():
     digest = "a" * 64
 
@@ -121,6 +152,37 @@ def test_gateway_request_rejects_noncanonical_hash():
             model=AI_MODEL,
             snapshot=snapshot,
         )
+
+
+def test_snapshot_evidence_helpers_preserve_validator_medical_scope_rules():
+    snapshot = AnalysisSnapshot(
+        source_through=NOW,
+        facts=[
+            fact("weight.change_7d_kg", -0.7),
+            fact("pressure.systolic_7d", 128, "pressure", "mmhg"),
+            fact("recovery.spo2_percent", 97, "quality", "percent"),
+        ],
+        series=[
+            SnapshotSeries(
+                key="heart.resting_daily",
+                scope="heart",
+                unit="bpm",
+                points=[SnapshotPoint(day="2026-08-19", value=62)],
+            )
+        ],
+    )
+
+    assert snapshot_evidence_keys(snapshot) == {
+        "heart.resting_daily",
+        "pressure.systolic_7d",
+        "recovery.spo2_percent",
+        "weight.change_7d_kg",
+    }
+    assert snapshot_medical_evidence_keys(snapshot) == {
+        "heart.resting_daily",
+        "pressure.systolic_7d",
+        "recovery.spo2_percent",
+    }
 
 
 def test_generated_output_allows_bounded_medical_guidance_but_rejects_unsafe_instructions():

@@ -20,11 +20,15 @@
   wrapper accepts exactly the current `origin/main` commit, requires a clean
   root-owned checkout and a descendant of the recorded production release, and
   then invokes `deploy/deploy.sh` with exactly one notification mode.
-- Automatic recovery must call `restore-previous-release.sh` and must never
+- Default automatic recovery must call `restore-previous-release.sh` and must never
   activate legacy PHP. Legacy is an explicit disaster fallback requiring
   `rollback.sh --to-legacy SNAPSHOT`. From an already active legacy route/cron,
   first use `takeover-from-legacy.sh --resume-recorded-release SNAPSHOT` so the
   live MariaDB OAuth pair is handed safely back to PostgreSQL.
+- The optional `--no-auto-recovery` wrapper flag may be used only after explicit
+  user authorization for the current operator session. It still requires a
+  verified snapshot and records only a fully started candidate runtime so the
+  next descendant release can fix forward; normal future deployments omit it.
 - A previous release without `backend/app/auth.py` is never allowed to make the
   dashboard public again: recovery installs the auth-floor maintenance route,
   returns `503` for `/amigo/`, and keeps only signed Android ingest available.

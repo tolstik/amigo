@@ -62,6 +62,12 @@ grep --quiet --fixed-strings \
     "\"\${SCRIPT_DIR}/restore-previous-release.sh\" \"\${SNAPSHOT}\"" \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy error trap does not call previous-release recovery"
+grep --quiet --fixed-strings -- '--no-auto-recovery' \
+    "${SCRIPT_DIR}/deploy.sh" "${SCRIPT_DIR}/amigo-release" \
+    || amigo_die "explicit fix-forward session mode is not wired through the release path"
+grep --quiet --fixed-strings 'CANDIDATE_RUNTIME_ACTIVE=1' \
+    "${SCRIPT_DIR}/deploy.sh" \
+    || amigo_die "fix-forward mode cannot distinguish an active candidate runtime"
 if grep --quiet --extended-regexp \
     'AMIGO_DEPLOY_LOCK_HELD=.*rollback\.sh' "${SCRIPT_DIR}/deploy.sh"; then
     amigo_die "deploy still invokes legacy disaster fallback automatically"
@@ -188,6 +194,9 @@ managed_rate_status_count="$(grep --count --fixed-strings 'limit_req_status 429;
 grep --quiet --fixed-strings 'limit_req zone=amigo_upload burst=5 nodelay;' \
     "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
     || amigo_die "laboratory upload burst does not cover the bounded UI/verification sequence"
+grep --quiet --fixed-strings 'proxy_pass_header X-Accel-Buffering;' \
+    "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
+    || amigo_die "assistant SSE route does not pass its no-buffer response contract"
 grep --quiet --fixed-strings 'lab-parser' "${SCRIPT_DIR}/rollback.sh" \
     || amigo_die "legacy disaster fallback does not stop the isolated laboratory parser"
 # Literal variable syntax is the unsafe source pattern being rejected.

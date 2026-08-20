@@ -13,12 +13,12 @@ readonly EXPECTED_ORIGIN="https://github.com/tolstik/amigo.git"
 readonly DEPLOY_USER="tolstik"
 
 usage() {
-    printf 'Usage: %s GIT_SHA --send-telegram-test|--skip-telegram-test\n' \
+    printf 'Usage: %s GIT_SHA --send-telegram-test|--skip-telegram-test [--no-auto-recovery]\n' \
         "${0##*/}" >&2
     exit 2
 }
 
-[[ $# -eq 2 ]] || usage
+[[ $# -ge 2 && $# -le 3 ]] || usage
 readonly CANDIDATE_SHA=$1
 readonly NOTIFICATION_MODE=$2
 [[ "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]] || usage
@@ -29,6 +29,8 @@ case "${NOTIFICATION_MODE}" in
         usage
         ;;
 esac
+readonly RECOVERY_MODE=${3:-}
+[[ -z "${RECOVERY_MODE}" || "${RECOVERY_MODE}" == "--no-auto-recovery" ]] || usage
 
 [[ ${EUID} -eq 0 ]] || {
     printf 'amigo-release must run as root through sudo\n' >&2
@@ -113,10 +115,16 @@ git_release checkout --detach "${CANDIDATE_SHA}"
     exit 1
 }
 
+DEPLOY_ARGS=("${NOTIFICATION_MODE}")
+if [[ -n "${RECOVERY_MODE}" ]]; then
+    DEPLOY_ARGS+=("${RECOVERY_MODE}")
+fi
+readonly -a DEPLOY_ARGS
+
 exec env -i \
     HOME=/root \
     LOGNAME=root \
     PATH="${PATH}" \
     TERM="${TERM:-xterm-256color}" \
     USER=root \
-    bash "${APP_DIR}/deploy/deploy.sh" "${NOTIFICATION_MODE}"
+    bash "${APP_DIR}/deploy/deploy.sh" "${DEPLOY_ARGS[@]}"

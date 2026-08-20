@@ -10,27 +10,37 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 usage() {
     cat >&2 <<'USAGE'
-Usage: deploy.sh --send-telegram-test|--skip-telegram-test
+Usage: deploy.sh --send-telegram-test|--skip-telegram-test [--no-auto-recovery]
 
 Choose exactly one notification mode. --send-telegram-test explicitly
 authorizes one clearly labelled pre-cutover Telegram smoke message;
 --skip-telegram-test performs the deployment without sending that message.
+--no-auto-recovery is an explicit operator-session exception that leaves a
+started candidate in place for fix-forward instead of restoring its snapshot.
 USAGE
     exit 2
 }
 
-[[ $# -eq 1 ]] || usage
+[[ $# -ge 1 && $# -le 2 ]] || usage
 case $1 in
     --send-telegram-test)
-        readonly SEND_TELEGRAM_TEST=1
+        SEND_TELEGRAM_TEST=1
         ;;
     --skip-telegram-test)
-        readonly SEND_TELEGRAM_TEST=0
+        SEND_TELEGRAM_TEST=0
         ;;
     *)
         usage
         ;;
 esac
+readonly SEND_TELEGRAM_TEST
+
+AUTO_RECOVERY=1
+if [[ $# -eq 2 ]]; then
+    [[ $2 == "--no-auto-recovery" ]] || usage
+    AUTO_RECOVERY=0
+fi
+readonly AUTO_RECOVERY
 
 amigo_require_root
 amigo_require_commands \
@@ -101,6 +111,7 @@ nginx -t >/dev/null
 SNAPSHOT=""
 CUTOVER_STARTED=0
 CUTOVER_COMMITTED=0
+CANDIDATE_RUNTIME_ACTIVE=0
 EXISTING_WORKER_STOPPED=0
 EXISTING_WORKER_WAS_RUNNING=0
 EXISTING_AI_WORKER_STOPPED=0
@@ -119,7 +130,7 @@ deploy_error() {
     amigo_log "deployment failed at line ${line} (status ${status})"
     if [[ ${CUTOVER_COMMITTED} -eq 1 ]]; then
         amigo_log "runtime cutover remains healthy; finish the release-state/checkpoint step manually"
-    elif [[ ${CUTOVER_STARTED} -eq 1 && -n "${SNAPSHOT}" ]]; then
+    elif [[ ${CUTOVER_STARTED} -eq 1 && -n "${SNAPSHOT}" && ${AUTO_RECOVERY} -eq 1 ]]; then
         amigo_log "starting automatic recovery of the immutable previous Amigo release"
         AMIGO_DEPLOY_LOCK_HELD=1 bash \
             "${SCRIPT_DIR}/restore-previous-release.sh" "${SNAPSHOT}"
@@ -129,6 +140,15 @@ deploy_error() {
             amigo_log "legacy was not activated; explicit disaster fallback requires:"
             amigo_log "sudo ${SCRIPT_DIR}/rollback.sh --to-legacy ${SNAPSHOT}"
         fi
+    elif [[ ${CUTOVER_STARTED} -eq 1 && -n "${SNAPSHOT}" ]]; then
+        amigo_log "automatic recovery was explicitly disabled for this operator session"
+        if [[ ${CANDIDATE_RUNTIME_ACTIVE} -eq 1 ]]; then
+            amigo_record_current_release "${RELEASE_SHA}"
+            amigo_log "candidate runtime remains active and recorded for the next fix-forward release"
+        else
+            amigo_log "candidate did not reach the active-runtime boundary and was not recorded"
+        fi
+        amigo_log "verified recovery snapshot remains available at ${SNAPSHOT}"
     else
         if [[ ${EXISTING_WORKER_STOPPED} -eq 1 && ${EXISTING_WORKER_WAS_RUNNING} -eq 1 ]]; then
             amigo_log "restarting the previous data worker after the failed pre-cutover deployment"
@@ -362,6 +382,7 @@ amigo_log "starting the data and AI workers after legacy collection is disabled"
 amigo_compose up -d --wait --wait-timeout 180 worker ai-worker
 EXISTING_WORKER_STOPPED=0
 EXISTING_AI_WORKER_STOPPED=0
+CANDIDATE_RUNTIME_ACTIVE=1
 bash "${SCRIPT_DIR}/verify-production.sh"
 amigo_record_current_release "${RELEASE_SHA}"
 CUTOVER_COMMITTED=1

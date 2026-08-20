@@ -118,6 +118,8 @@
       `/amigo-ai/healthz` и `/amigo-lab-parser/healthz` не возвращают 2xx.
 - [ ] В `my.conf` ровно два managed marker, snippets совпадают с release,
       read/ingest rate-limit zones установлены, `nginx -t` успешен.
+- [ ] Dynamic labs/assistant regex routes используют named captures и exact
+      upstream URI; public method/path не искажается generic rewrite.
 - [ ] Origin с `Host: amigo.tolstik.ru` отвечает; exact `/amigo` возвращает
       `308`, `/amigo/` — `200`.
 - [ ] Public `https://amigo.tolstik.ru/amigo` возвращает относительный

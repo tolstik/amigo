@@ -160,6 +160,21 @@ grep --quiet --fixed-strings \
     'installed auth-floor HTTP config does not match the candidate release' \
     "${SCRIPT_DIR}/pre-cutover-backup.sh" \
     || amigo_die "pre-cutover backup cannot safely resume with the exact candidate HTTP config"
+if grep --quiet --fixed-strings 'rewrite ^/amigo/(.*)$ /$1 break;' \
+    "${SCRIPT_DIR}/nginx/amigo.locations.conf"; then
+    amigo_die "dynamic managed routes still use capture-unsafe URI rewriting"
+fi
+for explicit_dynamic_proxy in \
+    'api/v1/labs/documents/$amigo_lab_action_document_id/$amigo_lab_document_action' \
+    'api/v1/labs/documents/$amigo_lab_create_document_id/results' \
+    'api/v1/labs/documents/$amigo_lab_detail_document_id' \
+    'api/v1/labs/results/$amigo_lab_patch_result_id' \
+    'api/v1/assistant/messages/$amigo_assistant_retry_message_id/retry' \
+    'api/v1/assistant/messages/$amigo_assistant_events_message_id/events'; do
+    grep --quiet --fixed-strings "${explicit_dynamic_proxy}" \
+        "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
+        || amigo_die "managed route lacks explicit dynamic upstream URI: ${explicit_dynamic_proxy}"
+done
 grep --quiet --fixed-strings 'lab-parser' "${SCRIPT_DIR}/rollback.sh" \
     || amigo_die "legacy disaster fallback does not stop the isolated laboratory parser"
 # Literal variable syntax is the unsafe source pattern being rejected.

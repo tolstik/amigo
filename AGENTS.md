@@ -31,6 +31,9 @@
   A retry from that state may snapshot only installed locations and HTTP files
   that exactly match the candidate's versioned maintenance snippet and HTTP
   configuration.
+- Managed regex routes for laboratory documents/results and assistant turns use
+  named captures with explicit upstream URIs; never reintroduce the generic
+  `rewrite ^/amigo/(.*)$` form because nginx can clobber its numeric capture.
 - A responding but unhealthy legacy origin may be bypassed only with takeover's
   explicit `--allow-unhealthy-legacy-origin` flag. In that mode failure reversal
   must never treat legacy as healthy, enable its Withings cron, or stop a

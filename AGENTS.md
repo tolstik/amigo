@@ -189,9 +189,17 @@
   never overwrite a user-corrected result. Known analyte guides remain versioned
   deterministic reference content. A previously unknown analyte is enriched
   through the isolated local Codex gateway during import and persisted in
-  PostgreSQL before that document completes; a batched three-attempt queue
-  backfills existing unknown analytes. Authenticated GET handlers only read the
-  persisted guide and never invoke or enqueue inference.
+  PostgreSQL before that document completes. Contract
+  `amigo-lab-analyte-guide-v2` uses batches of at most five; a versioned
+  three-attempt queue gradually backfills existing unknown analytes and retries
+  terminal work only when the contract changes. Authenticated GET handlers only
+  read the persisted guide and never invoke or enqueue inference.
+  Backfill never starves interactive assistant or routine analysis work: after
+  one guide batch the worker offers foreground AI queues before taking another.
+  Production verification requires current-contract backfill progress and no
+  terminal current-contract job; it never delays cutover until the entire
+  historical backlog drains. The superseded v1 batch of 20 exceeded the pinned
+  Codex deadline and must not be restored.
 - Study-report uploads support the same bounded formats and queue for ultrasound,
   MRI, CT, X-ray, ECG, and other reports; DICOM is not supported. PostgreSQL
   stores the original plus structured findings/conclusion. Obvious identifier

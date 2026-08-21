@@ -13,6 +13,7 @@ from app.lab_contracts import (
     ExtractedLabReport,
     ExtractedLabResult,
     GatewayAnalyteGuideResponse,
+    LAB_ANALYTE_GUIDE_PROMPT_VERSION,
     LabExtraction,
 )
 from app.auth_models import UserProfile
@@ -35,6 +36,7 @@ from app.labs import (
     backfill_stored_files,
     bounded_page_chunks,
     calculate_status,
+    claim_analyte_guide_jobs,
     detect_media_type,
     enqueue_document,
     enqueue_missing_analyte_guide_jobs,
@@ -241,6 +243,66 @@ def test_existing_unknown_analytes_are_enqueued_once_for_bounded_backfill(db):
     job = db.query(LabAnalyteGuideJob).one()
     assert job.analyte_id == "custom-backfill"
     assert job.status == "pending"
+    assert job.contract_version == LAB_ANALYTE_GUIDE_PROMPT_VERSION
+
+
+def test_new_guide_contract_retries_a_terminal_old_job_only_once(db):
+    db.add(LabAnalyte(id="custom-retry", display_name="Повторяемый маркер", aliases=[]))
+    db.add(
+        LabAnalyteGuideJob(
+            analyte_id="custom-retry",
+            status="failed",
+            attempts=3,
+            error_code="timeout",
+            contract_version="amigo-lab-analyte-guide-v1",
+        )
+    )
+    db.commit()
+
+    assert enqueue_missing_analyte_guide_jobs(db) == 1
+    job = db.query(LabAnalyteGuideJob).one()
+    assert job.status == "pending"
+    assert job.attempts == 0
+    assert job.error_code is None
+    assert job.contract_version == LAB_ANALYTE_GUIDE_PROMPT_VERSION
+
+    job.status = "failed"
+    job.attempts = 3
+    job.error_code = "timeout"
+    db.commit()
+
+    assert enqueue_missing_analyte_guide_jobs(db) == 0
+    db.refresh(job)
+    assert job.status == "failed"
+    assert job.attempts == 3
+
+
+def test_guide_backfill_claims_at_most_five_newest_jobs(db):
+    now = datetime(2026, 8, 21, 10, tzinfo=timezone.utc)
+    for index in range(7):
+        analyte_id = f"custom-queue-{index}"
+        db.add(LabAnalyte(id=analyte_id, display_name=f"Маркер {index}", aliases=[]))
+        db.add(
+            LabAnalyteGuideJob(
+                analyte_id=analyte_id,
+                status="pending",
+                attempts=0,
+                available_at=now,
+                contract_version=LAB_ANALYTE_GUIDE_PROMPT_VERSION,
+            )
+        )
+    db.commit()
+
+    claimed = claim_analyte_guide_jobs(db, now)
+
+    assert len(claimed) == 5
+    assert [job.analyte_id for job in claimed] == [
+        "custom-queue-6",
+        "custom-queue-5",
+        "custom-queue-4",
+        "custom-queue-3",
+        "custom-queue-2",
+    ]
 
 
 def test_report_range_overrides_catalog_and_results_publish_unverified(db):

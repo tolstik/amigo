@@ -11,7 +11,7 @@ from .ai_contracts import AI_MODEL
 
 
 LAB_EXTRACTION_PROMPT_VERSION = "amigo-lab-extraction-v1"
-LAB_ANALYTE_GUIDE_PROMPT_VERSION = "amigo-lab-analyte-guide-v1"
+LAB_ANALYTE_GUIDE_PROMPT_VERSION = "amigo-lab-analyte-guide-v2"
 
 
 class StrictModel(BaseModel):
@@ -82,10 +82,10 @@ class GeneratedAnalyteGuide(StrictModel):
     analyte_id: Annotated[
         str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,119}$")
     ]
-    summary: Annotated[str, StringConstraints(min_length=20, max_length=1600)]
-    why_tested: Annotated[str, StringConstraints(min_length=20, max_length=1600)]
-    low_meaning: Annotated[str, StringConstraints(min_length=20, max_length=2000)]
-    high_meaning: Annotated[str, StringConstraints(min_length=20, max_length=2000)]
+    summary: Annotated[str, StringConstraints(min_length=20, max_length=800)]
+    why_tested: Annotated[str, StringConstraints(min_length=20, max_length=800)]
+    low_meaning: Annotated[str, StringConstraints(min_length=20, max_length=1000)]
+    high_meaning: Annotated[str, StringConstraints(min_length=20, max_length=1000)]
 
 
 class GatewayAnalyteGuideRequest(StrictModel):

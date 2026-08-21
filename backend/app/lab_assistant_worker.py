@@ -55,6 +55,9 @@ from .labs import (
 from .studies import claim_study_job, structure_study_text
 
 
+ANALYTE_GUIDE_BATCH_SIZE = 5
+
+
 class WorkError(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
@@ -220,8 +223,8 @@ def _generate_analyte_guides(
     analytes: list[LabAnalyte],
     now: datetime,
 ) -> None:
-    for offset in range(0, len(analytes), 20):
-        chunk = analytes[offset : offset + 20]
+    for offset in range(0, len(analytes), ANALYTE_GUIDE_BATCH_SIZE):
+        chunk = analytes[offset : offset + ANALYTE_GUIDE_BATCH_SIZE]
         request = GatewayAnalyteGuideRequest(
             contract_version=LAB_ANALYTE_GUIDE_PROMPT_VERSION,
             model=AI_MODEL,

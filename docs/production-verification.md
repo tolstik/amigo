@@ -76,8 +76,8 @@
       disabled-marker; после incremental sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.
 - [ ] Android `1.2.2` (`versionCode 7`) получен как
-      [`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.2/Amigo-1.2.2.apk)
-      из release [`v5.0.2`](https://github.com/tolstik/amigo/releases/tag/v5.0.2);
+      [`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.3/Amigo-1.2.2.apk)
+      из release [`v5.0.3`](https://github.com/tolstik/amigo/releases/tag/v5.0.3);
       его SHA-256 равен
       `4c8168013d49439072c0a084ea3284d88916d0164b5fba47201c60861ee9454a`, а
       signing certificate SHA-256 равен
@@ -124,9 +124,10 @@
 - [ ] После idempotent laboratory-date repair нет report/result с годом до
       1900 или более чем на год в будущем; исправление использовало только
       однозначно подписанные OCR-даты и не перезаписало ручные corrections.
-- [ ] Для всех уже импортированных неизвестных analytes сохранена статья в
-      PostgreSQL; `lab_analyte_guide_jobs` не содержит pending, processing или
-      failed rows после bounded backfill.
+- [ ] Bounded backfill сохранил хотя бы одну статью текущего контракта либо уже
+      не имеет пропусков; текущая версия `lab_analyte_guide_jobs` не содержит
+      terminal failed rows. Остаток исторической очереди может обрабатываться
+      асинхронно пачками не более пяти.
 - [ ] `/srv/amigo/data/android/amigo-sync.apk` — root:root regular file `0600`
       с точным hash `1.2.2`; `web` видит `/android` только read-only.
 - [ ] Listener `18181` — только `127.0.0.1:18181` для `web`; listener `18182` —
@@ -354,7 +355,7 @@
       services, SHA-256 установленных Compose/nginx/Codex, результаты
       verification, exact previous-release recovery command и отдельную
       `rollback.sh --to-legacy` disaster command без секретов.
-- [ ] Release `v5.0.2` указывает на deployed feature commit; asset
+- [ ] Release `v5.0.3` указывает на deployed feature commit; asset
       `Amigo-1.2.2.apk` скачивается, повторно даёт ожидаемые APK SHA-256 и
       signing certificate, а verified App Link association остаётся доступна.
 - [ ] Изменения `AGENTS.md`, runbook и `production-checkpoint.md` перенесены в

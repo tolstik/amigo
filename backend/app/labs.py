@@ -19,7 +19,11 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from .auth_models import UserProfile
-from .lab_contracts import GatewayAnalyteGuideResponse, LabExtraction
+from .lab_contracts import (
+    GatewayAnalyteGuideResponse,
+    LAB_ANALYTE_GUIDE_PROMPT_VERSION,
+    LabExtraction,
+)
 from .lab_models import (
     LabAnalyte,
     LabAnalyteGuide,
@@ -472,19 +476,36 @@ def missing_analyte_guides(
 
 
 def enqueue_missing_analyte_guide_jobs(db: Session) -> int:
-    created = 0
+    queued = 0
+    now = datetime.now(timezone.utc)
     for analyte in missing_analyte_guides(db):
         existing = db.scalar(
             select(LabAnalyteGuideJob).where(
                 LabAnalyteGuideJob.analyte_id == analyte.id
             )
         )
-        if existing is not None:
+        if existing is not None and existing.contract_version == LAB_ANALYTE_GUIDE_PROMPT_VERSION:
             continue
-        db.add(LabAnalyteGuideJob(analyte_id=analyte.id, status="pending", attempts=0))
-        created += 1
+        if existing is None:
+            db.add(
+                LabAnalyteGuideJob(
+                    analyte_id=analyte.id,
+                    status="pending",
+                    attempts=0,
+                    contract_version=LAB_ANALYTE_GUIDE_PROMPT_VERSION,
+                )
+            )
+        else:
+            existing.status = "pending"
+            existing.attempts = 0
+            existing.available_at = now
+            existing.lease_until = None
+            existing.error_code = None
+            existing.finished_at = None
+            existing.contract_version = LAB_ANALYTE_GUIDE_PROMPT_VERSION
+        queued += 1
     db.commit()
-    return created
+    return queued
 
 
 def persist_analyte_guides(
@@ -534,7 +555,7 @@ def claim_analyte_guide_jobs(
     db: Session,
     now: datetime,
     lease_seconds: int = 180,
-    limit: int = 20,
+    limit: int = 5,
 ) -> list[LabAnalyteGuideJob]:
     expired = list(
         db.scalars(
@@ -557,8 +578,9 @@ def claim_analyte_guide_jobs(
         .where(
             LabAnalyteGuideJob.status == "pending",
             LabAnalyteGuideJob.available_at <= now,
+            LabAnalyteGuideJob.contract_version == LAB_ANALYTE_GUIDE_PROMPT_VERSION,
         )
-        .order_by(LabAnalyteGuideJob.id)
+        .order_by(LabAnalyteGuideJob.id.desc())
         .with_for_update(skip_locked=True)
         .limit(limit)
     ))

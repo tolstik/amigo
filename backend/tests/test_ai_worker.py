@@ -192,6 +192,43 @@ def test_worker_offers_background_analysis_after_three_assistant_jobs(db, monkey
     assert calls[-2:] == ["lab", "assistant"]
 
 
+def test_worker_interleaves_guide_backfill_with_assistant_turns(db, monkeypatch):
+    worker = AiAnalysisWorker(
+        settings(),
+        gateway=SuccessfulGateway(),
+        lab_gateway=object(),
+    )
+    calls: list[str] = []
+    remaining_guides = 2
+
+    def no_document(*_args):
+        return False
+
+    def guide(*_args):
+        nonlocal remaining_guides
+        calls.append("guide")
+        if remaining_guides == 0:
+            return False
+        remaining_guides -= 1
+        return True
+
+    def assistant(*_args):
+        calls.append("assistant")
+        return True
+
+    monkeypatch.setattr("app.ai_worker.process_lab_job", no_document)
+    monkeypatch.setattr("app.ai_worker.process_study_job", no_document)
+    monkeypatch.setattr("app.ai_worker.process_analyte_guide_job", guide)
+    monkeypatch.setattr("app.ai_worker.process_assistant_job", assistant)
+    monkeypatch.setattr(worker, "process_analysis", lambda *_args: False)
+
+    assert worker.process_one(db, NOW) is True
+    assert worker.process_one(db, NOW) is True
+    assert worker.process_one(db, NOW) is True
+
+    assert calls == ["guide", "assistant", "guide"]
+
+
 def test_ai_worker_retries_with_sanitized_error_code(db):
     enqueue_analysis(db, snapshot(), trigger="activity", now=NOW, debounce_seconds=0)
     worker = AiAnalysisWorker(settings(), gateway=FailingGateway())

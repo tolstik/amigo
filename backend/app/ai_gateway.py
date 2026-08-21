@@ -351,6 +351,9 @@ For each analyte:
   important pre-analytical or method factors. If one direction is not clinically meaningful, say
   that clearly instead of inventing causes.
 
+Keep every field to one or two information-dense sentences. Prefer several short clauses over
+long lists so the full batch completes within the bounded inference deadline.
+
 The text is general reference material, not a conclusion about this user. Never state a diagnosis,
 prescribe treatment or medication, give dosage or emergency instructions, or replace the reference
 interval printed by the laboratory. Use plain prose without Markdown, HTML, links, citations, or

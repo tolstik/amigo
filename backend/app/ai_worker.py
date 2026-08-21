@@ -121,6 +121,7 @@ class AiAnalysisWorker:
         self.lab_gateway = lab_gateway or LabAssistantGateway(self.settings)
         self._owns_lab_gateway = lab_gateway is None
         self._consecutive_assistant_jobs = 0
+        self._guide_priority = True
         self._prefer_study = False
         self.max_attempts = min(
             self.settings.ai_max_attempts,
@@ -198,23 +199,37 @@ class AiAnalysisWorker:
             if processor(db, self.settings, self.lab_gateway, current):
                 self._prefer_study = processor is process_lab_job
                 self._consecutive_assistant_jobs = 0
+                self._guide_priority = True
                 return True
+        if (
+            not self.settings.worker_once
+            and self._guide_priority
+            and process_analyte_guide_job(db, self.settings, self.lab_gateway, current)
+        ):
+            self._consecutive_assistant_jobs = 0
+            self._guide_priority = False
+            return True
+        if self._consecutive_assistant_jobs >= 3 and self.process_analysis(db, current):
+            self._consecutive_assistant_jobs = 0
+            self._guide_priority = True
+            return True
+        if process_assistant_job(db, self.settings, self.lab_gateway, current):
+            self._consecutive_assistant_jobs += 1
+            self._guide_priority = True
+            return True
+        processed = self.process_analysis(db, current)
+        if processed:
+            self._consecutive_assistant_jobs = 0
+            self._guide_priority = True
+            return True
         if (
             not self.settings.worker_once
             and process_analyte_guide_job(db, self.settings, self.lab_gateway, current)
         ):
             self._consecutive_assistant_jobs = 0
+            self._guide_priority = False
             return True
-        if self._consecutive_assistant_jobs >= 3 and self.process_analysis(db, current):
-            self._consecutive_assistant_jobs = 0
-            return True
-        if process_assistant_job(db, self.settings, self.lab_gateway, current):
-            self._consecutive_assistant_jobs += 1
-            return True
-        processed = self.process_analysis(db, current)
-        if processed:
-            self._consecutive_assistant_jobs = 0
-        return processed
+        return False
 
     def run_once(self) -> bool:
         with SessionLocal() as db:

@@ -190,9 +190,9 @@ backup. Теперь checkpoint сам создаёт локальный documen
    авторизован только для чтения package. OCI label
    `org.opencontainers.image.revision` должен совпадать с `GIT_SHA`.
 9. Для Android `1.2.2` (`versionCode 7`) использовать signed
-   [`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.2/Amigo-1.2.2.apk)
+   [`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.3/Amigo-1.2.2.apk)
    из GitHub release
-   [`v5.0.2`](https://github.com/tolstik/amigo/releases/tag/v5.0.2) и сверить SHA-256
+   [`v5.0.3`](https://github.com/tolstik/amigo/releases/tag/v5.0.3) и сверить SHA-256
    `4c8168013d49439072c0a084ea3284d88916d0164b5fba47201c60861ee9454a`.
    Signing certificate SHA-256 должен быть
    `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
@@ -430,10 +430,12 @@ recovery. `lab-parser`
 истории показателя читает справочную карточку с назначением показателя и
 возможными категориями причин отклонений. Для неизвестного показателя
 `ai-worker` до завершения нового импорта вызывает изолированный
-`amigo-lab-analyte-guide-v1` контракт локального Codex и сохраняет статью в
-PostgreSQL. После обновления batched queue (до 20 показателей за вызов, не более
-трёх попыток) заполняет уже импортированные неизвестные показатели; GET никогда
-не запускает inference. Очередь показывает
+`amigo-lab-analyte-guide-v2` контракт локального Codex и сохраняет статью в
+PostgreSQL. После обновления batched queue (до 5 показателей за вызов, не более
+трёх попыток на версию контракта) постепенно заполняет уже импортированные
+неизвестные показатели. После каждой пачки worker предлагает выполнение
+assistant/analysis очередям, поэтому backfill их не блокирует; GET никогда не
+запускает inference. Очередь показывает
 позицию, этап и прогресс через SSE; новый batch можно добавлять во время
 обработки предыдущего. Удаление документа удаляет его БД-историю и конкретный
 database original.
@@ -460,8 +462,8 @@ medication/dosage instructions и fixed calorie target.
 ## Android APK, pairing и backfill
 
 1. Установить проверенный signed Android `1.2.2` (`versionCode 7`) —
-   [`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.2/Amigo-1.2.2.apk)
-   из release [`v5.0.2`](https://github.com/tolstik/amigo/releases/tag/v5.0.2) —
+   [`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.3/Amigo-1.2.2.apk)
+   из release [`v5.0.3`](https://github.com/tolstik/amigo/releases/tag/v5.0.3) —
    или обновить `1.2.1`:
 
    ```bash
@@ -596,8 +598,9 @@ sudo bash /srv/amigo/deploy/verify-production.sh
   безопасное отклонение пустого upload и no-buffer assistant/lab/study SSE без
   создания chat turn;
 - database-owned originals после проверенного backfill, отсутствие implausible
-  laboratory dates после deterministic repair, завершённый backfill статей
-  неизвестных analytes и analyte guide contract,
+  laboratory dates после deterministic repair, подтверждённый прогресс
+  ограниченного фонового backfill статей неизвестных analytes без terminal
+  failure текущего контракта и analyte guide contract,
   root-only dual-write lab storage, web RW/ai-worker RO/parser no-mount и
   внутренний parser health;
 - root-only signed APK `1.2.2`, точный hash, read-only web mount,

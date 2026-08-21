@@ -460,32 +460,36 @@ LAB_DATE_STATE="$(
     || amigo_die "implausible laboratory dates remain after deterministic repair"
 
 ANALYTE_GUIDES_READY=0
-for _guide_wait in {1..84}; do
+for _guide_wait in {1..36}; do
     ANALYTE_GUIDE_STATE="$(
         amigo_compose exec -T ai-worker python -c '
 from sqlalchemy import func, select
 from app.db import SessionLocal
-from app.lab_models import LabAnalyteGuideJob
+from app.lab_contracts import LAB_ANALYTE_GUIDE_PROMPT_VERSION
+from app.lab_models import LabAnalyteGuide, LabAnalyteGuideJob
 from app.labs import missing_analyte_guides
 with SessionLocal() as db:
     missing = len(missing_analyte_guides(db))
-    active = db.scalar(select(func.count()).select_from(LabAnalyteGuideJob).where(LabAnalyteGuideJob.status.in_(["pending", "processing"]))) or 0
-    failed = db.scalar(select(func.count()).select_from(LabAnalyteGuideJob).where(LabAnalyteGuideJob.status == "failed")) or 0
-    print(f"{missing}|{active}|{failed}")
+    current_jobs = LabAnalyteGuideJob.contract_version == LAB_ANALYTE_GUIDE_PROMPT_VERSION
+    active = db.scalar(select(func.count()).select_from(LabAnalyteGuideJob).where(current_jobs, LabAnalyteGuideJob.status.in_(["pending", "processing"]))) or 0
+    failed = db.scalar(select(func.count()).select_from(LabAnalyteGuideJob).where(current_jobs, LabAnalyteGuideJob.status == "failed")) or 0
+    generated = db.scalar(select(func.count()).select_from(LabAnalyteGuide).where(LabAnalyteGuide.contract_version == LAB_ANALYTE_GUIDE_PROMPT_VERSION)) or 0
+    print(f"{missing}|{active}|{failed}|{generated}")
 '
     )"
-    if [[ "${ANALYTE_GUIDE_STATE}" == "0|0|0" ]]; then
+    if [[ "${ANALYTE_GUIDE_STATE}" =~ ^0\|0\|0\|[0-9]+$ ]] \
+        || [[ "${ANALYTE_GUIDE_STATE}" =~ ^[0-9]+\|[0-9]+\|0\|[1-9][0-9]*$ ]]; then
         ANALYTE_GUIDES_READY=1
         break
     fi
-    if [[ "${ANALYTE_GUIDE_STATE}" =~ ^[0-9]+\|[0-9]+\|([1-9][0-9]*)$ ]]; then
+    if [[ "${ANALYTE_GUIDE_STATE}" =~ ^[0-9]+\|[0-9]+\|[1-9][0-9]*\|[0-9]+$ ]]; then
         amigo_die "analyte guide backfill reached a terminal failure"
     fi
     sleep 5
 done
 [[ ${ANALYTE_GUIDES_READY} -eq 1 ]] \
-    || amigo_die "analyte guide backfill did not finish within seven minutes"
-amigo_log "PASS database-owned originals, repaired laboratory dates, generated analyte guides, and signed Android 1.2.2 artifact"
+    || amigo_die "analyte guide backfill made no verified progress within three minutes"
+amigo_log "PASS database-owned originals, repaired laboratory dates, bounded analyte-guide backfill progress, and signed Android 1.2.2 artifact"
 
 check_loopback_listener() {
     local port=$1

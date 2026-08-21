@@ -103,7 +103,7 @@ bash "${SCRIPT_DIR}/install-release-wrapper.sh"
 export AMIGO_IMAGE_TAG="${RELEASE_SHA}"
 CANDIDATE_IMAGE_SOURCE="ghcr.io/tolstik/amigo:${RELEASE_SHA}"
 readonly CANDIDATE_IMAGE_SOURCE
-readonly ANDROID_APK_URL="https://github.com/tolstik/amigo/releases/download/v5.0.2/Amigo-1.2.2.apk"
+readonly ANDROID_APK_URL="https://github.com/tolstik/amigo/releases/download/v5.0.3/Amigo-1.2.2.apk"
 readonly ANDROID_APK_SHA256="4c8168013d49439072c0a084ea3284d88916d0164b5fba47201c60861ee9454a"
 amigo_log "candidate Git SHA: ${RELEASE_SHA}"
 amigo_log "automatic recovery target: ${PREVIOUS_RELEASE_SHA}"

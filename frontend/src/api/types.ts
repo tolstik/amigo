@@ -321,6 +321,7 @@ export interface LabAnalyteGuide {
   high_meaning: string;
   version: string;
   reviewed_on: string;
+  source: "catalog" | "ai_generated" | "pending";
 }
 
 export interface LabResultInput {

@@ -104,6 +104,10 @@
   rate limit. Health Connect step counts up to its documented 1,000,000 maximum
   are accepted. Ingest rejection logs contain only the stable `detail.code`,
   never health payloads, headers, device IDs, batch IDs, or validation details.
+- Provider-confirmed empty Health Connect snapshot ranges may span more than 31
+  days only as one empty final page with page index zero, and are capped at 50
+  years. Android must use that contract to skip empty historical prefixes and
+  gaps, while every snapshot that contains records remains at most 30 days.
 - Android `ru.tolstik.amigo.sync` opens the authenticated dashboard in a
   top-level WebView by default and keeps native Health Connect sync on a second
   tab. The WebView is fixed to `https://amigo.tolstik.ru`, has no JavaScript
@@ -112,7 +116,7 @@
   `/amigo/...`; authenticated CSV and laboratory-original downloads use the
   system document picker and forward in-memory cookies only to exact allowlisted
   same-origin GET routes, without redirects.
-- Android `1.2.1` (`versionCode 6`) accepts up to 25 dashboard uploads from the
+- Android `1.2.2` (`versionCode 7`) accepts up to 25 dashboard uploads from the
   system picker, refreshes a stale foreground WebView, records allowlisted
   background-sync diagnostics, and schedules immediate, hourly, and bounded
   one-minute backfill continuation work. Its in-app updater may download only
@@ -122,6 +126,8 @@
   Backfill continuations append to the active unique-work chain and never
   replace their own running worker; background run IDs prevent stale workers
   from overwriting status. Retryable DNS failures do not advance sync cursors.
+  Existing monthly empty cursors fast-forward without resetting pairing, the
+  device key, changes tokens, or current cursor state.
 - Deterministic blood-pressure, heart, SpO2, and VO2 displays remain descriptive
   and never add severity colors or app-side diagnoses. Validated AI may use those
   metrics only for evidence-bound measurement/logging advice or discussion of a
@@ -147,8 +153,9 @@
   four foreground queue attempts. It must never add an unbounded gateway or AI
   retry loop.
 - The pre-cutover synthetic AI smoke must exercise the live analysis,
-  laboratory-extraction, and assistant-turn gateway contracts with bounded
-  non-personal fixtures. Analysis and laboratory extraction run once; only an
+  laboratory-extraction, analyte-guide, and assistant-turn gateway contracts
+  with bounded non-personal fixtures. Analysis, laboratory extraction, and
+  analyte-guide generation run once; only an
   invalid/error assistant result may be attempted exactly once more with
   `attempt=2`, and the second result must validate fully. Gateway/parser health
   alone is not release readiness.
@@ -179,8 +186,12 @@
   deterministic catalog, and user edits/confirmation are audited. An
   unambiguous explicitly labelled OCR measurement date overrides a model date;
   idempotent archive repair may update inherited non-corrected dates but must
-  never overwrite a user-corrected result. Analyte detail guides are versioned
-  deterministic reference content and never trigger inference on GET.
+  never overwrite a user-corrected result. Known analyte guides remain versioned
+  deterministic reference content. A previously unknown analyte is enriched
+  through the isolated local Codex gateway during import and persisted in
+  PostgreSQL before that document completes; a batched three-attempt queue
+  backfills existing unknown analytes. Authenticated GET handlers only read the
+  persisted guide and never invoke or enqueue inference.
 - Study-report uploads support the same bounded formats and queue for ultrasound,
   MRI, CT, X-ray, ECG, and other reports; DICOM is not supported. PostgreSQL
   stores the original plus structured findings/conclusion. Obvious identifier
@@ -200,6 +211,9 @@
 - The dashboard offers Light, Dark, Ocean, and Sunset themes. With no stored
   choice it must always start in Light regardless of the operating-system color
   scheme; an explicit selection persists and recolors both UI and charts.
+- An explicit `30d`, `90d`, `1y`, or `all` chart-period selection is shared by
+  the weight, pressure, composition, activity, and recovery pages and persists
+  across navigation and page reloads.
 - Daily Telegram reports run at `09:00 Europe/Moscow`; the Monday 09:00 weekly
   report replaces that day's daily report. Immediate Withings weight/pressure
   notifications remain enabled. New laboratory facts include verification state

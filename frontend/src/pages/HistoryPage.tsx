@@ -1,6 +1,5 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { api, csvUrl } from "../api/client";
-import type { Period } from "../api/types";
 import { weightChartOption } from "../charts/options";
 import { ErrorState, EmptyState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
@@ -9,10 +8,11 @@ import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
 import { PeriodSwitcher } from "../components/PeriodSwitcher";
 import { useApi } from "../hooks/useApi";
+import { useChartPeriod } from "../hooks/useChartPeriod";
 import { formatDate, periodLabels } from "../lib/format";
 
 export function HistoryPage() {
-  const [period, setPeriod] = useState<Period>("all");
+  const [period, setPeriod] = useChartPeriod("all");
   const loadSeries = useCallback((signal: AbortSignal) => api.weight(period, signal), [period]);
   const series = useApi(loadSeries);
 

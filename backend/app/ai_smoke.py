@@ -17,7 +17,11 @@ from .ai_contracts import (
 )
 from .config import get_settings
 from .lab_contracts import (
+    LAB_ANALYTE_GUIDE_PROMPT_VERSION,
     LAB_EXTRACTION_PROMPT_VERSION,
+    AnalyteGuideQuery,
+    GatewayAnalyteGuideRequest,
+    GatewayAnalyteGuideResponse,
     GatewayChatRequest,
     GatewayChatResponse,
     GatewayLabRequest,
@@ -69,6 +73,21 @@ def synthetic_lab_request() -> GatewayLabRequest:
             "Synthetic contract fixture. Quality marker: 1 unit. "
             "Reference interval: 0-2 unit. Source page: 1."
         ),
+    )
+
+
+def synthetic_analyte_guide_request() -> GatewayAnalyteGuideRequest:
+    """Build a one-entry guide probe with no person or measured value."""
+
+    return GatewayAnalyteGuideRequest(
+        contract_version=LAB_ANALYTE_GUIDE_PROMPT_VERSION,
+        model=AI_MODEL,
+        analytes=[
+            AnalyteGuideQuery(
+                analyte_id="synthetic-quality-marker",
+                analyte_name="Синтетический лабораторный маркер качества",
+            )
+        ],
     )
 
 
@@ -164,6 +183,22 @@ def run_smoke() -> GatewayAnalyzeResponse:
     except (ValueError, TypeError) as exc:
         raise RuntimeError("AI gateway laboratory smoke failed schema validation") from exc
 
+    guide_request = synthetic_analyte_guide_request()
+    guide_response = _post_contract(
+        f"{settings.ai_gateway_url}/generate-analyte-guides",
+        guide_request.model_dump(mode="json"),
+        settings.ai_gateway_timeout_seconds,
+        "analyte guide smoke",
+    )
+    try:
+        parsed_guides = GatewayAnalyteGuideResponse.model_validate(guide_response.json())
+        if [item.analyte_id for item in parsed_guides.guides] != [
+            "synthetic-quality-marker"
+        ]:
+            raise ValueError("analyte guide smoke identifier mismatch")
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError("AI gateway analyte guide smoke failed schema validation") from exc
+
     base_chat_request = synthetic_chat_request()
     assistant_error: RuntimeError | None = None
     for attempt in range(1, ASSISTANT_SMOKE_ATTEMPTS + 1):
@@ -191,7 +226,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     result = run_smoke()
     logger.info(
-        "AI gateway smokes passed analysis/laboratory/assistant model=%s prompt_version=%s",
+        "AI gateway smokes passed analysis/laboratory/analyte-guide/assistant model=%s prompt_version=%s",
         result.model,
         result.prompt_version,
     )

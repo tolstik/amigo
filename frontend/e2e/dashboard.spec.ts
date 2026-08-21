@@ -245,6 +245,23 @@ test("renders AI analysis, activity baseline and recovery", async ({ page }) => 
   ).toBeVisible();
 });
 
+test("persists one chart period across reloads and chart pages", async ({ page }) => {
+  await page.goto("./activity");
+  const activityPeriod = page.getByRole("group", { name: "Период графика" });
+  await activityPeriod.getByRole("button", { name: "Год", exact: true }).click();
+  await expect(activityPeriod.getByRole("button", { name: "Год", exact: true })).toHaveAttribute("aria-pressed", "true");
+
+  await page.reload();
+  await expect(
+    page.getByRole("group", { name: "Период графика" }).getByRole("button", { name: "Год", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByRole("link", { name: "Давление", exact: true }).click();
+  await expect(
+    page.getByRole("group", { name: "Период графика" }).getByRole("button", { name: "Год", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
 test("keeps the light default and a usable persistent theme selector on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 780 });
   await page.emulateMedia({ colorScheme: "dark" });

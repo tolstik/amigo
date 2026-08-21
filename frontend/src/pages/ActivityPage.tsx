@@ -1,6 +1,5 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { api, csvUrl } from "../api/client";
-import type { Period } from "../api/types";
 import { activityDailyChartOption, weeklyActivityChartOption } from "../charts/options";
 import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
@@ -9,6 +8,7 @@ import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { PeriodSwitcher } from "../components/PeriodSwitcher";
 import { useApi } from "../hooks/useApi";
+import { useChartPeriod } from "../hooks/useChartPeriod";
 import { formatDate, formatDateTime, formatNumber } from "../lib/format";
 
 const metricLabels: Record<string, string> = {
@@ -26,7 +26,7 @@ function stepsComparison(actual: number | null, baseline: number | null): string
 }
 
 export function ActivityPage() {
-  const [period, setPeriod] = useState<Period>("90d");
+  const [period, setPeriod] = useChartPeriod("90d");
   const load = useCallback((signal: AbortSignal) => api.activity(period, signal), [period]);
   const series = useApi(load);
   const points = series.data?.points ?? [];

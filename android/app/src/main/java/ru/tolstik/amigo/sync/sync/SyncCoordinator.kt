@@ -269,7 +269,7 @@ class SyncCoordinator(
                 ),
             )
         } else {
-            advanceSnapshot(type, activeCursor)
+            advanceSnapshot(type, origin, activeCursor)
         }
         return batches.size
     }
@@ -305,11 +305,7 @@ class SyncCoordinator(
             earliest > accessibleFloor -> earliest
             else -> null
         }
-        val rangeEnd = minOf(
-            accessibleFloor.plus(snapshotWindow),
-            target,
-            emptyUntil ?: target,
-        )
+        val rangeEnd = emptyUntil ?: minOf(accessibleFloor.plus(snapshotWindow), target)
         val cursor = SnapshotCursor(
             generation = generationIds.next(),
             target = target,
@@ -322,18 +318,31 @@ class SyncCoordinator(
         return cursor
     }
 
-    private fun advanceSnapshot(type: RecordType, cursor: SnapshotCursor) {
+    private suspend fun advanceSnapshot(
+        type: RecordType,
+        origin: String,
+        cursor: SnapshotCursor,
+    ) {
         if (cursor.rangeEnd >= cursor.target) {
             state.markSnapshotComplete(type)
             return
         }
         val nextStart = cursor.rangeEnd
-        val emptyUntil = cursor.emptyUntil?.takeIf { nextStart < it }
-        val nextEnd = minOf(
-            nextStart.plus(snapshotWindow),
-            cursor.target,
-            emptyUntil ?: cursor.target,
-        )
+        val persistedEmptyUntil = cursor.emptyUntil?.takeIf { nextStart < it }
+        val beginsAtKnownRecord = cursor.emptyUntil == nextStart
+        val earliest = when {
+            persistedEmptyUntil != null -> null
+            beginsAtKnownRecord -> nextStart
+            else -> source.findEarliest(type, origin, nextStart, cursor.target)
+                ?.coerceAtLeast(nextStart)
+                ?.coerceAtMost(cursor.target)
+        }
+        val emptyUntil = persistedEmptyUntil ?: when {
+            earliest == null -> cursor.target
+            earliest > nextStart -> earliest
+            else -> null
+        }
+        val nextEnd = emptyUntil ?: minOf(nextStart.plus(snapshotWindow), cursor.target)
         state.setSnapshotCursor(
             type,
             cursor.copy(

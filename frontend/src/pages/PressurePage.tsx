@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { api, csvUrl } from "../api/client";
-import type { Period, PressurePoint, PressureStats } from "../api/types";
+import type { PressurePoint, PressureStats } from "../api/types";
 import { pressureChartOption } from "../charts/options";
 import { ErrorState, EmptyState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
@@ -10,6 +10,7 @@ import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { PeriodSwitcher } from "../components/PeriodSwitcher";
 import { useApi } from "../hooks/useApi";
+import { useChartPeriod } from "../hooks/useChartPeriod";
 import { formatDateTime, formatNumber } from "../lib/format";
 
 function mean(values: number[]): number | null {
@@ -57,7 +58,7 @@ function byPeriod(points: PressurePoint[], period: "morning" | "evening") {
 }
 
 export function PressurePage() {
-  const [period, setPeriod] = useState<Period>("90d");
+  const [period, setPeriod] = useChartPeriod("90d");
   const loadSeries = useCallback((signal: AbortSignal) => api.pressure(period, signal), [period]);
   const series = useApi(loadSeries);
   const points = series.data?.points ?? [];

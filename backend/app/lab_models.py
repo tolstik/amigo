@@ -99,6 +99,40 @@ class LabAnalyte(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class LabAnalyteGuide(Base):
+    __tablename__ = "lab_analyte_guides"
+
+    analyte_id: Mapped[str] = mapped_column(
+        ForeignKey("lab_analytes.id", ondelete="CASCADE"), primary_key=True
+    )
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    why_tested: Mapped[str] = mapped_column(Text, nullable=False)
+    low_meaning: Mapped[str] = mapped_column(Text, nullable=False)
+    high_meaning: Mapped[str] = mapped_column(Text, nullable=False)
+    contract_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
+class LabAnalyteGuideJob(Base):
+    __tablename__ = "lab_analyte_guide_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    analyte_id: Mapped[str] = mapped_column(
+        ForeignKey("lab_analytes.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class LabResult(Base):
     __tablename__ = "lab_results"
     __table_args__ = (

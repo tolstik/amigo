@@ -11,6 +11,7 @@ from .ai_contracts import AI_MODEL
 
 
 LAB_EXTRACTION_PROMPT_VERSION = "amigo-lab-extraction-v1"
+LAB_ANALYTE_GUIDE_PROMPT_VERSION = "amigo-lab-analyte-guide-v1"
 
 
 class StrictModel(BaseModel):
@@ -68,6 +69,46 @@ class GatewayLabResponse(StrictModel):
     contract_version: Literal[LAB_EXTRACTION_PROMPT_VERSION] = LAB_EXTRACTION_PROMPT_VERSION
     model: Literal[AI_MODEL] = AI_MODEL
     extraction: LabExtraction
+
+
+class AnalyteGuideQuery(StrictModel):
+    analyte_id: Annotated[
+        str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,119}$")
+    ]
+    analyte_name: ShortText
+
+
+class GeneratedAnalyteGuide(StrictModel):
+    analyte_id: Annotated[
+        str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,119}$")
+    ]
+    summary: Annotated[str, StringConstraints(min_length=20, max_length=1600)]
+    why_tested: Annotated[str, StringConstraints(min_length=20, max_length=1600)]
+    low_meaning: Annotated[str, StringConstraints(min_length=20, max_length=2000)]
+    high_meaning: Annotated[str, StringConstraints(min_length=20, max_length=2000)]
+
+
+class GatewayAnalyteGuideRequest(StrictModel):
+    contract_version: Literal[LAB_ANALYTE_GUIDE_PROMPT_VERSION] = (
+        LAB_ANALYTE_GUIDE_PROMPT_VERSION
+    )
+    model: Literal[AI_MODEL] = AI_MODEL
+    analytes: list[AnalyteGuideQuery] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def unique_analytes(self) -> "GatewayAnalyteGuideRequest":
+        identifiers = [item.analyte_id for item in self.analytes]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("duplicate analyte")
+        return self
+
+
+class GatewayAnalyteGuideResponse(StrictModel):
+    contract_version: Literal[LAB_ANALYTE_GUIDE_PROMPT_VERSION] = (
+        LAB_ANALYTE_GUIDE_PROMPT_VERSION
+    )
+    model: Literal[AI_MODEL] = AI_MODEL
+    guides: list[GeneratedAnalyteGuide] = Field(min_length=1, max_length=20)
 
 
 class ChatSegment(StrictModel):

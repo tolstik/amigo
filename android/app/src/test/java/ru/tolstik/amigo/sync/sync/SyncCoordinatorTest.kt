@@ -434,7 +434,7 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun fullReconcileOfEmptyHistoryUsesResumableThirtyDaySnapshotWindows() = runTest {
+    fun fullReconcileOfEmptyHistoryUsesOneProviderConfirmedEmptySnapshot() = runTest {
         val longFloor = Instant.parse("2026-01-01T00:00:00Z")
         val longNow = Instant.parse("2026-05-15T00:00:00Z")
         val mutableClock = MutableClock(longNow)
@@ -452,24 +452,95 @@ class SyncCoordinatorTest {
             historyFloor = longFloor,
         )
 
-        coordinator.syncAll(maxPagesPerType = 2)
-
-        assertFalse(state.isSnapshotComplete(RecordType.STEPS))
-        assertEquals(2, uploader.batches.size)
-        assertTrue(uploader.batches.all { batch ->
-            Duration.between(batch.rangeStart, batch.rangeEnd) <= Duration.ofDays(30)
-        })
-        assertTrue(uploader.batches.all { it.records.isEmpty() && it.finalPage == true })
-        assertTrue(source.events.none { it.startsWith("snapshot:") })
-
-        mutableClock.current = longNow.plusSeconds(10 * 24 * 60 * 60)
-        coordinator.syncAll(maxPagesPerType = 8)
+        coordinator.syncAll(maxPagesPerType = 1)
 
         assertTrue(state.isSnapshotComplete(RecordType.STEPS))
-        assertEquals(longNow, uploader.batches.last().rangeEnd)
-        assertTrue(uploader.batches.all { batch ->
-            Duration.between(batch.rangeStart, batch.rangeEnd) <= Duration.ofDays(30)
-        })
+        assertEquals(1, uploader.batches.size)
+        assertEquals(longFloor, uploader.batches.single().rangeStart)
+        assertEquals(longNow, uploader.batches.single().rangeEnd)
+        assertTrue(uploader.batches.single().records.isEmpty())
+        assertTrue(uploader.batches.single().finalPage == true)
+        assertTrue(source.events.none { it.startsWith("snapshot:") })
+    }
+
+    @Test
+    fun persistedMonthlyEmptyCursorFastForwardsWithoutResettingPairingState() = runTest {
+        val longFloor = Instant.parse("2000-01-01T00:00:00Z")
+        val firstMonthEnd = longFloor.plus(Duration.ofDays(30))
+        val longNow = Instant.parse("2026-08-21T08:00:00Z")
+        val source = FakeHealthSource(earliest = null)
+        val state = FakeState(origin).apply {
+            setChangesToken(RecordType.STEPS, "existing-token")
+            setSnapshotCursor(
+                RecordType.STEPS,
+                SnapshotCursor(
+                    generation = "persisted-v3-generation",
+                    target = longNow,
+                    rangeStart = longFloor,
+                    rangeEnd = firstMonthEnd,
+                    knownEmpty = true,
+                    emptyUntil = longNow,
+                ),
+            )
+        }
+        val uploader = FakeUploader()
+        val coordinator = SyncCoordinator(
+            source = source,
+            uploader = uploader,
+            state = state,
+            clock = Clock.fixed(longNow, ZoneOffset.UTC),
+            generationIds = GenerationIds { "unused-generation" },
+            historyFloor = longFloor,
+        )
+
+        coordinator.syncAll(maxPagesPerType = 2)
+
+        assertTrue(state.isSnapshotComplete(RecordType.STEPS))
+        assertEquals("existing-token", state.changesToken(RecordType.STEPS))
+        assertEquals(2, uploader.batches.size)
+        assertEquals(firstMonthEnd, uploader.batches[1].rangeStart)
+        assertEquals(longNow, uploader.batches[1].rangeEnd)
+        assertTrue(source.events.none { it == "token" || it == "earliest" })
+    }
+
+    @Test
+    fun fullReconcileSkipsMultiYearGapAfterAnOldRecordWindow() = runTest {
+        val longFloor = Instant.parse("2000-01-01T00:00:00Z")
+        val firstRecord = Instant.parse("2001-01-01T00:00:00Z")
+        val longNow = Instant.parse("2026-08-21T08:00:00Z")
+        val source = FakeHealthSource(
+            earliestAnswers = mutableListOf(firstRecord, null),
+            snapshotPages = mutableMapOf(
+                null to SnapshotPage(listOf(recordAt("old", firstRecord, firstRecord)), null),
+            ),
+        )
+        val state = FakeState(origin).apply {
+            beginSnapshot(RecordType.STEPS, longNow, requiresFullReconcile = true)
+        }
+        val uploader = FakeUploader()
+        val coordinator = SyncCoordinator(
+            source = source,
+            uploader = uploader,
+            state = state,
+            clock = Clock.fixed(longNow, ZoneOffset.UTC),
+            generationIds = GenerationIds { "gap-generation" },
+            historyFloor = longFloor,
+        )
+
+        coordinator.syncAll(maxPagesPerType = 3)
+
+        assertTrue(state.isSnapshotComplete(RecordType.STEPS))
+        assertEquals(3, uploader.batches.size)
+        assertEquals(longFloor, uploader.batches[0].rangeStart)
+        assertEquals(firstRecord, uploader.batches[0].rangeEnd)
+        assertTrue(uploader.batches[0].records.isEmpty())
+        assertEquals(firstRecord, uploader.batches[1].rangeStart)
+        assertEquals(firstRecord.plus(Duration.ofDays(30)), uploader.batches[1].rangeEnd)
+        assertEquals(listOf("old"), uploader.batches[1].records.map(ExportRecord::recordId))
+        assertEquals(firstRecord.plus(Duration.ofDays(30)), uploader.batches[2].rangeStart)
+        assertEquals(longNow, uploader.batches[2].rangeEnd)
+        assertTrue(uploader.batches[2].records.isEmpty())
+        assertEquals(2, source.events.count { it == "earliest" })
     }
 
     @Test
@@ -641,7 +712,8 @@ class SyncCoordinatorTest {
     )
 
     private class FakeHealthSource(
-        private val earliest: Instant?,
+        private val earliest: Instant? = null,
+        private val earliestAnswers: MutableList<Instant?>? = null,
         private val snapshotPages: MutableMap<String?, SnapshotPage> = mutableMapOf(),
         private val expireOldToken: Boolean = false,
         private val changes: List<ExportChange> = emptyList(),
@@ -663,7 +735,11 @@ class SyncCoordinatorTest {
         ): Instant? {
             events += "earliest"
             earliestUntils += until
-            return earliest
+            return if (earliestAnswers?.isNotEmpty() == true) {
+                earliestAnswers.removeAt(0)
+            } else {
+                earliest
+            }
         }
 
         override suspend fun readSnapshotPage(

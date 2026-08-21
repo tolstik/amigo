@@ -1,8 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
 import type { OverviewContext } from "../App";
 import { api, csvUrl } from "../api/client";
-import type { Period } from "../api/types";
 import { compositionChartOption } from "../charts/options";
 import { ErrorState, EmptyState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
@@ -12,11 +11,12 @@ import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { PeriodSwitcher } from "../components/PeriodSwitcher";
 import { useApi } from "../hooks/useApi";
+import { useChartPeriod } from "../hooks/useChartPeriod";
 import { formatDateTime, formatKg, formatNumber } from "../lib/format";
 
 export function CompositionPage() {
   const overview = useOutletContext<OverviewContext>();
-  const [period, setPeriod] = useState<Period>("1y");
+  const [period, setPeriod] = useChartPeriod("1y");
   const loadSeries = useCallback((signal: AbortSignal) => api.composition(period, signal), [period]);
   const series = useApi(loadSeries);
   const summary = overview.data?.composition;

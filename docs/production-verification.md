@@ -75,11 +75,11 @@
 - [ ] До первого Withings API request legacy collector переведён в единственный
       disabled-marker; после incremental sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.
-- [ ] Android `1.2.1` (`versionCode 6`) получен как
-      [`Amigo-1.2.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.1/Amigo-1.2.1.apk)
-      из release [`v5.0.1`](https://github.com/tolstik/amigo/releases/tag/v5.0.1);
+- [ ] Android `1.2.2` (`versionCode 7`) получен как
+      [`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.2/Amigo-1.2.2.apk)
+      из release [`v5.0.2`](https://github.com/tolstik/amigo/releases/tag/v5.0.2);
       его SHA-256 равен
-      `6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea`, а
+      `4c8168013d49439072c0a084ea3284d88916d0164b5fba47201c60861ee9454a`, а
       signing certificate SHA-256 равен
       `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
       Signing keystore и пароли не попали в checkout или документы.
@@ -112,8 +112,8 @@
 - [ ] Pinned Codex binary на host и read-only mount в `ai-gateway` имеют ожидаемый
       SHA-256. Gateway health сообщает fixed model `gpt-5.6-sol` и
       `amigo-health-v4`; synthetic `python -m app.ai_smoke` прошёл live analysis,
-      laboratory-extraction и assistant-turn контракты без real health data или
-      персонального контекста.
+      laboratory-extraction, analyte-guide и assistant-turn контракты без real
+      health data или персонального контекста.
 - [ ] `/srv/amigo/data/import/legacy-weight.tsv` root-owned, закрыт для group/world и
       смонтирован как read-only `/imports`.
 - [ ] `/srv/amigo/data/lab-files` — real root:root directory `0700`; `web` видит
@@ -124,8 +124,11 @@
 - [ ] После idempotent laboratory-date repair нет report/result с годом до
       1900 или более чем на год в будущем; исправление использовало только
       однозначно подписанные OCR-даты и не перезаписало ручные corrections.
+- [ ] Для всех уже импортированных неизвестных analytes сохранена статья в
+      PostgreSQL; `lab_analyte_guide_jobs` не содержит pending, processing или
+      failed rows после bounded backfill.
 - [ ] `/srv/amigo/data/android/amigo-sync.apk` — root:root regular file `0600`
-      с точным hash `1.2.1`; `web` видит `/android` только read-only.
+      с точным hash `1.2.2`; `web` видит `/android` только read-only.
 - [ ] Listener `18181` — только `127.0.0.1:18181` для `web`; listener `18182` —
       только `127.0.0.1:18182` для `ingest`. `ai-gateway:8090` и
       `lab-parser:8085` не опубликованы в Docker и не слушают host.
@@ -229,7 +232,9 @@
 - [ ] CSV export, фильтры периода, темы «Светлая», «Тёмная», «Океан» и «Закат»
       и табличные альтернативы графикам работают на desktop/mobile. При пустом
       storage старт остаётся светлым даже под dark OS; явный выбор сохраняется
-      после reload и перекрашивает также графики.
+      после reload и перекрашивает также графики. Явный период `30d`, `90d`,
+      `1y` или `all` также сохраняется после reload и переносится между всеми
+      страницами с переключателем графика.
 - [ ] На «Прогрессе» видны оба недельных weight plan/fact графика:
       парные столбики «Факт/План» и линия минимума; дельта имеет верный знак.
 - [ ] Weight weekly таблица совпадает с tooltip и
@@ -286,7 +291,7 @@
       bounded medical/measurement рекомендацию. В AI output отсутствуют диагноз,
       лечение, назначение или изменение лекарства/дозировки и фиксированная цель
       по калориям.
-- [ ] Signed APK `1.2.1` установлен через `adb install -r`; прежние pairing
+- [ ] Signed APK `1.2.2` установлен через `adb install -r`; прежние pairing
       state, non-exportable Keystore key, выбранный Mi Fitness origin и cursors
       сохранены. Amigo имеет только read-only Health Connect permissions;
       location и exercise routes не запрошены.
@@ -349,8 +354,8 @@
       services, SHA-256 установленных Compose/nginx/Codex, результаты
       verification, exact previous-release recovery command и отдельную
       `rollback.sh --to-legacy` disaster command без секретов.
-- [ ] Release `v5.0.1` указывает на deployed feature commit; asset
-      `Amigo-1.2.1.apk` скачивается, повторно даёт ожидаемые APK SHA-256 и
+- [ ] Release `v5.0.2` указывает на deployed feature commit; asset
+      `Amigo-1.2.2.apk` скачивается, повторно даёт ожидаемые APK SHA-256 и
       signing certificate, а verified App Link association остаётся доступна.
 - [ ] Изменения `AGENTS.md`, runbook и `production-checkpoint.md` перенесены в
       канонический Git и закоммичены.

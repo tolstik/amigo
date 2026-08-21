@@ -37,7 +37,7 @@ export function LabAnalytePage() {
     {history.loading && <LoadingState />}
     {history.error && <ErrorState onRetry={history.reload} />}
     {history.data?.guide && <section className="panel lab-guide-card" aria-labelledby="lab-guide-title">
-      <div className="panel__head"><div><h2 id="lab-guide-title">О показателе</h2><p>Справочник Amigo · проверено {formatDate(history.data.guide.reviewed_on)}</p></div></div>
+      <div className="panel__head"><div><h2 id="lab-guide-title">О показателе</h2><p>{history.data.guide.source === "catalog" ? `Справочник Amigo · проверено ${formatDate(history.data.guide.reviewed_on)}` : history.data.guide.source === "ai_generated" ? `Справочник Amigo · сформировано локальным AI ${formatDate(history.data.guide.reviewed_on)}` : "Справочник Amigo · статья формируется"}</p></div></div>
       <p className="lab-guide-card__summary">{history.data.guide.summary}</p>
       <div className="lab-guide-grid">
         <article><h3>Зачем сдают</h3><p>{history.data.guide.why_tested}</p></article>

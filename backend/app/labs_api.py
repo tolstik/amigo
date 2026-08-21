@@ -582,7 +582,7 @@ def analyte_history(analyte_id: str, db: Session = Depends(get_db)) -> dict:
     )
     return {
         "analyte_id": analyte_id,
-        "guide": analyte_guide(analyte_id),
+        "guide": analyte_guide(db, analyte_id),
         "items": [_result(row) for row in rows],
     }
 

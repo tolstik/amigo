@@ -367,7 +367,7 @@ with urllib.request.urlopen("http://lab-parser:8085/healthz", timeout=3) as resp
 if payload != {"status": "ok"}:
     raise SystemExit(1)
 ' || amigo_die "AI worker cannot reach the isolated laboratory parser"
-amigo_log "PASS fixed gpt-5.6-sol/v3 gateway and isolated parser health contracts"
+amigo_log "PASS fixed gpt-5.6-sol/v4 gateway and isolated parser health contracts"
 
 [[ -s "${AMIGO_LEGACY_WEIGHT_IMPORT}" && ! -L "${AMIGO_LEGACY_WEIGHT_IMPORT}" ]] \
     || amigo_die "root-only legacy weight import is missing"
@@ -401,7 +401,7 @@ parser_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destinati
     || amigo_die "isolated parser unexpectedly mounts laboratory originals"
 amigo_log "PASS root-only laboratory originals and least-privilege mounts"
 
-readonly EXPECTED_ANDROID_APK_SHA256="6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea"
+readonly EXPECTED_ANDROID_APK_SHA256="4c8168013d49439072c0a084ea3284d88916d0164b5fba47201c60861ee9454a"
 [[ -f "${AMIGO_ANDROID_APK}" && ! -L "${AMIGO_ANDROID_APK}" ]] \
     || amigo_die "signed Android update is missing or is a symlink"
 [[ "$(stat -c '%a' "${AMIGO_ANDROID_APK}")" == "600" ]] \
@@ -410,7 +410,7 @@ readonly EXPECTED_ANDROID_APK_SHA256="6e5eac99021fbf761b601487d112bcbc0e52f52abe
     || amigo_die "signed Android update is not owned by root:root"
 [[ "$(sha256sum "${AMIGO_ANDROID_APK}" | awk '{ print $1 }')" \
     == "${EXPECTED_ANDROID_APK_SHA256}" ]] \
-    || amigo_die "installed Android update hash differs from signed 1.2.1"
+    || amigo_die "installed Android update hash differs from signed 1.2.2"
 web_android_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/android"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${web_container}")"
 [[ "${web_android_mount}" == "$(dirname -- "${AMIGO_ANDROID_APK}")|false" ]] \
     || amigo_die "web Android update mount is missing, writable, or sourced unexpectedly"
@@ -458,7 +458,34 @@ LAB_DATE_STATE="$(
 )"
 [[ "${LAB_DATE_STATE}" == "0|0" ]] \
     || amigo_die "implausible laboratory dates remain after deterministic repair"
-amigo_log "PASS database-owned originals, repaired laboratory dates, and signed Android 1.2.1 artifact"
+
+ANALYTE_GUIDES_READY=0
+for _guide_wait in {1..84}; do
+    ANALYTE_GUIDE_STATE="$(
+        amigo_compose exec -T ai-worker python -c '
+from sqlalchemy import func, select
+from app.db import SessionLocal
+from app.lab_models import LabAnalyteGuideJob
+from app.labs import missing_analyte_guides
+with SessionLocal() as db:
+    missing = len(missing_analyte_guides(db))
+    active = db.scalar(select(func.count()).select_from(LabAnalyteGuideJob).where(LabAnalyteGuideJob.status.in_(["pending", "processing"]))) or 0
+    failed = db.scalar(select(func.count()).select_from(LabAnalyteGuideJob).where(LabAnalyteGuideJob.status == "failed")) or 0
+    print(f"{missing}|{active}|{failed}")
+'
+    )"
+    if [[ "${ANALYTE_GUIDE_STATE}" == "0|0|0" ]]; then
+        ANALYTE_GUIDES_READY=1
+        break
+    fi
+    if [[ "${ANALYTE_GUIDE_STATE}" =~ ^[0-9]+\|[0-9]+\|([1-9][0-9]*)$ ]]; then
+        amigo_die "analyte guide backfill reached a terminal failure"
+    fi
+    sleep 5
+done
+[[ ${ANALYTE_GUIDES_READY} -eq 1 ]] \
+    || amigo_die "analyte guide backfill did not finish within seven minutes"
+amigo_log "PASS database-owned originals, repaired laboratory dates, generated analyte guides, and signed Android 1.2.2 artifact"
 
 check_loopback_listener() {
     local port=$1
@@ -719,14 +746,14 @@ elif contract == "analyte-guide":
     guide = payload.get("guide")
     if not isinstance(guide, dict) or not all(
         isinstance(guide.get(key), str) and guide[key]
-        for key in ("summary", "why_tested", "low_meaning", "high_meaning", "version")
+        for key in ("summary", "why_tested", "low_meaning", "high_meaning", "version", "source")
     ):
         raise SystemExit("laboratory analyte guide contract is incomplete")
 elif contract == "update":
     if (
-        payload.get("version_code") != 6
-        or payload.get("version_name") != "1.2.1"
-        or payload.get("sha256") != "6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea"
+        payload.get("version_code") != 7
+        or payload.get("version_name") != "1.2.2"
+        or payload.get("sha256") != "4c8168013d49439072c0a084ea3284d88916d0164b5fba47201c60861ee9454a"
         or payload.get("download_url") != "/amigo/api/v1/app-update/apk"
         or not isinstance(payload.get("size_bytes"), int)
         or payload.get("size_bytes") <= 0

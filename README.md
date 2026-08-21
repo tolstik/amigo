@@ -36,7 +36,9 @@ Health Connect appears there only as daily/weekly aggregates, without device or
 pairing metadata.
 Its theme selector offers Light, Dark, Ocean, and Sunset. A fresh browser always
 starts in Light regardless of the operating-system setting; an explicit choice
-is persisted and applied to both the interface and charts.
+is persisted and applied to both the interface and charts. An explicit 30-day,
+90-day, one-year, or all-time chart period is shared across chart pages and
+survives reloads.
 
 `backend/` contains FastAPI services, deterministic analytics, integrations,
 and migrations. `frontend/` contains the React/TypeScript dashboard. `android/`
@@ -104,9 +106,13 @@ The initial fallback catalog is disabled, so only report-provided or
 user-entered intervals are evaluated. Original extraction and user edits are
 audited. Explicitly labelled OCR measurement dates override a conflicting or
 implausible model date; bootstrap repairs the same unambiguous error pattern in
-existing uncorrected rows. Each analyte history page includes the versioned
-Amigo guide describing the marker, why it is tested, and possible categories
-associated with values below or above the report reference. The UI shows
+existing uncorrected rows. Each analyte history page includes an Amigo guide
+describing the marker, why it is tested, and possible categories associated
+with values below or above the report reference. Known guides are versioned
+reference content. When extraction finds an unknown analyte, the isolated local
+Codex gateway generates a general guide that is stored in PostgreSQL before the
+document completes; a bounded batched queue backfills existing unknown markers,
+and GET requests never trigger inference. The UI shows
 sequential queue position/stage/progress over SSE, keeps
 accepting new bounded batches while older files are processed, opens the
 database original, searches/filters results, and charts incompatible units
@@ -134,7 +140,7 @@ a strict output schema; see the official
 
 ## Android app and Health Connect companion
 
-Amigo `1.2.1` (`versionCode 6`, package `ru.tolstik.amigo.sync`) opens the full
+Amigo `1.2.2` (`versionCode 7`, package `ru.tolstik.amigo.sync`) opens the full
 authenticated dashboard in a top-level WebView. It uses the same local account
 and 90-day server session as a browser, while signed ingest remains independent.
 Only the fixed production origin and known SPA routes are accepted; there is no
@@ -172,24 +178,24 @@ same-origin APK, verifies its declared size and SHA-256 plus package, higher
 version code, and installed signing certificate, then delegates to the Android
 system installer for explicit confirmation.
 
-Release 1.2.1 queues bounded backfill continuations instead of replacing and
-cancelling the worker that scheduled them. Run IDs make background status
-updates atomic, DNS/network failures remain retryable without advancing sync
-cursors, and the UI explains DNS failures without mislabeling WebView's internal
-error page as an unsafe external address.
+Release 1.2.2 keeps the 1.2.1 worker/run-ID fixes and fast-forwards
+provider-confirmed empty history in one bounded snapshot. An already persisted
+monthly cursor resumes without resetting pairing, the device key, or changes
+tokens; after each non-empty window the client locates the next real record and
+skips the intervening empty years.
 
 Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.2.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.1/Amigo-1.2.1.apk)
-from release [`v5.0.1`](https://github.com/tolstik/amigo/releases/tag/v5.0.1).
+[`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.2/Amigo-1.2.2.apk)
+from release [`v5.0.2`](https://github.com/tolstik/amigo/releases/tag/v5.0.2).
 Its SHA-256 is
-`6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea`, and its
+`4c8168013d49439072c0a084ea3284d88916d0164b5fba47201c60861ee9454a`, and its
 signing-certificate SHA-256 is
 `25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
-The previous `1.2.0` APK remains available from `v5.0.0`. Verify the checksum
+The previous `1.2.1` APK remains available from `v5.0.1`. Verify the checksum
 before installing an APK.
 
 ## Telegram schedule
@@ -260,8 +266,9 @@ artifact, laboratory/AI isolation boundaries, and authenticated
 HTTPS/API/upload/SSE contracts. GitHub Actions builds and publishes the tested
 immutable `ghcr.io/tolstik/amigo:GIT_SHA` image; the weak production server only
 pulls and verifies it. Before cutover the deploy's non-personal
-synthetic smoke exercises live analysis, laboratory-extraction, and assistant-turn
-Codex contracts, then the release records deployed hashes after cutover.
+synthetic smoke exercises live analysis, laboratory-extraction, analyte-guide,
+and assistant-turn Codex contracts, then the release records deployed hashes
+after cutover.
 
 After the first interactive production cutover, repeat releases use the
 root-owned `/usr/local/sbin/amigo-release GIT_SHA MODE` wrapper. The sudoers

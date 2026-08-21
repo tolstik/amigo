@@ -29,10 +29,12 @@ from .background_wait import wait_for_ai_work
 from .db import SessionLocal
 from .lab_assistant_worker import (
     LabAssistantGateway,
+    process_analyte_guide_job,
     process_assistant_job,
     process_lab_job,
     process_study_job,
 )
+from .labs import enqueue_missing_analyte_guide_jobs
 
 
 logger = logging.getLogger("amigo.ai.worker")
@@ -197,6 +199,12 @@ class AiAnalysisWorker:
                 self._prefer_study = processor is process_lab_job
                 self._consecutive_assistant_jobs = 0
                 return True
+        if (
+            not self.settings.worker_once
+            and process_analyte_guide_job(db, self.settings, self.lab_gateway, current)
+        ):
+            self._consecutive_assistant_jobs = 0
+            return True
         if self._consecutive_assistant_jobs >= 3 and self.process_analysis(db, current):
             self._consecutive_assistant_jobs = 0
             return True
@@ -214,6 +222,17 @@ class AiAnalysisWorker:
 
     def run(self) -> None:
         try:
+            if not self.settings.worker_once:
+                try:
+                    with SessionLocal() as db:
+                        created = enqueue_missing_analyte_guide_jobs(db)
+                    if created:
+                        logger.info("queued %s missing analyte guide jobs", created)
+                except Exception as exc:
+                    logger.warning(
+                        "analyte guide backfill bootstrap failed type=%s",
+                        type(exc).__name__,
+                    )
             while self.running:
                 try:
                     processed = self.run_once()

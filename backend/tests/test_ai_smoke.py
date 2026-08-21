@@ -7,11 +7,16 @@ import pytest
 from app.ai_contracts import GatewayAnalyzeResponse
 from app.ai_smoke import (
     run_smoke,
+    synthetic_analyte_guide_request,
     synthetic_chat_request,
     synthetic_lab_request,
     synthetic_request,
 )
-from app.lab_contracts import GatewayChatResponse, GatewayLabResponse
+from app.lab_contracts import (
+    GatewayAnalyteGuideResponse,
+    GatewayChatResponse,
+    GatewayLabResponse,
+)
 
 
 def _response_payload(snapshot_hash: str) -> dict:
@@ -39,6 +44,7 @@ def test_synthetic_request_contains_no_health_observations() -> None:
 
 def test_synthetic_lab_and_chat_requests_contain_only_contract_fixtures() -> None:
     lab = synthetic_lab_request()
+    guide = synthetic_analyte_guide_request()
     chat = synthetic_chat_request()
 
     assert lab.document_id == "00000000-0000-0000-0000-000000000001"
@@ -46,6 +52,7 @@ def test_synthetic_lab_and_chat_requests_contain_only_contract_fixtures() -> Non
     assert chat.allowed_evidence_keys == ["quality.runtime_smoke"]
     assert "name" not in chat.prompt.casefold()
     assert "patient" not in lab.text.casefold()
+    assert [item.analyte_id for item in guide.analytes] == ["synthetic-quality-marker"]
 
 
 def test_run_smoke_validates_gateway_response(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -66,6 +73,17 @@ def test_run_smoke_validates_gateway_response(monkeypatch: pytest.MonkeyPatch) -
                     },
                     "results": [],
                 }
+            )
+            return httpx.Response(200, json=response.model_dump(mode="json"))
+        if url.endswith("/generate-analyte-guides"):
+            response = GatewayAnalyteGuideResponse(
+                guides=[{
+                    "analyte_id": "synthetic-quality-marker",
+                    "summary": "Синтетический маркер используется только для проверки технического контура.",
+                    "why_tested": "Он подтверждает, что генератор справочных статей отвечает по контракту.",
+                    "low_meaning": "Значение ниже интервала в этой технической фикстуре не интерпретируется.",
+                    "high_meaning": "Значение выше интервала в этой технической фикстуре не интерпретируется.",
+                }]
             )
             return httpx.Response(200, json=response.model_dump(mode="json"))
         response = GatewayChatResponse(
@@ -91,6 +109,7 @@ def test_run_smoke_validates_gateway_response(monkeypatch: pytest.MonkeyPatch) -
     assert [url.rsplit("/", 1)[-1] for url in urls] == [
         "analyze",
         "extract-labs",
+        "generate-analyte-guides",
         "chat",
     ]
 
@@ -122,6 +141,17 @@ def test_run_smoke_retries_one_transient_assistant_error(monkeypatch: pytest.Mon
                     },
                     "results": [],
                 }
+            )
+            return httpx.Response(200, json=response.model_dump(mode="json"))
+        if url.endswith("/generate-analyte-guides"):
+            response = GatewayAnalyteGuideResponse(
+                guides=[{
+                    "analyte_id": "synthetic-quality-marker",
+                    "summary": "Синтетический маркер используется только для проверки технического контура.",
+                    "why_tested": "Он подтверждает, что генератор справочных статей отвечает по контракту.",
+                    "low_meaning": "Значение ниже интервала в этой технической фикстуре не интерпретируется.",
+                    "high_meaning": "Значение выше интервала в этой технической фикстуре не интерпретируется.",
+                }]
             )
             return httpx.Response(200, json=response.model_dump(mode="json"))
         chat_attempts.append(payload["attempt"])
@@ -169,6 +199,17 @@ def test_run_smoke_fails_after_second_assistant_error(monkeypatch: pytest.Monkey
                     },
                     "results": [],
                 }
+            )
+            return httpx.Response(200, json=response.model_dump(mode="json"))
+        if url.endswith("/generate-analyte-guides"):
+            response = GatewayAnalyteGuideResponse(
+                guides=[{
+                    "analyte_id": "synthetic-quality-marker",
+                    "summary": "Синтетический маркер используется только для проверки технического контура.",
+                    "why_tested": "Он подтверждает, что генератор справочных статей отвечает по контракту.",
+                    "low_meaning": "Значение ниже интервала в этой технической фикстуре не интерпретируется.",
+                    "high_meaning": "Значение выше интервала в этой технической фикстуре не интерпретируется.",
+                }]
             )
             return httpx.Response(200, json=response.model_dump(mode="json"))
         chat_attempts.append(payload["attempt"])

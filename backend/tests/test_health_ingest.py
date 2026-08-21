@@ -235,6 +235,64 @@ def test_final_snapshot_page_reconciles_absent_records(db):
     assert rows["remove"].is_deleted is True
 
 
+def test_standalone_empty_snapshot_may_skip_decades_but_remains_bounded(db):
+    now = datetime(2026, 8, 21, 8, tzinfo=timezone.utc)
+    private, device_id = register_and_approve(db, now - timedelta(minutes=2))
+    send(db, private, device_id, changes_payload(now, [step("old", now, 100)]), now)
+    snapshot = {
+        "schema_version": 1,
+        "mode": "snapshot",
+        "record_type": "steps",
+        "data_origin": "com.mi.health",
+        "data_as_of": now.isoformat(),
+        "range_start": datetime(2000, 1, 1, tzinfo=timezone.utc).isoformat(),
+        "range_end": (now + timedelta(seconds=1)).isoformat(),
+        "snapshot_id": "steps-empty-history",
+        "page_index": 0,
+        "final_page": True,
+        "records": [],
+    }
+
+    accepted = send(db, private, device_id, snapshot, now + timedelta(seconds=1))
+
+    assert accepted.reconciled_count == 1
+    assert db.scalar(select(HealthConnectRecord)).is_deleted is True
+
+    invalid = dict(snapshot)
+    invalid.update(
+        range_start=datetime(1900, 1, 1, tzinfo=timezone.utc).isoformat(),
+        snapshot_id="steps-empty-too-wide",
+    )
+    with pytest.raises(HealthIngestError, match="invalid_batch_payload"):
+        send(db, private, device_id, invalid, now + timedelta(seconds=2))
+
+
+def test_large_snapshot_requires_a_single_empty_final_page(db):
+    now = datetime(2026, 8, 21, 8, tzinfo=timezone.utc)
+    private, device_id = register_and_approve(db, now - timedelta(minutes=2))
+    base = {
+        "schema_version": 1,
+        "mode": "snapshot",
+        "record_type": "steps",
+        "data_origin": "com.mi.health",
+        "data_as_of": now.isoformat(),
+        "range_start": datetime(2000, 1, 1, tzinfo=timezone.utc).isoformat(),
+        "range_end": now.isoformat(),
+        "snapshot_id": "large-not-standalone",
+        "page_index": 0,
+        "final_page": False,
+        "records": [],
+    }
+
+    with pytest.raises(HealthIngestError, match="invalid_batch_payload"):
+        send(db, private, device_id, base, now)
+
+    non_empty = dict(base)
+    non_empty.update(final_page=True, records=[step("inside-large-range", now, 100)])
+    with pytest.raises(HealthIngestError, match="invalid_batch_payload"):
+        send(db, private, device_id, non_empty, now + timedelta(seconds=1))
+
+
 def test_tampered_body_and_oversized_batch_are_rejected(db):
     now = datetime(2026, 8, 19, 8, tzinfo=timezone.utc)
     private, device_id = register_and_approve(db, now - timedelta(minutes=2))

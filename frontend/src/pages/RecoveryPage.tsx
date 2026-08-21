@@ -1,6 +1,5 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { api, csvUrl } from "../api/client";
-import type { Period } from "../api/types";
 import { heartRateChartOption, recoveryChartOption, sleepChartOption } from "../charts/options";
 import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
@@ -9,6 +8,7 @@ import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { PeriodSwitcher } from "../components/PeriodSwitcher";
 import { useApi } from "../hooks/useApi";
+import { useChartPeriod } from "../hooks/useChartPeriod";
 import { formatDate, formatDateTime, formatNumber } from "../lib/format";
 
 const metricLabels: Record<string, string> = {
@@ -38,7 +38,7 @@ function heartRateRange(minimum: number | null | undefined, maximum: number | nu
 }
 
 export function RecoveryPage() {
-  const [period, setPeriod] = useState<Period>("90d");
+  const [period, setPeriod] = useChartPeriod("90d");
   const load = useCallback((signal: AbortSignal) => api.recovery(period, signal), [period]);
   const series = useApi(load);
   const points = series.data?.points ?? [];

@@ -19,9 +19,11 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from .auth_models import UserProfile
-from .lab_contracts import LabExtraction
+from .lab_contracts import GatewayAnalyteGuideResponse, LabExtraction
 from .lab_models import (
     LabAnalyte,
+    LabAnalyteGuide,
+    LabAnalyteGuideJob,
     LabDocument,
     LabExtraction as StoredExtraction,
     LabProcessingJob,
@@ -127,16 +129,11 @@ def _analyte_guides() -> dict:
     return payload
 
 
-def analyte_guide(analyte_id: str) -> dict[str, str]:
+def _catalog_analyte_guide(analyte_id: str) -> dict[str, str] | None:
     payload = _analyte_guides()
     entry = payload["entries"].get(analyte_id)
     if not isinstance(entry, dict):
-        entry = {
-            "summary": "Показатель распознан из лабораторного бланка, но отдельной статьи для него пока нет в справочнике Amigo.",
-            "why_tested": "Цель исследования и правила интерпретации зависят от метода, материала и клинического вопроса, указанного лабораторией.",
-            "low_meaning": "Снижение следует оценивать по референсу этого бланка и вместе с другими результатами.",
-            "high_meaning": "Повышение следует оценивать по референсу этого бланка и вместе с другими результатами.",
-        }
+        return None
     return {
         "summary": str(entry["summary"]),
         "why_tested": str(entry["why_tested"]),
@@ -144,7 +141,40 @@ def analyte_guide(analyte_id: str) -> dict[str, str]:
         "high_meaning": str(entry["high_meaning"]),
         "version": str(payload["version"]),
         "reviewed_on": str(payload["reviewed_on"]),
+        "source": "catalog",
     }
+
+
+def analyte_guide(db: Session, analyte_id: str) -> dict[str, str]:
+    catalog = _catalog_analyte_guide(analyte_id)
+    if catalog is not None:
+        return catalog
+    generated = db.get(LabAnalyteGuide, analyte_id)
+    if generated is not None:
+        return {
+            "summary": generated.summary,
+            "why_tested": generated.why_tested,
+            "low_meaning": generated.low_meaning,
+            "high_meaning": generated.high_meaning,
+            "version": generated.contract_version,
+            "reviewed_on": generated.updated_at.date().isoformat(),
+            "source": "ai_generated",
+        }
+    return {
+        "summary": "Статья для этого показателя формируется локальным AI-контуром Amigo.",
+        "why_tested": "После подготовки статьи здесь появятся назначение исследования и контекст интерпретации.",
+        "low_meaning": "Раздел о значениях ниже референса готовится.",
+        "high_meaning": "Раздел о значениях выше референса готовится.",
+        "version": "pending",
+        "reviewed_on": date.today().isoformat(),
+        "source": "pending",
+    }
+
+
+def has_analyte_guide(db: Session, analyte_id: str) -> bool:
+    return _catalog_analyte_guide(analyte_id) is not None or db.get(
+        LabAnalyteGuide, analyte_id
+    ) is not None
 
 
 def detect_media_type(header: bytes, filename: str) -> str:
@@ -419,6 +449,129 @@ def canonical_analyte(db: Session, name: str, hint: str | None = None) -> LabAna
     db.add(analyte)
     db.flush()
     return analyte
+
+
+def missing_analyte_guides(
+    db: Session,
+    *,
+    document_id: str | None = None,
+) -> list[LabAnalyte]:
+    statement = select(LabAnalyte).order_by(LabAnalyte.id)
+    if document_id is not None:
+        statement = (
+            statement.join(LabResult, LabResult.analyte_id == LabAnalyte.id)
+            .where(LabResult.document_id == document_id, LabResult.deleted.is_(False))
+            .distinct()
+        )
+    return [
+        analyte
+        for analyte in db.scalars(statement)
+        if _catalog_analyte_guide(analyte.id) is None
+        and db.get(LabAnalyteGuide, analyte.id) is None
+    ]
+
+
+def enqueue_missing_analyte_guide_jobs(db: Session) -> int:
+    created = 0
+    for analyte in missing_analyte_guides(db):
+        existing = db.scalar(
+            select(LabAnalyteGuideJob).where(
+                LabAnalyteGuideJob.analyte_id == analyte.id
+            )
+        )
+        if existing is not None:
+            continue
+        db.add(LabAnalyteGuideJob(analyte_id=analyte.id, status="pending", attempts=0))
+        created += 1
+    db.commit()
+    return created
+
+
+def persist_analyte_guides(
+    db: Session,
+    response: GatewayAnalyteGuideResponse,
+    *,
+    now: datetime | None = None,
+) -> None:
+    current = now or datetime.now(timezone.utc)
+    for item in response.guides:
+        guide = db.get(LabAnalyteGuide, item.analyte_id)
+        if guide is None:
+            guide = LabAnalyteGuide(
+                analyte_id=item.analyte_id,
+                summary=item.summary,
+                why_tested=item.why_tested,
+                low_meaning=item.low_meaning,
+                high_meaning=item.high_meaning,
+                contract_version=response.contract_version,
+                model=response.model,
+                created_at=current,
+                updated_at=current,
+            )
+            db.add(guide)
+        else:
+            guide.summary = item.summary
+            guide.why_tested = item.why_tested
+            guide.low_meaning = item.low_meaning
+            guide.high_meaning = item.high_meaning
+            guide.contract_version = response.contract_version
+            guide.model = response.model
+            guide.updated_at = current
+        job = db.scalar(
+            select(LabAnalyteGuideJob).where(
+                LabAnalyteGuideJob.analyte_id == item.analyte_id
+            )
+        )
+        if job is not None:
+            job.status = "success"
+            job.lease_until = None
+            job.error_code = None
+            job.finished_at = current
+    db.flush()
+
+
+def claim_analyte_guide_jobs(
+    db: Session,
+    now: datetime,
+    lease_seconds: int = 180,
+    limit: int = 20,
+) -> list[LabAnalyteGuideJob]:
+    expired = list(
+        db.scalars(
+            select(LabAnalyteGuideJob).where(
+                LabAnalyteGuideJob.status == "processing",
+                LabAnalyteGuideJob.lease_until < now,
+            )
+        )
+    )
+    for job in expired:
+        job.status = "pending" if job.attempts < 3 else "failed"
+        job.available_at = now
+        job.lease_until = None
+        job.error_code = "lease_expired"
+        if job.status == "failed":
+            job.finished_at = now
+    db.flush()
+    jobs = list(db.scalars(
+        select(LabAnalyteGuideJob)
+        .where(
+            LabAnalyteGuideJob.status == "pending",
+            LabAnalyteGuideJob.available_at <= now,
+        )
+        .order_by(LabAnalyteGuideJob.id)
+        .with_for_update(skip_locked=True)
+        .limit(limit)
+    ))
+    if not jobs:
+        db.commit()
+        return []
+    for job in jobs:
+        job.status = "processing"
+        job.attempts += 1
+        job.lease_until = now + timedelta(seconds=lease_seconds)
+        job.error_code = None
+    db.commit()
+    return jobs
 
 
 def _age_on(birth_date: date | None, observed_on: date | None) -> int | None:

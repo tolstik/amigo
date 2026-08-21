@@ -29,12 +29,14 @@ from app.ai_gateway import (
     GatewayExecutionError,
     build_analysis_output_schema,
     build_analysis_prompt,
+    build_analyte_guide_output_schema,
+    build_analyte_guide_prompt,
     build_chat_output_schema,
     build_chat_prompt,
     build_lab_output_schema,
     create_app,
 )
-from app.lab_contracts import GatewayChatRequest
+from app.lab_contracts import AnalyteGuideQuery, GatewayAnalyteGuideRequest, GatewayChatRequest
 
 
 NOW = datetime(2026, 8, 19, 18, 0, tzinfo=timezone.utc)
@@ -301,6 +303,30 @@ def test_lab_output_schema_meets_strict_structured_outputs_contract():
         assert result_properties[field] == {
             "anyOf": [{"type": "number"}, {"type": "null"}]
         }
+
+
+def test_analyte_guide_schema_is_strict_and_prompt_is_general_reference_material():
+    request = GatewayAnalyteGuideRequest(
+        analytes=[
+            AnalyteGuideQuery(
+                analyte_id="custom-marker",
+                analyte_name="Особый маркер",
+            )
+        ]
+    )
+
+    schema = build_analyte_guide_output_schema()
+    prompt = build_analyte_guide_prompt(request)
+
+    for node in _schema_nodes(schema):
+        assert "default" not in node
+        if node.get("type") == "object":
+            assert set(node.get("required", [])) == set(node.get("properties", {}))
+            assert node.get("additionalProperties") is False
+    assert '"analyte_id":"custom-marker"' in prompt
+    assert "common plausible categories" in prompt
+    assert "not a conclusion about this user" in prompt
+    assert "Do not call tools" in prompt
 
 
 def test_chat_output_schema_enumerates_exact_allowed_evidence():

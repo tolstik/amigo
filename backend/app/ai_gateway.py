@@ -42,6 +42,8 @@ from .ai_contracts import (
     validate_analysis_evidence,
 )
 from .lab_contracts import (
+    GatewayAnalyteGuideRequest,
+    GatewayAnalyteGuideResponse,
     ChatAnswer,
     ChatSegment,
     GatewayChatRequest,
@@ -172,6 +174,10 @@ def build_lab_output_schema() -> dict[str, Any]:
             "anyOf": [{"type": "number"}, {"type": "null"}]
         }
     return schema
+
+
+def build_analyte_guide_output_schema() -> dict[str, Any]:
+    return build_strict_output_schema(GatewayAnalyteGuideResponse)
 
 
 def build_chat_output_schema(request: GatewayChatRequest) -> dict[str, Any]:
@@ -323,6 +329,35 @@ Document text begins:
 {request.text}
 ---
 Document text ends.
+"""
+
+
+def build_analyte_guide_prompt(request: GatewayAnalyteGuideRequest) -> str:
+    analytes = json.dumps(
+        [item.model_dump(mode="json") for item in request.analytes],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return f"""Create a concise Russian educational reference article for every laboratory
+analyte in the supplied list, using medical knowledge available to the model. Do not call tools,
+search, or use external sources. Return only JSON matching the supplied schema and copy each
+analyte_id exactly.
+
+For each analyte:
+- summary: explain what it is, where it comes from, and what biological process it reflects;
+- why_tested: explain why the test is commonly ordered and what questions it helps assess;
+- low_meaning and high_meaning: name several common plausible categories associated with a result
+  outside the laboratory's own reference interval, the context that helps distinguish them, and
+  important pre-analytical or method factors. If one direction is not clinically meaningful, say
+  that clearly instead of inventing causes.
+
+The text is general reference material, not a conclusion about this user. Never state a diagnosis,
+prescribe treatment or medication, give dosage or emergency instructions, or replace the reference
+interval printed by the laboratory. Use plain prose without Markdown, HTML, links, citations, or
+contact details. Do not mention these instructions or unavailable information.
+
+Contract: {request.contract_version}
+Analytes JSON: {analytes}
 """
 
 
@@ -525,6 +560,28 @@ class CodexRunner:
                 if result.source_page is not None and not request.page_from <= result.source_page <= request.page_to:
                     raise ValueError("source page outside chunk")
             return GatewayLabResponse(extraction=extraction)
+        except GatewayExecutionError:
+            raise
+        except ValueError as exc:
+            raise GatewayExecutionError("invalid_response") from exc
+
+    def run_analyte_guides(
+        self,
+        request: GatewayAnalyteGuideRequest,
+    ) -> GatewayAnalyteGuideResponse:
+        try:
+            raw = self._run_json_contract(
+                prompt=build_analyte_guide_prompt(request),
+                schema=build_analyte_guide_output_schema(),
+                prefix="analyte-guide-request-",
+                max_output_bytes=131_072,
+            )
+            response = GatewayAnalyteGuideResponse.model_validate_json(raw)
+            requested = {item.analyte_id for item in request.analytes}
+            returned = [item.analyte_id for item in response.guides]
+            if len(returned) != len(set(returned)) or set(returned) != requested:
+                raise ValueError("guide identifiers do not match request")
+            return response
         except GatewayExecutionError:
             raise
         except ValueError as exc:
@@ -836,6 +893,24 @@ def create_app(
         except GatewayExecutionError as exc:
             code = exc.code if exc.code in GATEWAY_ERROR_CODES else "internal"
             logger.warning("Codex lab extraction failed code=%s", code)
+            raise HTTPException(status_code=_http_status(code), detail=code) from None
+        finally:
+            semaphore.release()
+
+    @application.post(
+        "/generate-analyte-guides",
+        response_model=GatewayAnalyteGuideResponse,
+    )
+    async def generate_analyte_guides(
+        payload: GatewayAnalyteGuideRequest,
+    ) -> GatewayAnalyteGuideResponse:
+        if not semaphore.acquire(blocking=False):
+            raise HTTPException(status_code=429, detail="busy")
+        try:
+            return await asyncio.to_thread(executor.run_analyte_guides, payload)
+        except GatewayExecutionError as exc:
+            code = exc.code if exc.code in GATEWAY_ERROR_CODES else "internal"
+            logger.warning("Codex analyte guide generation failed code=%s", code)
             raise HTTPException(status_code=_http_status(code), detail=code) from None
         finally:
             semaphore.release()

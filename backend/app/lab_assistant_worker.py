@@ -12,12 +12,16 @@ from .ai_snapshot import enqueue_current_analysis
 from .assistant_api import ChatContextTooLarge, build_chat_context
 from .config import Settings
 from .lab_contracts import (
+    AnalyteGuideQuery,
     ChatAnswer,
     ChatSegment,
     GatewayChatRequest,
     GatewayChatResponse,
+    GatewayAnalyteGuideRequest,
+    GatewayAnalyteGuideResponse,
     GatewayLabRequest,
     GatewayLabResponse,
+    LAB_ANALYTE_GUIDE_PROMPT_VERSION,
     LAB_EXTRACTION_PROMPT_VERSION,
     validate_chat_answer,
 )
@@ -26,6 +30,8 @@ from .lab_models import (
     AssistantMessage,
     AssistantSummary,
     LabDocument,
+    LabAnalyte,
+    LabAnalyteGuideJob,
     LabExtraction,
     LabProcessingJob,
     LabReport,
@@ -37,10 +43,14 @@ from .lab_models import (
 from .labs import (
     LAB_EXTRACTION_CHUNK_CHARS,
     bounded_page_chunks,
+    claim_analyte_guide_jobs,
     claim_lab_job,
+    has_analyte_guide,
+    missing_analyte_guides,
+    original_bytes,
+    persist_analyte_guides,
     persist_extraction,
     replace_text_chunks,
-    original_bytes,
 )
 from .studies import claim_study_job, structure_study_text
 
@@ -111,6 +121,41 @@ class LabAssistantGateway:
         except ValueError as exc:
             raise WorkError("invalid_response") from exc
 
+    def guides(
+        self,
+        request: GatewayAnalyteGuideRequest,
+    ) -> GatewayAnalyteGuideResponse:
+        try:
+            response = self.http.post(
+                f"{self.settings.ai_gateway_url}/generate-analyte-guides",
+                json=request.model_dump(mode="json"),
+                timeout=httpx.Timeout(
+                    self.settings.ai_gateway_timeout_seconds,
+                    connect=10,
+                ),
+            )
+        except httpx.TimeoutException as exc:
+            raise WorkError("timeout") from exc
+        except httpx.HTTPError as exc:
+            raise WorkError("gateway_unavailable") from exc
+        if response.status_code == 429:
+            raise WorkError("gateway_busy")
+        if response.status_code in {502, 503, 504}:
+            raise WorkError(
+                "timeout" if response.status_code == 504 else "gateway_unavailable"
+            )
+        if response.status_code != 200 or len(response.content) > 150_000:
+            raise WorkError("gateway_rejected")
+        try:
+            parsed = GatewayAnalyteGuideResponse.model_validate(response.json())
+        except ValueError as exc:
+            raise WorkError("invalid_response") from exc
+        requested = {item.analyte_id for item in request.analytes}
+        returned = [item.analyte_id for item in parsed.guides]
+        if len(returned) != len(set(returned)) or set(returned) != requested:
+            raise WorkError("invalid_response")
+        return parsed
+
     def chat(self, request: GatewayChatRequest, on_event) -> GatewayChatResponse:
         try:
             with self.http.stream(
@@ -167,6 +212,28 @@ def _fail_lab(db: Session, job: LabProcessingJob, document: LabDocument | None, 
             document.processing_stage = "failed"
             document.error_code = error.code
     db.commit()
+
+
+def _generate_analyte_guides(
+    db: Session,
+    gateway: LabAssistantGateway,
+    analytes: list[LabAnalyte],
+    now: datetime,
+) -> None:
+    for offset in range(0, len(analytes), 20):
+        chunk = analytes[offset : offset + 20]
+        request = GatewayAnalyteGuideRequest(
+            contract_version=LAB_ANALYTE_GUIDE_PROMPT_VERSION,
+            model=AI_MODEL,
+            analytes=[
+                AnalyteGuideQuery(
+                    analyte_id=analyte.id,
+                    analyte_name=analyte.display_name,
+                )
+                for analyte in chunk
+            ],
+        )
+        persist_analyte_guides(db, gateway.guides(request), now=now)
 
 
 def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGateway, now: datetime) -> bool:
@@ -226,6 +293,12 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
                 source_offset=source_offset,
                 source_text=source_text,
             )
+        _generate_analyte_guides(
+            db,
+            gateway,
+            missing_analyte_guides(db, document_id=document.id),
+            now,
+        )
         document.status = "complete"
         document.processing_stage = "complete"
         document.progress_percent = 100
@@ -238,6 +311,11 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
         enqueue_current_analysis(db, settings, trigger="manual", debounce_seconds=0)
         return True
     except WorkError as exc:
+        db.rollback()
+        job = db.get(LabProcessingJob, job.id)
+        document = db.get(LabDocument, job.document_id) if job else None
+        if job is None:
+            return True
         _fail_lab(db, job, document, exc, now)
         return True
     except Exception:
@@ -247,6 +325,71 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
         if job:
             _fail_lab(db, job, document, WorkError("internal"), now)
         return True
+
+
+def process_analyte_guide_job(
+    db: Session,
+    settings: Settings,
+    gateway: LabAssistantGateway,
+    now: datetime,
+) -> bool:
+    jobs = claim_analyte_guide_jobs(
+        db,
+        now,
+        lease_seconds=max(180, settings.ai_lease_seconds),
+    )
+    if not jobs:
+        return False
+    job_ids = [job.id for job in jobs]
+    try:
+        analytes = [
+            analyte
+            for job in jobs
+            if (analyte := db.get(LabAnalyte, job.analyte_id)) is not None
+            and not has_analyte_guide(db, analyte.id)
+        ]
+        _generate_analyte_guides(db, gateway, analytes, now)
+        for job in jobs:
+            job.status = "success"
+            job.lease_until = None
+            job.error_code = None
+            job.finished_at = now
+        db.commit()
+    except WorkError as exc:
+        db.rollback()
+        for job_id in job_ids:
+            job = db.get(LabAnalyteGuideJob, job_id)
+            if job is None:
+                continue
+            job.lease_until = None
+            job.error_code = exc.code
+            if job.attempts < 3:
+                job.status = "pending"
+                job.available_at = now + timedelta(
+                    seconds=30 * (2 ** (job.attempts - 1))
+                )
+            else:
+                job.status = "failed"
+                job.finished_at = now
+        db.commit()
+    except Exception:
+        db.rollback()
+        for job_id in job_ids:
+            job = db.get(LabAnalyteGuideJob, job_id)
+            if job is None:
+                continue
+            job.lease_until = None
+            job.error_code = "internal"
+            if job.attempts < 3:
+                job.status = "pending"
+                job.available_at = now + timedelta(
+                    seconds=30 * (2 ** (job.attempts - 1))
+                )
+            else:
+                job.status = "failed"
+                job.finished_at = now
+        db.commit()
+    return True
 
 
 def _fail_study(

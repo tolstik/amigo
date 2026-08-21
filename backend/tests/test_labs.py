@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 from io import BytesIO
@@ -9,10 +9,23 @@ import fitz
 from PIL import Image
 import pytest
 
-from app.lab_contracts import ExtractedLabReport, ExtractedLabResult, LabExtraction
+from app.lab_contracts import (
+    ExtractedLabReport,
+    ExtractedLabResult,
+    GatewayAnalyteGuideResponse,
+    LabExtraction,
+)
 from app.auth_models import UserProfile
 from app.config import Settings
-from app.lab_models import LabDocument, LabReferenceRange, LabReport, LabResult, StoredFile
+from app.lab_models import (
+    LabAnalyte,
+    LabAnalyteGuideJob,
+    LabDocument,
+    LabReferenceRange,
+    LabReport,
+    LabResult,
+    StoredFile,
+)
 from app.lab_parser import MAX_COORDINATE_BLOCKS, ParserError, _ocr, parse_document
 from app.labs_api import ResultCreate, ResultPatch, analyte_history, create_result, patch_result
 from app.labs import (
@@ -24,7 +37,9 @@ from app.labs import (
     calculate_status,
     detect_media_type,
     enqueue_document,
+    enqueue_missing_analyte_guide_jobs,
     original_bytes,
+    persist_analyte_guides,
     persist_extraction,
     repair_lab_observed_dates,
     seed_reference_catalog,
@@ -188,14 +203,44 @@ def test_status_is_deterministic_and_comparators_remain_indeterminate():
     assert calculate_status(None, "negative", None, None, None, "not detected") == "within_reference"
 
 
-def test_analyte_history_includes_reference_guide_for_known_and_custom_parameters(db):
+def test_analyte_history_includes_catalog_and_generated_guides(db):
     known = analyte_history("leukocytes", db)
+    db.add(LabAnalyte(id="custom-marker", display_name="Особый маркер", aliases=[]))
+    db.flush()
+    persist_analyte_guides(
+        db,
+        GatewayAnalyteGuideResponse(
+            guides=[{
+                "analyte_id": "custom-marker",
+                "summary": "Особый маркер отражает лабораторно измеряемый биологический процесс.",
+                "why_tested": "Исследование назначают для уточнения связанного биологического процесса.",
+                "low_meaning": "Снижение сопоставляют с методом, материалом и другими результатами исследования.",
+                "high_meaning": "Повышение сопоставляют с методом, материалом и другими результатами исследования.",
+            }]
+        ),
+        now=datetime(2026, 8, 21, tzinfo=timezone.utc),
+    )
+    db.commit()
     custom = analyte_history("custom-marker", db)
 
     assert "иммунной системы" in known["guide"]["summary"]
     assert "инфекц" in known["guide"]["high_meaning"]
     assert known["guide"]["version"] == "2026.08-v1"
-    assert "отдельной статьи" in custom["guide"]["summary"]
+    assert known["guide"]["source"] == "catalog"
+    assert "биологический процесс" in custom["guide"]["summary"]
+    assert custom["guide"]["source"] == "ai_generated"
+
+
+def test_existing_unknown_analytes_are_enqueued_once_for_bounded_backfill(db):
+    db.add(LabAnalyte(id="custom-backfill", display_name="Новый маркер", aliases=[]))
+    db.commit()
+
+    assert enqueue_missing_analyte_guide_jobs(db) == 1
+    assert enqueue_missing_analyte_guide_jobs(db) == 0
+
+    job = db.query(LabAnalyteGuideJob).one()
+    assert job.analyte_id == "custom-backfill"
+    assert job.status == "pending"
 
 
 def test_report_range_overrides_catalog_and_results_publish_unverified(db):

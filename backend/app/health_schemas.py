@@ -224,8 +224,15 @@ class HealthBatchInput(BaseModel):
                 raise ValueError("snapshot metadata is incomplete")
             if self.range_end <= self.range_start:
                 raise ValueError("snapshot range is invalid")
-            if self.range_end - self.range_start > timedelta(days=31):
-                raise ValueError("snapshot range cannot exceed 31 days")
+            snapshot_range = self.range_end - self.range_start
+            if snapshot_range > timedelta(days=31):
+                is_standalone_empty_snapshot = (
+                    not self.records and self.final_page is True and self.page_index == 0
+                )
+                if not is_standalone_empty_snapshot:
+                    raise ValueError("snapshot range cannot exceed 31 days")
+                if snapshot_range > timedelta(days=366 * 50):
+                    raise ValueError("empty snapshot range cannot exceed 50 years")
             if any(record.deleted for record in self.records):
                 raise ValueError("snapshot pages cannot contain deletion records")
             for record in self.records:

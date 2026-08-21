@@ -187,7 +187,7 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
         document.progress_percent = 40
         db.commit()
         pages = parsed["pages"]
-        extraction_chunks: list[tuple[int, GatewayLabResponse]] = []
+        extraction_chunks: list[tuple[int, str, GatewayLabResponse]] = []
         chunks = bounded_page_chunks(pages, LAB_EXTRACTION_CHUNK_CHARS)
         for index, (page_from, page_to, text) in enumerate(chunks):
             request = GatewayLabRequest(
@@ -199,7 +199,7 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
                 contract_version=LAB_EXTRACTION_PROMPT_VERSION,
                 model=AI_MODEL,
             )
-            extraction_chunks.append((index, gateway.extract(request)))
+            extraction_chunks.append((index, text, gateway.extract(request)))
             document.processing_stage = "extracting"
             document.progress_percent = 40 + round(45 * (index + 1) / max(1, len(chunks)))
             db.commit()
@@ -215,7 +215,7 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
         document.error_code = None
         replace_text_chunks(db, document, pages)
         source_offset = 0
-        for index, response in extraction_chunks:
+        for index, source_text, response in extraction_chunks:
             source_offset += persist_extraction(
                 db,
                 document,
@@ -224,6 +224,7 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
                 model=AI_MODEL,
                 contract_version=LAB_EXTRACTION_PROMPT_VERSION,
                 source_offset=source_offset,
+                source_text=source_text,
             )
         document.status = "complete"
         document.processing_stage = "complete"

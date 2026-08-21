@@ -102,6 +102,22 @@ private data class AppUpdate(
     val downloadUrl: String,
 )
 
+internal fun backgroundResultLabel(value: String?): String = when (value) {
+    null -> "—"
+    "running" -> "Выполняется"
+    "success" -> "Успешно"
+    "backfill_continues" -> "История загружается частями"
+    "not_paired" -> "Телефон не сопряжён"
+    "not_ready" -> "Синхронизация ещё не настроена"
+    "health_connect_unavailable" -> "Health Connect недоступен"
+    "background_permission_missing" -> "Нет фонового разрешения"
+    "permission_revoked" -> "Разрешение отозвано"
+    "server_unavailable" -> "Сервер временно недоступен"
+    "cancelled" -> "Остановлено системой"
+    "failed" -> "Ошибка"
+    else -> "Неизвестный результат"
+}
+
 private class DashboardAuthenticationRequired : IOException()
 
 class MainActivity : ComponentActivity() {
@@ -836,7 +852,7 @@ private fun SyncScreen(
                 Text("Последняя отправка: ${formatInstant(local?.lastSync)}")
                 Text("Данные актуальны на: ${formatInstant(local?.dataAsOf)}")
                 Text("Последний фоновый запуск: ${formatInstant(local?.backgroundLastStarted)}")
-                Text("Фоновый результат: ${local?.backgroundResult ?: "—"}")
+                Text("Фоновый результат: ${backgroundResultLabel(local?.backgroundResult)}")
                 Text("Фоновый запуск завершён: ${formatInstant(local?.backgroundLastFinished)}")
                 local?.lastError?.let { Text("Ошибка: $it", color = MaterialTheme.colorScheme.error) }
                 Button(
@@ -846,7 +862,7 @@ private fun SyncScreen(
                 if (state.busy) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.height(24.dp))
-                        Text(" Выполняется…")
+                        Text(" Ручная синхронизация…")
                     }
                 }
             }

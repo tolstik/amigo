@@ -12,9 +12,9 @@ import pytest
 from app.lab_contracts import ExtractedLabReport, ExtractedLabResult, LabExtraction
 from app.auth_models import UserProfile
 from app.config import Settings
-from app.lab_models import LabDocument, LabReferenceRange, LabResult, StoredFile
+from app.lab_models import LabDocument, LabReferenceRange, LabReport, LabResult, StoredFile
 from app.lab_parser import MAX_COORDINATE_BLOCKS, ParserError, _ocr, parse_document
-from app.labs_api import ResultCreate, ResultPatch, create_result, patch_result
+from app.labs_api import ResultCreate, ResultPatch, analyte_history, create_result, patch_result
 from app.labs import (
     LAB_EXTRACTION_CHUNK_CHARS,
     LAB_RETRIEVAL_CHUNK_CHARS,
@@ -26,6 +26,7 @@ from app.labs import (
     enqueue_document,
     original_bytes,
     persist_extraction,
+    repair_lab_observed_dates,
     seed_reference_catalog,
 )
 from app.studies import enqueue_study, structure_study_text
@@ -187,6 +188,16 @@ def test_status_is_deterministic_and_comparators_remain_indeterminate():
     assert calculate_status(None, "negative", None, None, None, "not detected") == "within_reference"
 
 
+def test_analyte_history_includes_reference_guide_for_known_and_custom_parameters(db):
+    known = analyte_history("leukocytes", db)
+    custom = analyte_history("custom-marker", db)
+
+    assert "иммунной системы" in known["guide"]["summary"]
+    assert "инфекц" in known["guide"]["high_meaning"]
+    assert known["guide"]["version"] == "2026.08-v1"
+    assert "отдельной статьи" in custom["guide"]["summary"]
+
+
 def test_report_range_overrides_catalog_and_results_publish_unverified(db):
     seed_reference_catalog(db)
     db.add(UserProfile(id=1, birth_date=date(1990, 1, 1), reference_sex="male", height_cm=176))
@@ -226,6 +237,79 @@ def test_report_range_overrides_catalog_and_results_publish_unverified(db):
     assert row.reference_source == "laboratory"
     assert row.status == "within_reference"
     assert row.verification_status == "unverified"
+
+
+def test_labelled_ocr_date_overrides_implausible_model_date(db):
+    document = LabDocument(
+        id="00000000-0000-0000-0000-000000000011",
+        storage_key="dated.bin",
+        original_filename="dated.pdf",
+        file_sha256="d" * 64,
+        media_type="application/pdf",
+        size_bytes=100,
+        status="processing",
+        verified=False,
+    )
+    db.add(document)
+    db.flush()
+    extraction = LabExtraction(
+        report=ExtractedLabReport(observed_on=date(2904, 2, 25)),
+        results=[ExtractedLabResult(analyte_name="Глюкоза", value_numeric=Decimal("5.1"))],
+    )
+
+    persist_extraction(
+        db,
+        document,
+        extraction,
+        chunk_index=0,
+        model="gpt-5.6-sol",
+        contract_version="amigo-lab-extraction-v1",
+        source_offset=0,
+        source_text="Аллергология\nДата выполнения исследования: 27.04.2025\nДата рождения: 01.01.1990",
+    )
+    db.commit()
+
+    assert db.query(LabReport).one().observed_on == date(2025, 4, 27)
+    assert db.query(LabResult).one().observed_on == date(2025, 4, 27)
+
+
+def test_existing_lab_dates_are_repaired_for_all_unambiguous_documents(db):
+    expected_dates = (date(2025, 4, 27), date(2024, 11, 8))
+    for index, expected in enumerate(expected_dates, start=20):
+        document = LabDocument(
+            id=f"00000000-0000-0000-0000-{index:012d}",
+            storage_key=f"dated-{index}.bin",
+            original_filename=f"dated-{index}.pdf",
+            file_sha256=f"{index:064x}",
+            media_type="application/pdf",
+            size_bytes=100,
+            status="complete",
+            verified=False,
+            extracted_text=f"Дата исследования: {expected.strftime('%d.%m.%Y')}",
+            parser_pages=[
+                {"page": 1, "text": f"Дата исследования: {expected.strftime('%d.%m.%Y')}"}
+            ],
+        )
+        db.add(document)
+        db.flush()
+        persist_extraction(
+            db,
+            document,
+            LabExtraction(
+                report=ExtractedLabReport(observed_on=date(2904, 2, 25)),
+                results=[ExtractedLabResult(analyte_name=f"Показатель {index}", value_numeric=Decimal("1"))],
+            ),
+            chunk_index=0,
+            model="gpt-5.6-sol",
+            contract_version="amigo-lab-extraction-v1",
+            source_offset=0,
+        )
+    db.commit()
+
+    assert repair_lab_observed_dates(db, today=date(2026, 8, 21)) == (2, 2, 2)
+    assert [row.observed_on for row in db.query(LabReport).order_by(LabReport.created_at)] == list(expected_dates)
+    assert [row.observed_on for row in db.query(LabResult).order_by(LabResult.document_id)] == list(expected_dates)
+    assert repair_lab_observed_dates(db, today=date(2026, 8, 21)) == (0, 0, 0)
 
 
 def test_user_can_add_missing_result_and_analyte_edit_rebinds_history(db, monkeypatch):

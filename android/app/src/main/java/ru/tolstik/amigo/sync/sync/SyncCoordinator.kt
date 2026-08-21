@@ -1,11 +1,15 @@
 package ru.tolstik.amigo.sync.sync
 
+import java.io.IOException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 
 interface HealthDataSource {
     suspend fun enabledTypes(): List<RecordType> = RecordType.entries
@@ -35,6 +39,19 @@ interface HealthDataSource {
 
 interface BatchUploader {
     suspend fun upload(batch: BatchEnvelope)
+}
+
+internal fun userFacingSyncError(error: Throwable): String {
+    val causes = generateSequence(error) { current -> current.cause }
+    return when {
+        causes.any { it is UnknownHostException } ->
+            "Не удалось найти amigo.tolstik.ru. Проверьте интернет и настройки частного DNS; синхронизация повторится автоматически."
+        causes.any { it is SocketTimeoutException } ->
+            "Сервер не ответил вовремя. Синхронизация повторится автоматически."
+        error is IOException ->
+            "Не удалось связаться с сервером. Данные не потеряны, синхронизация повторится автоматически."
+        else -> error.message?.take(300) ?: "Синхронизация завершилась с ошибкой"
+    }
 }
 
 interface SyncStateStore {
@@ -112,8 +129,13 @@ class SyncCoordinator(
             }
             state.setLastSync(clock.instant())
             state.setLastError(null)
+        } catch (error: CancellationException) {
+            // WorkManager may cancel a superseded request. Cancellation is lifecycle
+            // control, not a Health Connect/server failure and must never become the
+            // user-visible English "Job was cancelled" error.
+            throw error
         } catch (error: Exception) {
-            state.setLastError(error.message?.take(300) ?: error::class.java.simpleName)
+            state.setLastError(userFacingSyncError(error))
             throw error
         }
         return SyncSummary(

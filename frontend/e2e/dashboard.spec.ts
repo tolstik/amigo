@@ -190,7 +190,7 @@ test.beforeEach(async ({ page }) => {
       generated_at: "2026-09-02T07:55:00Z",
       data_as_of: "2026-09-02T07:50:00Z",
       model: "gpt-5.6-sol",
-      prompt_version: "amigo-health-v3",
+      prompt_version: "amigo-health-v4",
     } });
     if (path.endsWith("/insights")) return route.fulfill({ json: { items: overview.insights } });
     if (path.endsWith("/series/pressure")) {

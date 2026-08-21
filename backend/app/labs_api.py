@@ -31,6 +31,7 @@ from .lab_models import (
 )
 from .labs import (
     LabFileError,
+    analyte_guide,
     calculate_status,
     canonical_analyte,
     enqueue_document,
@@ -579,7 +580,11 @@ def analyte_history(analyte_id: str, db: Session = Depends(get_db)) -> dict:
             .order_by(LabResult.observed_on, LabResult.created_at)
         )
     )
-    return {"analyte_id": analyte_id, "items": [_result(row) for row in rows]}
+    return {
+        "analyte_id": analyte_id,
+        "guide": analyte_guide(analyte_id),
+        "items": [_result(row) for row in rows],
+    }
 
 
 @router.get("/reference-catalog")

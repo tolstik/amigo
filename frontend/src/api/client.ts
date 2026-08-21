@@ -27,6 +27,7 @@ import type {
   WeeklyWeightPoint,
   AssistantMessage,
   AuthSession,
+  LabAnalyteGuide,
   LabDocument,
   LabResult,
   LabResultInput,
@@ -708,7 +709,7 @@ export const api = {
     requestJson(`/labs/documents/${documentId}/results`, jsonBody(result)) as Promise<LabResult>,
   labSummary: async (signal?: AbortSignal) => fetchJson("/labs/summary", signal) as Promise<{ items: LabResult[]; counts: Record<string, number> }>,
   labHistory: async (analyteId: string, signal?: AbortSignal) =>
-    fetchJson(`/labs/analytes/${encodeURIComponent(analyteId)}/history`, signal) as Promise<{ analyte_id: string; items: LabResult[] }>,
+    fetchJson(`/labs/analytes/${encodeURIComponent(analyteId)}/history`, signal) as Promise<{ analyte_id: string; guide: LabAnalyteGuide; items: LabResult[] }>,
   assistantMessages: async (signal?: AbortSignal) =>
     fetchJson("/assistant/messages", signal) as Promise<{ items: AssistantMessage[]; recommendations: AiNarrativeItem[] }>,
   sendAssistantMessage: async (content: string, clientRequestId: string) =>

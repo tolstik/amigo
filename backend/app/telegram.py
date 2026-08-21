@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from html import escape
+from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -276,9 +277,49 @@ class TelegramNotifier:
         for item in recommendations:
             if not isinstance(item, dict) or not isinstance(item.get("text"), str):
                 continue
+            evidence_keys = item.get("evidence_keys")
+            if isinstance(evidence_keys, list) and any(
+                isinstance(key, str) and key.startswith("lab.") for key in evidence_keys
+            ):
+                continue
             title = item.get("title") if isinstance(item.get("title"), str) else "Рекомендация"
             lines.append(f"• <b>{escape(title)}</b>: {escape(item['text'])}")
         return self._pack_messages("<b>✨ Рекомендации Amigo</b>", lines)
+
+    def _lab_assessment_messages(self, now: datetime) -> list[str]:
+        since = now - timedelta(hours=24)
+        recent_keys = {
+            f"lab.{sha256(row_id.encode()).hexdigest()[:20]}"
+            for row_id in self.db.scalars(
+                select(LabResult.id).where(
+                    LabResult.deleted.is_(False),
+                    LabResult.created_at >= since,
+                )
+            )
+        }
+        if not recent_keys:
+            return []
+        payload = public_analysis_payload(self.db)
+        if payload.get("status") != "ready" or not isinstance(payload.get("analysis"), dict):
+            return []
+        analysis = payload["analysis"]
+        candidates = [
+            *(analysis.get("recommendations") if isinstance(analysis.get("recommendations"), list) else []),
+            *(analysis.get("observations") if isinstance(analysis.get("observations"), list) else []),
+        ]
+        lines: list[str] = []
+        for item in candidates:
+            if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+                continue
+            evidence_keys = item.get("evidence_keys")
+            if not isinstance(evidence_keys, list) or not recent_keys.intersection(evidence_keys):
+                continue
+            title = item.get("title") if isinstance(item.get("title"), str) else "Оценка"
+            safe_title = _escape_limited(title, 180)
+            safe_text = _escape_limited(item["text"], 620)
+            if safe_title and safe_text:
+                lines.append(f"• <b>{safe_title}</b>: {safe_text}")
+        return self._pack_messages("<b>🩺 Оценка лабораторных результатов</b>", lines)
 
     def _lab_messages(self, now: datetime) -> list[str]:
         since = now - timedelta(hours=24)
@@ -337,12 +378,20 @@ class TelegramNotifier:
                 "<b>📊 Недельный график Amigo</b>",
             )
             self.client.send_message(text)
-            for message in [*self._lab_messages(current), *self._ai_recommendation_messages()]:
+            for message in [
+                *self._lab_messages(current),
+                *self._lab_assessment_messages(current),
+                *self._ai_recommendation_messages(),
+            ]:
                 self.client.send_message(message)
             return DeliveryResult()
         if event.event_type == "daily.digest":
             self.client.send_message(self._daily_digest_text(current))
-            for message in [*self._lab_messages(current), *self._ai_recommendation_messages()]:
+            for message in [
+                *self._lab_messages(current),
+                *self._lab_assessment_messages(current),
+                *self._ai_recommendation_messages(),
+            ]:
                 self.client.send_message(message)
             return DeliveryResult()
         raise TelegramError(f"unsupported outbox event {event.event_type}")

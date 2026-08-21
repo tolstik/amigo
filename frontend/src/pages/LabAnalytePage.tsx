@@ -36,6 +36,16 @@ export function LabAnalytePage() {
     <PageHeader eyebrow="История показателя" title={rows.at(-1)?.analyte_name ?? "Лабораторный показатель"} description="Несовместимые единицы показаны как отдельные значения и автоматически не конвертируются." actions={<Link className="button button--secondary" to="/labs">К анализам</Link>} />
     {history.loading && <LoadingState />}
     {history.error && <ErrorState onRetry={history.reload} />}
+    {history.data?.guide && <section className="panel lab-guide-card" aria-labelledby="lab-guide-title">
+      <div className="panel__head"><div><h2 id="lab-guide-title">О показателе</h2><p>Справочник Amigo · проверено {formatDate(history.data.guide.reviewed_on)}</p></div></div>
+      <p className="lab-guide-card__summary">{history.data.guide.summary}</p>
+      <div className="lab-guide-grid">
+        <article><h3>Зачем сдают</h3><p>{history.data.guide.why_tested}</p></article>
+        <article><h3>Если ниже референса</h3><p>{history.data.guide.low_meaning}</p></article>
+        <article><h3>Если выше референса</h3><p>{history.data.guide.high_meaning}</p></article>
+      </div>
+      <p className="lab-guide-card__note">Возможные причины не равны заключению: результат оценивают вместе с симптомами, условиями сдачи, методом лаборатории и другими показателями.</p>
+    </section>}
     {!history.loading && !rows.length && <EmptyState title="Истории пока нет" text="Для графика нужна хотя бы одна строка с датой и значением." />}
     {!!Object.keys(numericByUnit).length && <div className="lab-history-charts">{Object.entries(numericByUnit).map(([unit, unitRows]) => <HistoryChart key={unit} unit={unit} rows={unitRows} />)}</div>}
     {!!rows.length && <section className="panel lab-table-card"><div className="data-table-scroll"><table className="data-table"><thead><tr><th>Дата</th><th>Значение</th><th>Референс</th><th>Источник</th><th>Проверка</th></tr></thead><tbody>{[...rows].reverse().map((row) => <tr key={row.id}><td>{formatDate(row.observed_on)}</td><td>{labValue(row)}</td><td>{labReference(row)}</td><td><Link to={`/labs/documents/${row.document_id}`}>Документ</Link></td><td>{row.verification_status === "verified" ? "Проверено" : "Не проверено"}</td></tr>)}</tbody></table></div></section>}

@@ -1,11 +1,13 @@
 package ru.tolstik.amigo.sync.sync
 
 import java.io.IOException
+import java.net.UnknownHostException
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonArray
@@ -24,6 +26,34 @@ class SyncCoordinatorTest {
     private val floor = Instant.parse("2026-01-01T00:00:00Z")
     private val now = Instant.parse("2026-01-02T00:00:00Z")
     private val origin = "com.example.health"
+
+    @Test
+    fun dnsFailureHasActionableRussianMessageWithoutLosingRetryMeaning() {
+        val message = userFacingSyncError(
+            IOException("network", UnknownHostException("amigo.tolstik.ru")),
+        )
+
+        assertTrue(message.contains("amigo.tolstik.ru"))
+        assertTrue(message.contains("частного DNS"))
+        assertTrue(message.contains("повторится автоматически"))
+        assertFalse(message.contains("Unable to resolve host"))
+    }
+
+    @Test
+    fun cancellationDoesNotBecomeAStoredSyncError() = runTest {
+        val state = FakeState(origin)
+        val source = FakeHealthSource(
+            earliest = floor,
+            onCreateToken = { throw CancellationException("Job was cancelled") },
+        )
+
+        val failure = runCatching {
+            coordinator(source, FakeUploader(), state).syncAll(maxPagesPerType = 1)
+        }.exceptionOrNull()
+
+        assertTrue(failure is CancellationException)
+        assertNull(state.lastErrorValue)
+    }
 
     @Test
     fun createsTokenBeforePaginatedBackfillAndMarksOnlyFinalPage() = runTest {

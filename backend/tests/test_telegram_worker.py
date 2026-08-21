@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+from hashlib import sha256
 from io import BytesIO
 
 from PIL import Image
 
 from app.config import Settings
+from app.lab_models import LabDocument, LabResult
 from app.models import Outbox
 from app.service import ensure_default_plan
 from app.telegram import TelegramNotifier, render_weekly_card
@@ -287,6 +290,70 @@ def test_ai_recommendations_are_shown_before_observations(db, monkeypatch):
     assert next(index for index, line in enumerate(lines) if "Действие" in line) < next(
         index for index, line in enumerate(lines) if "Наблюдение" in line
     )
+
+
+def test_recent_laboratory_values_get_a_separate_cited_ai_assessment(db, monkeypatch):
+    now = datetime(2026, 8, 21, 9, 0, tzinfo=timezone.utc)
+    document = LabDocument(
+        id="00000000-0000-0000-0000-000000000091",
+        storage_key="telegram-lab.bin",
+        original_filename="telegram-lab.pdf",
+        file_sha256="9" * 64,
+        media_type="application/pdf",
+        size_bytes=100,
+        status="complete",
+        verified=True,
+        created_at=now - timedelta(hours=1),
+    )
+    result = LabResult(
+        id="00000000-0000-0000-0000-000000000092",
+        document_id=document.id,
+        source_index=0,
+        analyte_name="Лейкоциты",
+        value_numeric=Decimal("12.1"),
+        unit="10^9/L",
+        observed_on=date(2025, 4, 27),
+        reference_low=Decimal("4.0"),
+        reference_high=Decimal("9.0"),
+        reference_source="laboratory",
+        status="above_reference",
+        verification_status="verified",
+        deleted=False,
+        created_at=now - timedelta(hours=1),
+    )
+    db.add_all([document, result])
+    db.commit()
+    evidence_key = f"lab.{sha256(result.id.encode()).hexdigest()[:20]}"
+    monkeypatch.setattr(
+        "app.telegram.public_analysis_payload",
+        lambda *_args: {
+            "status": "ready",
+            "analysis": {
+                "observations": [{
+                    "title": "Оценка лейкоцитов",
+                    "text": "Отклонение может сопровождать инфекцию или воспалительную реакцию; важны симптомы и динамика.",
+                    "evidence_keys": [evidence_key],
+                }],
+                "recommendations": [{
+                    "title": "Следующий шаг",
+                    "text": "Повторите анализ в сопоставимых условиях в течение недели.",
+                    "evidence_keys": [evidence_key],
+                }],
+            },
+        },
+    )
+    notifier = TelegramNotifier(
+        db,
+        Settings(database_url="sqlite+pysqlite:///:memory:"),
+        client=RecordingTelegramClient(),  # type: ignore[arg-type]
+    )
+
+    messages = notifier._lab_assessment_messages(now)
+
+    assert messages and "Оценка лабораторных результатов" in messages[0]
+    assert "инфекцию или воспалительную реакцию" in messages[0]
+    assert "Повторите анализ" in messages[0]
+    assert notifier._ai_recommendation_messages() == []
 
 
 def test_digests_are_explicitly_facts_only_while_ai_is_unavailable(db, monkeypatch):

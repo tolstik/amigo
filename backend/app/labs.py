@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from functools import lru_cache
 from hashlib import sha256
 from io import BytesIO
 import json
@@ -38,11 +39,112 @@ MAX_IMAGE_PIXELS = 40_000_000
 LAB_EXTRACTION_CHUNK_CHARS = 80_000
 LAB_RETRIEVAL_CHUNK_CHARS = 36_000
 CATALOG_PATH = Path(__file__).parent / "data" / "lab_reference_catalog.v1.json"
+ANALYTE_GUIDE_PATH = Path(__file__).parent / "data" / "lab_analyte_guides.v1.json"
 register_heif_opener()
+
+
+_DATE_VALUE_PATTERN = (
+    r"(?:\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}|"
+    r"\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4})"
+)
+_OBSERVED_DATE_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        rf"(?:дата(?:\s+и\s+время)?\s+(?:исследования|анализа|"
+        rf"выполнения(?:\s+исследования)?|"
+        rf"взятия(?:\s+(?:биоматериала|материала|образца|крови))?|"
+        rf"забора(?:\s+(?:биоматериала|материала|образца|крови))?|"
+        rf"получения(?:\s+(?:биоматериала|материала|образца))?)|"
+        rf"(?:collection|collected|specimen|sampling|test|analysis)\s+date"
+        rf"(?:\s+and\s+time)?)"
+        rf"\s*(?:[:=\-]\s*)?(?P<value>{_DATE_VALUE_PATTERN})",
+        rf"(?<![\w])дата(?!\s*(?:рожд(?:ения)?|birth))"
+        rf"\s*(?:[:=\-]\s*)?(?P<value>{_DATE_VALUE_PATTERN})",
+        rf"(?:дата\s+(?:отч[её]та|выдачи|готовности|заказа|регистрации)|"
+        rf"(?:report|result|issued|order)\s+date)"
+        rf"\s*(?:[:=\-]\s*)?(?P<value>{_DATE_VALUE_PATTERN})",
+    )
+)
 
 
 class LabFileError(ValueError):
     pass
+
+
+def _parse_observed_date(value: str, *, today: date) -> date | None:
+    parts = re.split(r"[.\-/]", value)
+    if len(parts) != 3:
+        return None
+    try:
+        if len(parts[0]) == 4:
+            year, month, day = (int(part) for part in parts)
+        else:
+            day, month, year = (int(part) for part in parts)
+        parsed = date(year, month, day)
+    except ValueError:
+        return None
+    if parsed.year < 1900 or parsed.year > today.year + 1:
+        return None
+    return parsed
+
+
+def labeled_observed_date(text: str | None, *, today: date | None = None) -> date | None:
+    """Return one unambiguous, explicitly labelled measurement date from OCR text."""
+
+    current = today or date.today()
+    normalized = unicodedata.normalize("NFKC", text or "").replace("ё", "е")
+    for pattern in _OBSERVED_DATE_PATTERNS:
+        candidates = {
+            parsed
+            for match in pattern.finditer(normalized)
+            if (parsed := _parse_observed_date(match.group("value"), today=current)) is not None
+        }
+        if len(candidates) == 1:
+            return next(iter(candidates))
+        if candidates:
+            return None
+    return None
+
+
+def _unique_non_birth_date(text: str | None, *, today: date) -> date | None:
+    candidates: set[date] = set()
+    for line in unicodedata.normalize("NFKC", text or "").splitlines():
+        folded = line.casefold().replace("ё", "е")
+        if re.search(r"(?:дата\s+рожд|д\.?\s*р\.?\s*[:=]|birth\s+date)", folded):
+            continue
+        for match in re.finditer(_DATE_VALUE_PATTERN, line):
+            parsed = _parse_observed_date(match.group(0), today=today)
+            if parsed is not None:
+                candidates.add(parsed)
+    return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+@lru_cache(maxsize=1)
+def _analyte_guides() -> dict:
+    payload = json.loads(ANALYTE_GUIDE_PATH.read_text(encoding="utf-8"))
+    if not isinstance(payload.get("entries"), dict):
+        raise RuntimeError("invalid analyte guide catalog")
+    return payload
+
+
+def analyte_guide(analyte_id: str) -> dict[str, str]:
+    payload = _analyte_guides()
+    entry = payload["entries"].get(analyte_id)
+    if not isinstance(entry, dict):
+        entry = {
+            "summary": "Показатель распознан из лабораторного бланка, но отдельной статьи для него пока нет в справочнике Amigo.",
+            "why_tested": "Цель исследования и правила интерпретации зависят от метода, материала и клинического вопроса, указанного лабораторией.",
+            "low_meaning": "Снижение следует оценивать по референсу этого бланка и вместе с другими результатами.",
+            "high_meaning": "Повышение следует оценивать по референсу этого бланка и вместе с другими результатами.",
+        }
+    return {
+        "summary": str(entry["summary"]),
+        "why_tested": str(entry["why_tested"]),
+        "low_meaning": str(entry["low_meaning"]),
+        "high_meaning": str(entry["high_meaning"]),
+        "version": str(payload["version"]),
+        "reviewed_on": str(payload["reviewed_on"]),
+    }
 
 
 def detect_media_type(header: bytes, filename: str) -> str:
@@ -389,6 +491,7 @@ def persist_extraction(
     model: str,
     contract_version: str,
     source_offset: int,
+    source_text: str | None = None,
 ) -> int:
     db.add(
         StoredExtraction(
@@ -399,10 +502,18 @@ def persist_extraction(
             raw_result=extraction.model_dump(mode="json"),
         )
     )
+    current = date.today()
+    extracted_report_date = extraction.report.observed_on
+    trusted_report_date = labeled_observed_date(source_text, today=current)
+    report_date = trusted_report_date or (
+        extracted_report_date
+        if extracted_report_date is not None and 1900 <= extracted_report_date.year <= current.year + 1
+        else None
+    )
     report = LabReport(
         id=str(uuid4()),
         document_id=document.id,
-        observed_on=extraction.report.observed_on,
+        observed_on=report_date,
         laboratory=extraction.report.laboratory,
         specimen=extraction.report.specimen,
     )
@@ -411,7 +522,18 @@ def persist_extraction(
     created = 0
     for index, item in enumerate(extraction.results):
         analyte = canonical_analyte(db, item.analyte_name, item.canonical_hint)
-        observed = item.observed_on or report.observed_on
+        observed = item.observed_on
+        observed_is_plausible = observed is not None and 1900 <= observed.year <= current.year + 1
+        if trusted_report_date is not None and (
+            observed is None
+            or observed == extracted_report_date
+            or not observed_is_plausible
+        ):
+            observed = trusted_report_date
+        elif not observed_is_plausible:
+            observed = report.observed_on
+        if observed is None:
+            observed = report.observed_on
         specimen = item.specimen or report.specimen
         low, high, reference_text = item.reference_low, item.reference_high, item.reference_text
         reference_source = "laboratory" if low is not None or high is not None or reference_text else "none"
@@ -447,6 +569,93 @@ def persist_extraction(
         db.add(result)
         created += 1
     return created
+
+
+def repair_lab_observed_dates(
+    db: Session,
+    *,
+    today: date | None = None,
+) -> tuple[int, int, int]:
+    """Repair model-produced dates from labelled OCR without exposing document text."""
+
+    current = today or date.today()
+    documents_changed = 0
+    reports_changed = 0
+    results_changed = 0
+    documents = list(
+        db.scalars(
+            select(LabDocument)
+            .where(LabDocument.extracted_text.is_not(None))
+            .order_by(LabDocument.created_at, LabDocument.id)
+        )
+    )
+    for document in documents:
+        document_date = labeled_observed_date(document.extracted_text, today=current)
+        reports = list(
+            db.scalars(
+                select(LabReport)
+                .where(LabReport.document_id == document.id)
+                .order_by(LabReport.created_at, LabReport.id)
+            )
+        )
+        if not reports:
+            continue
+        source_texts: list[str | None] = [None] * len(reports)
+        if isinstance(document.parser_pages, list):
+            chunks = bounded_page_chunks(document.parser_pages, LAB_EXTRACTION_CHUNK_CHARS)
+            if len(chunks) == len(reports):
+                source_texts = [text for _page_from, _page_to, text in chunks]
+
+        changed_document = False
+        results = list(
+            db.scalars(
+                select(LabResult)
+                .where(LabResult.document_id == document.id)
+                .order_by(LabResult.source_index, LabResult.id)
+            )
+        )
+        results_by_report: dict[str, list[LabResult]] = {}
+        for result in results:
+            if result.report_id is not None:
+                results_by_report.setdefault(result.report_id, []).append(result)
+
+        for report, source_text in zip(reports, source_texts, strict=True):
+            trusted_date = labeled_observed_date(source_text, today=current) or document_date
+            report_is_plausible = (
+                report.observed_on is not None
+                and 1900 <= report.observed_on.year <= current.year + 1
+            )
+            if trusted_date is None and not report_is_plausible:
+                trusted_date = (
+                    _unique_non_birth_date(source_text, today=current)
+                    or _unique_non_birth_date(document.extracted_text, today=current)
+                )
+            if trusted_date is None:
+                continue
+            previous_date = report.observed_on
+            if previous_date != trusted_date:
+                report.observed_on = trusted_date
+                reports_changed += 1
+                changed_document = True
+            for result in results_by_report.get(report.id, []):
+                result_is_plausible = (
+                    result.observed_on is not None
+                    and 1900 <= result.observed_on.year <= current.year + 1
+                )
+                if result.verification_status == "corrected":
+                    continue
+                if (
+                    result.observed_on is None
+                    or result.observed_on == previous_date
+                    or not result_is_plausible
+                ) and result.observed_on != trusted_date:
+                    result.observed_on = trusted_date
+                    results_changed += 1
+                    changed_document = True
+        if changed_document:
+            documents_changed += 1
+    db.commit()
+    return documents_changed, reports_changed, results_changed
 
 
 def _split_text(value: str, max_chars: int) -> list[str]:

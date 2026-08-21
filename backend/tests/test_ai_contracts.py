@@ -15,12 +15,14 @@ from app.ai_contracts import (
     AnalysisSnapshot,
     GatewayAnalyzeRequest,
     SnapshotFact,
+    SnapshotLabResult,
     SnapshotPoint,
     SnapshotSeries,
     analysis_request_key,
     canonical_snapshot_json,
     snapshot_evidence_keys,
     snapshot_hash,
+    snapshot_laboratory_evidence_keys,
     snapshot_medical_evidence_keys,
     validate_analysis_evidence,
 )
@@ -185,6 +187,57 @@ def test_snapshot_evidence_helpers_preserve_validator_medical_scope_rules():
     }
 
 
+def test_laboratory_data_requires_cited_assessment_and_bounded_next_step():
+    laboratory = SnapshotLabResult(
+        key="lab.0123456789abcdef0123",
+        analyte="Лейкоциты",
+        value_numeric=12.1,
+        unit="10^9/L",
+        observed_on="2025-04-27",
+        reference_low=4.0,
+        reference_high=9.0,
+        reference_source="laboratory",
+        status="above_reference",
+        verified=True,
+    )
+    snapshot = AnalysisSnapshot(source_through=NOW, labs=[laboratory])
+    assert snapshot_laboratory_evidence_keys(snapshot) == {laboratory.key}
+
+    no_assessment = AiAnalysis(
+        headline="Лабораторный результат загружен",
+        summary="Значение сопоставлено с референсом бланка.",
+        observations=[],
+        recommendations=[],
+        confidence="medium",
+        limitations=[],
+    )
+    with pytest.raises(ValueError, match="requires a cited laboratory assessment"):
+        validate_analysis_evidence(no_assessment, snapshot)
+
+    assessment = AiObservation(
+        title="Лейкоциты выше референса",
+        text="Такое отклонение может сопровождать инфекцию, воспаление или физический стресс; по одному результату причина не определяется.",
+        scope="laboratory",
+        tone="attention",
+        evidence_keys=[laboratory.key],
+    )
+    without_next_step = no_assessment.model_copy(update={"observations": [assessment]})
+    with pytest.raises(ValueError, match="requires a bounded cited recommendation"):
+        validate_analysis_evidence(without_next_step, snapshot)
+
+    complete = without_next_step.model_copy(update={
+        "recommendations": [
+            AiRecommendation(
+                title="Проверить результат",
+                text="Повторите общий анализ крови в сопоставимых условиях в течение недели и обсудите результат с врачом.",
+                scope="laboratory",
+                evidence_keys=[laboratory.key],
+            )
+        ]
+    })
+    validate_analysis_evidence(complete, snapshot)
+
+
 def test_generated_output_allows_bounded_medical_guidance_but_rejects_unsafe_instructions():
     snapshot = AnalysisSnapshot(
         source_through=NOW,
@@ -280,7 +333,7 @@ def test_generated_output_allows_bounded_medical_guidance_but_rejects_unsafe_ins
         observations=[],
         limitations=[],
     )
-    with pytest.raises(ValueError, match="must cite a medical metric"):
+    with pytest.raises(ValueError, match="must cite a medical or laboratory metric"):
         validate_analysis_evidence(wrong_medical_evidence, snapshot)
 
     unbounded_medical_action = AiAnalysis(

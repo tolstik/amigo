@@ -61,13 +61,15 @@ Codex.
 
 The private snapshot includes the configured height of 176 cm and a
 deterministically calculated current BMI when a current Withings weight exists.
-Prompt contract `amigo-health-v3` requires recommendations to name a concrete
+Prompt contract `amigo-health-v4` requires recommendations to name a concrete
 action, a cadence or review period, and the exact supplied evidence. It may
 suggest repeat measurements, a journal, sustainable food/activity/sleep steps,
 or discussing a persistent pattern with a clinician. It cannot diagnose,
 prescribe treatment, change medication or dosage, or set a fixed calorie target.
 When pressure, heart, SpO2, or VO2 evidence is available, the result must include
-at least one bounded measurement or medical recommendation.
+at least one bounded measurement or medical recommendation. Laboratory results
+must receive a cited assessment, and an out-of-reference result also requires a
+bounded verification, repeat-test, or clinician-discussion step.
 
 There is no generated or rule-based narrative fallback. When a newer snapshot
 is waiting or regeneration fails, the previous result may be marked stale for
@@ -100,7 +102,12 @@ the status and history. It can use a versioned catalog only when a reviewed
 catalog is explicitly enabled and matches analyte/specimen/unit/profile exactly.
 The initial fallback catalog is disabled, so only report-provided or
 user-entered intervals are evaluated. Original extraction and user edits are
-audited. The UI shows sequential queue position/stage/progress over SSE, keeps
+audited. Explicitly labelled OCR measurement dates override a conflicting or
+implausible model date; bootstrap repairs the same unambiguous error pattern in
+existing uncorrected rows. Each analyte history page includes the versioned
+Amigo guide describing the marker, why it is tested, and possible categories
+associated with values below or above the report reference. The UI shows
+sequential queue position/stage/progress over SSE, keeps
 accepting new bounded batches while older files are processed, opens the
 database original, searches/filters results, and charts incompatible units
 separately.
@@ -127,7 +134,7 @@ a strict output schema; see the official
 
 ## Android app and Health Connect companion
 
-Amigo `1.2.0` (`versionCode 5`, package `ru.tolstik.amigo.sync`) opens the full
+Amigo `1.2.1` (`versionCode 6`, package `ru.tolstik.amigo.sync`) opens the full
 authenticated dashboard in a top-level WebView. It uses the same local account
 and 90-day server session as a browser, while signed ingest remains independent.
 Only the fixed production origin and known SPA routes are accepted; there is no
@@ -165,18 +172,24 @@ same-origin APK, verifies its declared size and SHA-256 plus package, higher
 version code, and installed signing certificate, then delegates to the Android
 system installer for explicit confirmation.
 
+Release 1.2.1 queues bounded backfill continuations instead of replacing and
+cancelling the worker that scheduled them. Run IDs make background status
+updates atomic, DNS/network failures remain retryable without advancing sync
+cursors, and the UI explains DNS failures without mislabeling WebView's internal
+error page as an unsafe external address.
+
 Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.2.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk)
-from release [`v5.0.0`](https://github.com/tolstik/amigo/releases/tag/v5.0.0).
+[`Amigo-1.2.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.1/Amigo-1.2.1.apk)
+from release [`v5.0.1`](https://github.com/tolstik/amigo/releases/tag/v5.0.1).
 Its SHA-256 is
-`38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd`, and its
+`6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea`, and its
 signing-certificate SHA-256 is
 `25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
-The previous `1.1.0` APK remains available from `v4.0.0`. Verify the checksum
+The previous `1.2.0` APK remains available from `v5.0.0`. Verify the checksum
 before installing an APK.
 
 ## Telegram schedule
@@ -188,8 +201,10 @@ before installing an APK.
 - Scheduled AI preparation begins at 08:45. If no validated AI result is ready,
   the report explicitly contains facts only.
 - New laboratory values, units, ranges, status, and verification mark are added
-  to the next scheduled digest without truncation. Originals, filenames, OCR
-  text, and assistant messages are never sent to Telegram.
+  to the next scheduled digest without truncation. A validated cited AI
+  assessment follows recent laboratory facts; supplied deviations include a
+  bounded next step. Originals, filenames, OCR text, and assistant messages are
+  never sent to Telegram.
 
 Blood pressure, heart, SpO2, and VO2 max charts remain descriptive and have no
 severity colors or app-side diagnosis. Validated AI can turn a repeated pattern

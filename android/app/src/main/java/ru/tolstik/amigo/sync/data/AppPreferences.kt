@@ -71,19 +71,35 @@ class AppPreferences(context: Context) : SyncStateStore {
         editor.apply()
     }
 
-    fun markBackgroundStarted(attempt: Int, at: Instant = Instant.now()) {
+    @Synchronized
+    fun markBackgroundStarted(runId: String, attempt: Int, at: Instant = Instant.now()) {
         values.edit()
+            .putString(KEY_BACKGROUND_ACTIVE_RUN, runId)
             .putString(KEY_BACKGROUND_STARTED, at.toString())
+            .remove(KEY_BACKGROUND_FINISHED)
             .putInt(KEY_BACKGROUND_ATTEMPT, attempt)
             .putString(KEY_BACKGROUND_RESULT, "running")
-            .apply()
+            .remove(KEY_LAST_ERROR)
+            .commit()
     }
 
-    fun markBackgroundFinished(result: String, at: Instant = Instant.now()) {
-        values.edit()
+    @Synchronized
+    fun markBackgroundFinished(
+        runId: String,
+        result: String,
+        error: String? = null,
+        at: Instant = Instant.now(),
+    ): Boolean {
+        if (values.getString(KEY_BACKGROUND_ACTIVE_RUN, null) != runId) return false
+        return values.edit()
+            .remove(KEY_BACKGROUND_ACTIVE_RUN)
             .putString(KEY_BACKGROUND_FINISHED, at.toString())
             .putString(KEY_BACKGROUND_RESULT, result.take(80))
-            .apply()
+            .apply {
+                if (error == null) remove(KEY_LAST_ERROR)
+                else putString(KEY_LAST_ERROR, error.take(300))
+            }
+            .commit()
     }
 
     fun setServerUrl(value: String) {
@@ -321,6 +337,7 @@ class AppPreferences(context: Context) : SyncStateStore {
         private const val KEY_BACKGROUND_FINISHED = "background_finished"
         private const val KEY_BACKGROUND_RESULT = "background_result"
         private const val KEY_BACKGROUND_ATTEMPT = "background_attempt"
+        private const val KEY_BACKGROUND_ACTIVE_RUN = "background_active_run"
     }
 }
 

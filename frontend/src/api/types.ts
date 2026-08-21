@@ -314,6 +314,15 @@ export interface LabResult {
   deleted: boolean;
 }
 
+export interface LabAnalyteGuide {
+  summary: string;
+  why_tested: string;
+  low_meaning: string;
+  high_meaning: string;
+  version: string;
+  reviewed_on: string;
+}
+
 export interface LabResultInput {
   analyte_name: string;
   value_numeric: number | null;

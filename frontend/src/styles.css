@@ -426,6 +426,14 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 .check-inline input { width: 18px; min-height: 18px; }
 .is-deleted { opacity: .45; text-decoration: line-through; }
 .lab-history-charts { display: grid; margin-bottom: 18px; gap: 14px; }
+.lab-guide-card { margin-bottom: 18px; padding: 22px; }
+.lab-guide-card .panel__head { margin-bottom: 12px; }
+.lab-guide-card__summary { margin: 0; color: var(--text); font-size: 14px; line-height: 1.65; }
+.lab-guide-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 18px; gap: 12px; }
+.lab-guide-grid article { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-soft); }
+.lab-guide-grid h3 { margin: 0 0 7px; font-size: 12px; }
+.lab-guide-grid p { margin: 0; color: var(--text-soft); font-size: 11px; line-height: 1.55; }
+.lab-guide-card__note { margin: 15px 0 0; color: var(--text-faint); font-size: 10px; line-height: 1.5; }
 .lab-history-chart { height: 300px; padding: 22px; }
 .lab-history-chart .panel__head { margin-bottom: 4px; }
 .lab-history-chart svg { width: 100%; height: 205px; overflow: visible; }
@@ -655,6 +663,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 }
 
 @media (max-width: 590px) {
+  .lab-guide-grid { grid-template-columns: 1fr; }
   .app-bar__inner, .workspace { width: min(calc(100% - 20px), 1500px); }
   .sidebar { width: calc(100% + 20px); margin-left: -10px; padding-inline: 10px; }
   .theme-picker { padding-inline: 8px 6px; }

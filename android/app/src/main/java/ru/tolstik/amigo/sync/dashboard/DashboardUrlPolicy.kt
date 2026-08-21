@@ -70,6 +70,9 @@ object DashboardUrlPolicy {
         return ranges.size <= 1 && ranges.all(allowedRanges::contains)
     }
 
+    fun isInternalErrorPage(rawUrl: String?): Boolean =
+        rawUrl?.startsWith("chrome-error://", ignoreCase = true) == true
+
     fun isCanonicalOrigin(rawUrl: String?): Boolean =
         rawUrl?.toHttpUrlOrNull()?.let(::isCanonicalOrigin) == true
 

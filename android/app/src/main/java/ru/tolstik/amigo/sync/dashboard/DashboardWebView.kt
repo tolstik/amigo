@@ -90,6 +90,10 @@ fun createDashboardWebView(
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 if (request == null || !request.isForMainFrame) return false
                 val url = request.url.toString()
+                if (DashboardUrlPolicy.isInternalErrorPage(url)) {
+                    callbacks.onLoadError()
+                    return true
+                }
                 if (
                     DashboardUrlPolicy.isAllowedNavigation(url) ||
                     DashboardUrlPolicy.isAllowedDownload(url)

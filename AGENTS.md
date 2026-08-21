@@ -112,13 +112,16 @@
   `/amigo/...`; authenticated CSV and laboratory-original downloads use the
   system document picker and forward in-memory cookies only to exact allowlisted
   same-origin GET routes, without redirects.
-- Android `1.2.0` (`versionCode 5`) accepts up to 25 dashboard uploads from the
+- Android `1.2.1` (`versionCode 6`) accepts up to 25 dashboard uploads from the
   system picker, refreshes a stale foreground WebView, records allowlisted
   background-sync diagnostics, and schedules immediate, hourly, and bounded
   one-minute backfill continuation work. Its in-app updater may download only
   the authenticated exact-origin APK route and must verify size, SHA-256,
   package ID, higher version code, and the installed signing certificate before
   handing the file to the Android system installer for explicit confirmation.
+  Backfill continuations append to the active unique-work chain and never
+  replace their own running worker; background run IDs prevent stale workers
+  from overwriting status. Retryable DNS failures do not advance sync cursors.
 - Deterministic blood-pressure, heart, SpO2, and VO2 displays remain descriptive
   and never add severity colors or app-side diagnoses. Validated AI may use those
   metrics only for evidence-bound measurement/logging advice or discussion of a
@@ -149,11 +152,13 @@
   invalid/error assistant result may be attempted exactly once more with
   `attempt=2`, and the second result must validate fully. Gateway/parser health
   alone is not release readiness.
-- AI prompt contract `amigo-health-v3` requires concrete actions, a cadence or
+- AI prompt contract `amigo-health-v4` requires concrete actions, a cadence or
   review period, and cited metric evidence; recommendations are shown before
   general observations in Telegram and on the overview dashboard. When any
   pressure, heart, SpO2, or VO2 evidence exists, validated output must contain
-  at least one bounded medical/measurement recommendation.
+  at least one bounded medical/measurement recommendation. Laboratory evidence
+  requires a cited assessment; supplied out-of-reference results also require a
+  bounded verification, repeat-test, or clinician-discussion recommendation.
 - Production must keep AI enabled and must use exactly
   `http://ai-gateway:8090`; never redirect minimized health snapshots to an
   override endpoint.
@@ -171,7 +176,11 @@
   that directory read-write, `ai-worker` read-only, and the isolated non-root
   parser has no file mount, database, secret, or external network. Extracted
   results publish as `unverified`; document ranges override the versioned
-  deterministic catalog, and user edits/confirmation are audited.
+  deterministic catalog, and user edits/confirmation are audited. An
+  unambiguous explicitly labelled OCR measurement date overrides a model date;
+  idempotent archive repair may update inherited non-corrected dates but must
+  never overwrite a user-corrected result. Analyte detail guides are versioned
+  deterministic reference content and never trigger inference on GET.
 - Study-report uploads support the same bounded formats and queue for ultrasound,
   MRI, CT, X-ray, ECG, and other reports; DICOM is not supported. PostgreSQL
   stores the original plus structured findings/conclusion. Obvious identifier
@@ -194,8 +203,10 @@
 - Daily Telegram reports run at `09:00 Europe/Moscow`; the Monday 09:00 weekly
   report replaces that day's daily report. Immediate Withings weight/pressure
   notifications remain enabled. New laboratory facts include verification state
-  and are split without truncation; filenames, OCR text, originals, and chat are
-  never sent. When AI is unavailable, Telegram explicitly sends facts only.
+  and are split without truncation; a ready validated AI result adds a separate
+  cited laboratory assessment and bounded next step for supplied deviations.
+  Filenames, OCR text, originals, and chat are never sent. When AI is
+  unavailable, Telegram explicitly sends facts only.
 - `web`, `ingest`, and `ai-worker` receive only the PostgreSQL secret. `worker`
   receives the eight integration/database secrets. `ai-gateway` and `lab-parser`
   receive no Docker secrets or database access; only the gateway has its pinned

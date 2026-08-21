@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +15,7 @@ import kotlinx.coroutines.launch
 import ru.tolstik.amigo.sync.data.DeviceRegistration
 import ru.tolstik.amigo.sync.data.LocalStatus
 import ru.tolstik.amigo.sync.health.HealthPermissionStatus
+import ru.tolstik.amigo.sync.sync.userFacingSyncError
 
 data class OriginItem(val packageName: String, val label: String)
 
@@ -144,11 +147,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.value = _state.value.copy(busy = true, notice = null)
             try {
                 block()
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
-                showNotice(error.message ?: error::class.java.simpleName)
+                showNotice(userFacingSyncError(error))
             } finally {
-                refreshInternal()
                 _state.value = _state.value.copy(busy = false)
+                if (currentCoroutineContext().isActive) refreshInternal()
             }
         }
     }

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 
 AI_MODEL = "gpt-5.6-sol"
-AI_PROMPT_VERSION = "amigo-health-v3"
+AI_PROMPT_VERSION = "amigo-health-v4"
 SNAPSHOT_SCHEMA_VERSION = "2"
 MAX_ANALYSIS_REQUEST_ATTEMPT = 4
 
@@ -307,7 +307,7 @@ class AiAnalysis(StrictModel):
 
 class GatewayAnalyzeRequest(StrictModel):
     snapshot_hash: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-    prompt_version: Literal["amigo-health-v3"] = AI_PROMPT_VERSION
+    prompt_version: Literal["amigo-health-v4"] = AI_PROMPT_VERSION
     model: Literal["gpt-5.6-sol"] = AI_MODEL
     attempt: Annotated[int, Field(ge=1, le=MAX_ANALYSIS_REQUEST_ATTEMPT)] = 1
     snapshot: AnalysisSnapshot
@@ -321,7 +321,7 @@ class GatewayAnalyzeRequest(StrictModel):
 
 class GatewayAnalyzeResponse(StrictModel):
     snapshot_hash: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-    prompt_version: Literal["amigo-health-v3"] = AI_PROMPT_VERSION
+    prompt_version: Literal["amigo-health-v4"] = AI_PROMPT_VERSION
     model: Literal["gpt-5.6-sol"] = AI_MODEL
     generated_at: datetime
     duration_ms: Annotated[int, Field(ge=0, le=600_000)]
@@ -389,23 +389,55 @@ def snapshot_medical_evidence_keys(snapshot: AnalysisSnapshot) -> frozenset[str]
     )
 
 
+def snapshot_laboratory_evidence_keys(snapshot: AnalysisSnapshot) -> frozenset[str]:
+    return frozenset(item.key for item in snapshot.labs)
+
+
+def snapshot_attention_laboratory_evidence_keys(
+    snapshot: AnalysisSnapshot,
+) -> frozenset[str]:
+    return frozenset(
+        item.key
+        for item in snapshot.labs
+        if item.status in {"below_reference", "above_reference", "outside_reference"}
+    )
+
+
 def validate_analysis_evidence(analysis: AiAnalysis, snapshot: AnalysisSnapshot) -> None:
     known = snapshot_evidence_keys(snapshot)
     medical = snapshot_medical_evidence_keys(snapshot)
+    laboratory = snapshot_laboratory_evidence_keys(snapshot)
+    attention_laboratory = snapshot_attention_laboratory_evidence_keys(snapshot)
 
     for item in [*analysis.observations, *analysis.recommendations]:
         if not set(item.evidence_keys).issubset(known):
             raise ValueError("analysis cites an unknown metric")
     has_medical_evidence = bool(medical)
     has_bounded_medical_recommendation = False
+    has_laboratory_assessment = any(
+        set(observation.evidence_keys) & laboratory for observation in analysis.observations
+    )
+    has_bounded_laboratory_recommendation = False
     for recommendation in analysis.recommendations:
         uses_medical_metric = any(key in medical for key in recommendation.evidence_keys)
+        uses_laboratory_metric = any(key in laboratory for key in recommendation.evidence_keys)
+        uses_attention_laboratory_metric = any(
+            key in attention_laboratory for key in recommendation.evidence_keys
+        )
         if uses_medical_metric and recommendation.scope not in {"medical", "measurement"}:
             raise ValueError(
                 "pressure, heart, oxygen, and VO2 recommendations must be medical or measurement scoped"
             )
-        if recommendation.scope == "medical" and not uses_medical_metric:
-            raise ValueError("medical recommendations must cite a medical metric")
+        if uses_attention_laboratory_metric and recommendation.scope not in {
+            "medical", "measurement", "laboratory"
+        }:
+            raise ValueError(
+                "out-of-reference laboratory recommendations must be laboratory, medical, or measurement scoped"
+            )
+        if recommendation.scope == "medical" and not (
+            uses_medical_metric or uses_laboratory_metric
+        ):
+            raise ValueError("medical recommendations must cite a medical or laboratory metric")
         if uses_medical_metric:
             combined = f"{recommendation.title} {recommendation.text}"
             if not _BOUNDED_MEDICAL_ACTION.search(combined):
@@ -417,7 +449,20 @@ def validate_analysis_evidence(analysis: AiAnalysis, snapshot: AnalysisSnapshot)
             ):
                 raise ValueError("clinician discussion requires a persistent measured pattern")
             has_bounded_medical_recommendation = True
+        if uses_attention_laboratory_metric:
+            combined = f"{recommendation.title} {recommendation.text}"
+            if not _BOUNDED_MEDICAL_ACTION.search(combined):
+                raise ValueError(
+                    "laboratory deviations require verification, repeat testing, or clinician discussion"
+                )
+            has_bounded_laboratory_recommendation = True
     if has_medical_evidence and not has_bounded_medical_recommendation:
         raise ValueError(
             "analysis with medical metrics requires a bounded medical or measurement recommendation"
+        )
+    if laboratory and not has_laboratory_assessment:
+        raise ValueError("analysis with laboratory data requires a cited laboratory assessment")
+    if attention_laboratory and not has_bounded_laboratory_recommendation:
+        raise ValueError(
+            "out-of-reference laboratory data requires a bounded cited recommendation"
         )

@@ -17,6 +17,7 @@ from app.ai_contracts import (
     GatewayAnalyzeRequest,
     GatewayAnalyzeResponse,
     SnapshotFact,
+    SnapshotLabResult,
     SnapshotPoint,
     SnapshotSeries,
     snapshot_hash,
@@ -250,6 +251,31 @@ def test_request_specific_schema_allows_empty_recommendations_without_medical_ev
     schema = build_analysis_output_schema(request_payload().snapshot)
 
     assert "minItems" not in schema["properties"]["recommendations"]
+
+
+def test_request_specific_schema_requires_lab_assessment_and_deviation_next_step():
+    snapshot = AnalysisSnapshot(
+        source_through=NOW,
+        labs=[
+            SnapshotLabResult(
+                key="lab.0123456789abcdef0123",
+                analyte="Лейкоциты",
+                value_numeric=12.1,
+                unit="10^9/L",
+                observed_on="2025-04-27",
+                reference_low=4.0,
+                reference_high=9.0,
+                reference_source="laboratory",
+                status="above_reference",
+                verified=True,
+            )
+        ],
+    )
+
+    schema = build_analysis_output_schema(snapshot)
+
+    assert schema["properties"]["observations"]["minItems"] == 1
+    assert schema["properties"]["recommendations"]["minItems"] == 1
 
 
 def _schema_nodes(value):

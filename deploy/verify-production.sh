@@ -348,9 +348,9 @@ import json
 import urllib.request
 with urllib.request.urlopen("http://127.0.0.1:8090/healthz", timeout=3) as response:
     payload = json.load(response)
-if payload != {"status": "ok", "model": "gpt-5.6-sol", "prompt_version": "amigo-health-v3"}:
+if payload != {"status": "ok", "model": "gpt-5.6-sol", "prompt_version": "amigo-health-v4"}:
     raise SystemExit(1)
-' || amigo_die "AI gateway health does not report the fixed model and v3 contract"
+' || amigo_die "AI gateway health does not report the fixed model and v4 contract"
 docker exec "${parser_container}" python -c '
 import json
 import urllib.request
@@ -401,7 +401,7 @@ parser_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destinati
     || amigo_die "isolated parser unexpectedly mounts laboratory originals"
 amigo_log "PASS root-only laboratory originals and least-privilege mounts"
 
-readonly EXPECTED_ANDROID_APK_SHA256="38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd"
+readonly EXPECTED_ANDROID_APK_SHA256="6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea"
 [[ -f "${AMIGO_ANDROID_APK}" && ! -L "${AMIGO_ANDROID_APK}" ]] \
     || amigo_die "signed Android update is missing or is a symlink"
 [[ "$(stat -c '%a' "${AMIGO_ANDROID_APK}")" == "600" ]] \
@@ -410,7 +410,7 @@ readonly EXPECTED_ANDROID_APK_SHA256="38776e7a02229819a33f29dc974187288feaab4912
     || amigo_die "signed Android update is not owned by root:root"
 [[ "$(sha256sum "${AMIGO_ANDROID_APK}" | awk '{ print $1 }')" \
     == "${EXPECTED_ANDROID_APK_SHA256}" ]] \
-    || amigo_die "installed Android update hash differs from signed 1.2.0"
+    || amigo_die "installed Android update hash differs from signed 1.2.1"
 web_android_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/android"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${web_container}")"
 [[ "${web_android_mount}" == "$(dirname -- "${AMIGO_ANDROID_APK}")|false" ]] \
     || amigo_die "web Android update mount is missing, writable, or sourced unexpectedly"
@@ -436,7 +436,29 @@ FILE_STORAGE_STATE="$(
 )"
 [[ "${FILE_STORAGE_STATE}" =~ ^0\|0\|[0-9]+$ ]] \
     || amigo_die "uploaded-original database ownership verification failed"
-amigo_log "PASS database-owned originals and signed Android 1.2.0 artifact"
+LAB_DATE_STATE="$(
+    amigo_compose exec -T db psql \
+        --username amigo \
+        --dbname amigo \
+        --no-psqlrc \
+        --quiet \
+        --tuples-only \
+        --no-align \
+        --set=ON_ERROR_STOP=1 \
+        --command "
+            SELECT
+                (SELECT count(*) FROM lab_reports
+                 WHERE observed_on < DATE '1900-01-01'
+                    OR observed_on > CURRENT_DATE + INTERVAL '1 year')
+                || '|' ||
+                (SELECT count(*) FROM lab_results
+                 WHERE observed_on < DATE '1900-01-01'
+                    OR observed_on > CURRENT_DATE + INTERVAL '1 year');
+        "
+)"
+[[ "${LAB_DATE_STATE}" == "0|0" ]] \
+    || amigo_die "implausible laboratory dates remain after deterministic repair"
+amigo_log "PASS database-owned originals, repaired laboratory dates, and signed Android 1.2.1 artifact"
 
 check_loopback_listener() {
     local port=$1
@@ -679,8 +701,8 @@ elif contract in {"activity", "recovery"}:
 elif contract == "ai":
     if payload.get("ai_generated") is not True or payload.get("status") != "fresh":
         raise SystemExit("AI payload is not a fresh generated result")
-    if payload.get("prompt_version") != "amigo-health-v3":
-        raise SystemExit("AI payload does not use amigo-health-v3")
+    if payload.get("prompt_version") != "amigo-health-v4":
+        raise SystemExit("AI payload does not use amigo-health-v4")
     if payload.get("model") != "gpt-5.6-sol":
         raise SystemExit("AI payload does not use gpt-5.6-sol")
     recommendations = payload.get("recommendations")
@@ -693,11 +715,18 @@ elif contract in {"documents", "lab-summary", "analytes", "assistant"}:
         raise SystemExit("laboratory summary counts are missing")
     if contract == "assistant" and not isinstance(payload.get("recommendations"), list):
         raise SystemExit("assistant recommendations are missing")
+elif contract == "analyte-guide":
+    guide = payload.get("guide")
+    if not isinstance(guide, dict) or not all(
+        isinstance(guide.get(key), str) and guide[key]
+        for key in ("summary", "why_tested", "low_meaning", "high_meaning", "version")
+    ):
+        raise SystemExit("laboratory analyte guide contract is incomplete")
 elif contract == "update":
     if (
-        payload.get("version_code") != 5
-        or payload.get("version_name") != "1.2.0"
-        or payload.get("sha256") != "38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd"
+        payload.get("version_code") != 6
+        or payload.get("version_name") != "1.2.1"
+        or payload.get("sha256") != "6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea"
         or payload.get("download_url") != "/amigo/api/v1/app-update/apk"
         or not isinstance(payload.get("size_bytes"), int)
         or payload.get("size_bytes") <= 0
@@ -718,6 +747,7 @@ check_authenticated_json_api "api/v1/labs/documents" documents
 check_authenticated_json_api "api/v1/studies/documents" documents
 check_authenticated_json_api "api/v1/labs/summary" lab-summary
 check_authenticated_json_api "api/v1/labs/analytes" analytes
+check_authenticated_json_api "api/v1/labs/analytes/leukocytes/history" analyte-guide
 check_authenticated_json_api "api/v1/assistant/messages" assistant
 check_authenticated_json_api "api/v1/app-update" update
 
@@ -737,7 +767,7 @@ curl --config "${AUTH_CURL_CONFIG}" \
     "${AMIGO_PUBLIC_URL}api/v1/export/weight.csv"
 [[ -s "${CSV_BODY}" ]] || amigo_die "authenticated CSV export is empty"
 require_header '^content-type:[[:space:]]*text/csv' "${CSV_HEADERS}"
-amigo_log "PASS authenticated dashboard, lab/study, updater, assistant, AI-v3, and CSV contracts"
+amigo_log "PASS authenticated dashboard, lab/study, analyte guide, updater, assistant, AI-v4, and CSV contracts"
 
 install -o root -g root -m 0600 /dev/null "${UNSUPPORTED_FILE}"
 CSRF_REJECTION_STATUS="$(

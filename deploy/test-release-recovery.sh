@@ -154,11 +154,11 @@ grep --quiet --fixed-strings 'cmp --silent "${LEGACY_IMPORT_CANDIDATE}"' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy rewrites unchanged legacy rollback exports"
 grep --quiet --fixed-strings \
-    'https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk' \
+    'https://github.com/tolstik/amigo/releases/download/v5.0.1/Amigo-1.2.1.apk' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not fetch the published signed Android update"
 grep --quiet --fixed-strings \
-    '38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd' \
+    '6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not pin the signed Android update hash"
 grep --quiet --fixed-strings \

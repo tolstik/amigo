@@ -33,6 +33,8 @@ class DashboardUrlPolicyTest {
         assertFalse(DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru.evil.test/amigo/"))
         assertFalse(DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru/amigo/api/v1/overview"))
         assertFalse(DashboardUrlPolicy.isAllowedNavigation("javascript:alert(1)"))
+        assertTrue(DashboardUrlPolicy.isInternalErrorPage("chrome-error://chromewebdata/"))
+        assertFalse(DashboardUrlPolicy.isInternalErrorPage("https://evil.test/chrome-error"))
     }
 
     @Test

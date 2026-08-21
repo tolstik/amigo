@@ -30,7 +30,7 @@ from .ai_models import AiAnalysisJob
 from .ai_queue import enqueue_analysis, latest_analysis
 from .ai_snapshot import build_analysis_snapshot, enqueue_current_analysis
 from .legacy import import_legacy, import_legacy_weight_file
-from .labs import backfill_stored_files
+from .labs import backfill_stored_files, repair_lab_observed_dates
 from .models import ProviderCredential
 from .crypto import SecretCipher
 from .service import ensure_default_plan
@@ -264,6 +264,12 @@ def execute(args: argparse.Namespace) -> int:
             ensure_default_plan(db)
             CredentialStore(db, settings).bootstrap()
             db.commit()
+            repaired_documents, repaired_reports, repaired_results = repair_lab_observed_dates(db)
+        if repaired_documents:
+            print(
+                "laboratory dates repaired: "
+                f"documents={repaired_documents}, reports={repaired_reports}, results={repaired_results}"
+            )
         print("bootstrap complete")
         return 0
     if args.command == "backfill-files":

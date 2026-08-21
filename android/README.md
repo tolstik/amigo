@@ -6,17 +6,17 @@ second tab. The sync client reads Mi Fitness data and sends signed, idempotent
 batches to the Amigo server. It never requests write access, weight, blood
 pressure, location, or exercise routes.
 
-Current signed release `1.2.0` (`versionCode 5`) for project release
-[`v5.0.0`](https://github.com/tolstik/amigo/releases/tag/v5.0.0):
-[`Amigo-1.2.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk),
+Current signed release `1.2.1` (`versionCode 6`) for project release
+[`v5.0.1`](https://github.com/tolstik/amigo/releases/tag/v5.0.1):
+[`Amigo-1.2.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.1/Amigo-1.2.1.apk),
 SHA-256
-`38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd`.
+`6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea`.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
-The previous published release is `1.1.0`:
-[`Amigo-1.1.0.apk`](https://github.com/tolstik/amigo/releases/download/v4.0.0/Amigo-1.1.0.apk),
-SHA-256 `6b950bc3c6e5ba58709830d3c25fcc04d25f16c86c748379298b8a423176984d`.
+The previous published release is `1.2.0`:
+[`Amigo-1.2.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk),
+SHA-256 `38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd`.
 
 ## Dashboard tab
 
@@ -140,8 +140,11 @@ heart-rate record at 5,000 evenly sampled points while preserving the first and
 last point. Batch starts are separated by at least 1,100 ms to remain below the
 production 60 requests/minute limit. A failed upload leaves the cursor/token
 unchanged, so the same deterministic batch ID and body are retried. No raw
-health payload or private key is written to logs. Release 1.2.0 retains the
-1.1.0 behavior that displays a
+health payload or private key is written to logs. Release 1.2.1 retains the
+1.2.0 behavior that displays a
 server rejection's allowlisted `detail.code` next to the HTTP status; arbitrary
-response bodies are never reflected. Installing it over 1.1.0 preserves the
+response bodies are never reflected. It also appends backfill continuation work
+without cancelling the running worker, applies status updates only to the active
+run, and translates retryable DNS failures without advancing cursors. Installing
+it over 1.2.0 preserves the
 pairing key, selected origin, and resumable sync cursors.

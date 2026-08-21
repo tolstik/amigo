@@ -75,11 +75,11 @@
 - [ ] До первого Withings API request legacy collector переведён в единственный
       disabled-marker; после incremental sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.
-- [ ] Android `1.2.0` (`versionCode 5`) получен как
-      [`Amigo-1.2.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk)
-      из release [`v5.0.0`](https://github.com/tolstik/amigo/releases/tag/v5.0.0);
+- [ ] Android `1.2.1` (`versionCode 6`) получен как
+      [`Amigo-1.2.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.1/Amigo-1.2.1.apk)
+      из release [`v5.0.1`](https://github.com/tolstik/amigo/releases/tag/v5.0.1);
       его SHA-256 равен
-      `38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd`, а
+      `6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea`, а
       signing certificate SHA-256 равен
       `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
       Signing keystore и пароли не попали в checkout или документы.
@@ -111,7 +111,7 @@
       `http://lab-parser:8085`; override на внешний endpoint отклоняется fail-closed.
 - [ ] Pinned Codex binary на host и read-only mount в `ai-gateway` имеют ожидаемый
       SHA-256. Gateway health сообщает fixed model `gpt-5.6-sol` и
-      `amigo-health-v3`; synthetic `python -m app.ai_smoke` прошёл live analysis,
+      `amigo-health-v4`; synthetic `python -m app.ai_smoke` прошёл live analysis,
       laboratory-extraction и assistant-turn контракты без real health data или
       персонального контекста.
 - [ ] `/srv/amigo/data/import/legacy-weight.tsv` root-owned, закрыт для group/world и
@@ -121,8 +121,11 @@
 - [ ] `backfill-files` завершён без ошибки; у laboratory/study documents нет
       `stored_file_id IS NULL`, а PostgreSQL originals повторно прошли
       size/SHA-256 verification.
+- [ ] После idempotent laboratory-date repair нет report/result с годом до
+      1900 или более чем на год в будущем; исправление использовало только
+      однозначно подписанные OCR-даты и не перезаписало ручные corrections.
 - [ ] `/srv/amigo/data/android/amigo-sync.apk` — root:root regular file `0600`
-      с точным hash `1.2.0`; `web` видит `/android` только read-only.
+      с точным hash `1.2.1`; `web` видит `/android` только read-only.
 - [ ] Listener `18181` — только `127.0.0.1:18181` для `web`; listener `18182` —
       только `127.0.0.1:18182` для `ingest`. `ai-gateway:8090` и
       `lab-parser:8085` не опубликованы в Docker и не слушают host.
@@ -152,9 +155,10 @@
       `/amigo/api/v1/ai-analysis` возвращают `no-store` JSON
       нужного контракта. Для завершения deployment AI status равен `fresh`,
       payload помечен `ai_generated`, model равен `gpt-5.6-sol`, prompt contract
-      равен `amigo-health-v3`, а каждая опубликованная рекомендация имеет
+      равен `amigo-health-v4`, а каждая опубликованная рекомендация имеет
       evidence keys.
-- [ ] Та же session проверяет profile, labs documents/summary/analytes, studies,
+- [ ] Та же session проверяет profile, labs documents/summary/analytes,
+      справочную карточку `/labs/analytes/leukocytes/history`, studies,
       updater metadata/APK, assistant messages и CSV. APK download совпадает с
       advertised size/SHA-256. Mutation с exact Origin, но без CSRF возвращает
       `403`; пустой unsupported upload возвращает consent/validation rejection и
@@ -272,13 +276,17 @@
       keys. Рекомендации идут перед наблюдениями и на overview, и в Telegram.
       При `pending`/`unavailable` показан явный status, а не шаблонный совет;
       public refresh не создаёт AI job и не обращается к gateway.
+- [ ] При наличии laboratory evidence AI содержит cited laboratory assessment,
+      а при supplied deviation — bounded verification/repeat/clinician step.
+      Telegram отправляет такую оценку отдельным блоком после новых лабораторных
+      фактов и не дублирует её в общем блоке рекомендаций.
 - [ ] Pressure/heart/SpO2/VO2 evidence поддерживает только совет повторить
       измерения, вести журнал или обсудить устойчивый измеренный паттерн с
       врачом; при наличии этих метрик output содержит минимум одну такую
       bounded medical/measurement рекомендацию. В AI output отсутствуют диагноз,
       лечение, назначение или изменение лекарства/дозировки и фиксированная цель
       по калориям.
-- [ ] Signed APK `1.2.0` установлен через `adb install -r`; прежние pairing
+- [ ] Signed APK `1.2.1` установлен через `adb install -r`; прежние pairing
       state, non-exportable Keystore key, выбранный Mi Fitness origin и cursors
       сохранены. Amigo имеет только read-only Health Connect permissions;
       location и exercise routes не запрошены.
@@ -289,6 +297,10 @@
 - [ ] Verified App Links для `/amigo` и `/amigo/...` открывают приложение и
       сохраняют deep link через login. HTTP, lookalike host, unknown route и
       external origin блокируются; TLS errors не обходятся.
+- [ ] Незавершённый backfill добавляет continuation через `APPEND_OR_REPLACE` и
+      не отменяет собственный worker; DNS failure показывает русское retryable
+      сообщение, не сдвигает cursor/token и не выдаёт внутреннюю
+      `chrome-error://` страницу за внешний небезопасный адрес.
 - [ ] SAF выбирает до 25 PDF/JPG/PNG/HEIC/HEIF по 20 МиБ без storage/camera
       permission. CSV и laboratory original сохраняются через system Save As;
       cookie не уходит вне exact same-origin allowlist, redirects запрещены,
@@ -337,8 +349,8 @@
       services, SHA-256 установленных Compose/nginx/Codex, результаты
       verification, exact previous-release recovery command и отдельную
       `rollback.sh --to-legacy` disaster command без секретов.
-- [ ] Release `v5.0.0` указывает на deployed feature commit; asset
-      `Amigo-1.2.0.apk` скачивается, повторно даёт ожидаемые APK SHA-256 и
+- [ ] Release `v5.0.1` указывает на deployed feature commit; asset
+      `Amigo-1.2.1.apk` скачивается, повторно даёт ожидаемые APK SHA-256 и
       signing certificate, а verified App Link association остаётся доступна.
 - [ ] Изменения `AGENTS.md`, runbook и `production-checkpoint.md` перенесены в
       канонический Git и закоммичены.

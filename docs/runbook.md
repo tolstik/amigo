@@ -38,7 +38,7 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
   (`ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`),
   фиксированную модель `gpt-5.6-sol`, read-only sandbox и строгую JSON
   schema. Авторизованные GET только читают PostgreSQL.
-- Prompt contract `amigo-health-v3` требует для каждой рекомендации конкретное
+- Prompt contract `amigo-health-v4` требует для каждой рекомендации конкретное
   действие, cadence или review period и ссылки на существующие evidence keys.
   На overview и в Telegram рекомендации идут раньше общих наблюдений.
 - Assistant contract `amigo-health-chat-v2` получает полную структурированную
@@ -189,11 +189,11 @@ backup. Теперь checkpoint сам создаёт локальный documen
    `ghcr.io/tolstik/amigo:GIT_SHA` доступен production или root Docker уже
    авторизован только для чтения package. OCI label
    `org.opencontainers.image.revision` должен совпадать с `GIT_SHA`.
-9. Для Android `1.2.0` (`versionCode 5`) использовать signed
-   [`Amigo-1.2.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk)
+9. Для Android `1.2.1` (`versionCode 6`) использовать signed
+   [`Amigo-1.2.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.1/Amigo-1.2.1.apk)
    из GitHub release
-   [`v5.0.0`](https://github.com/tolstik/amigo/releases/tag/v5.0.0) и сверить SHA-256
-   `38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd`.
+   [`v5.0.1`](https://github.com/tolstik/amigo/releases/tag/v5.0.1) и сверить SHA-256
+   `6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea`.
    Signing certificate SHA-256 должен быть
    `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
    Keystore и его пароли не хранятся в Git или Markdown.
@@ -310,7 +310,7 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    MariaDB строку и импорт legacy-only весов из root-only TSV. Неизменившийся
    TSV не переписывается.
 6. Запуск `web` без workers, direct health на `127.0.0.1:18181` и атомарная
-   установка проверенного APK `1.2.0` в root-only Android directory.
+   установка проверенного APK `1.2.1` в root-only Android directory.
 7. Запуск изолированных `ai-gateway` и `lab-parser`; synthetic smoke через
    `ai-worker` последовательно проверяет live-контракты analysis, laboratory
    extraction и assistant turn, включая auth, sandbox, model, strict JSON schema
@@ -386,7 +386,7 @@ AI job создаётся после новых Withings/Health Connect данн
 без старого текста и без fallback. Если входные данные не менялись,
 соответствующий кэш остаётся `ready`.
 
-Контракт `amigo-health-v3` допускает устойчивые рекомендации по питанию,
+Контракт `amigo-health-v4` допускает устойчивые рекомендации по питанию,
 активности, сну и измерениям, но каждый пункт должен содержать конкретное
 действие, периодичность или срок пересмотра и фактические evidence keys.
 Pressure/heart/SpO2/VO2 evidence разрешено только для repeat-measurement,
@@ -423,7 +423,11 @@ recovery. `lab-parser`
 возвращает его `ai-worker`; оригиналы parser не монтирует. Codex extraction
 `amigo-lab-extraction-v1` публикуется как `unverified`. Пользователь сверяет
 текст/страницу, исправляет строки и подтверждает документ. Диапазон бланка
-приоритетнее versioned catalog; статус считает backend. Очередь показывает
+приоритетнее versioned catalog; статус считает backend. Явно подписанная OCR-
+дата имеет приоритет над model date; idempotent bootstrap исправляет тот же
+однозначный случай в существующих строках, не меняя ручные corrections. Страница
+истории показателя читает versioned справочную карточку с назначением показателя
+и возможными категориями причин отклонений. Очередь показывает
 позицию, этап и прогресс через SSE; новый batch можно добавлять во время
 обработки предыдущего. Удаление документа удаляет его БД-историю и конкретный
 database original.
@@ -449,17 +453,17 @@ medication/dosage instructions и fixed calorie target.
 
 ## Android APK, pairing и backfill
 
-1. Установить проверенный signed Android `1.2.0` (`versionCode 5`) —
-   [`Amigo-1.2.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.0/Amigo-1.2.0.apk)
-   из release [`v5.0.0`](https://github.com/tolstik/amigo/releases/tag/v5.0.0) —
-   или обновить `1.1.0`:
+1. Установить проверенный signed Android `1.2.1` (`versionCode 6`) —
+   [`Amigo-1.2.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.1/Amigo-1.2.1.apk)
+   из release [`v5.0.1`](https://github.com/tolstik/amigo/releases/tag/v5.0.1) —
+   или обновить `1.2.0`:
 
    ```bash
    adb install -r <PATH_TO_SIGNED_APK>
    ```
 
-   SHA-256 asset `Amigo-1.2.0.apk`:
-   `38776e7a02229819a33f29dc974187288feaab49121308ac71bc3e031e8e92fd`.
+   SHA-256 asset `Amigo-1.2.1.apk`:
+   `6e5eac99021fbf761b601487d112bcbc0e52f52abeb853c2fcf017657515e5ea`.
    Upgrade через `adb install -r` сохраняет pairing state, non-exportable
    Android Keystore key, выбранный Mi Fitness origin и resumable sync cursors.
 
@@ -530,7 +534,7 @@ client/server idempotency и snapshot reconciliation уже предусмотр
 Health Connect step record принимается до документированного значения
 `1 000 000` включительно. При отклонении сервер пишет только стабильный
 `detail.code`, без payload, headers, device ID, batch ID и validation details;
-Android `1.2.0` показывает только allowlisted code рядом с HTTP status и не
+Android `1.2.1` показывает только allowlisted code рядом с HTTP status и не
 отражает произвольное тело ответа.
 
 ## Telegram schedule
@@ -579,12 +583,14 @@ sudo bash /srv/amigo/deploy/verify-production.sh
   health JSON/CSV/labs/studies/updater/assistant
   без session;
 - short-lived root-only verification session, authenticated overview/activity/
-  recovery/AI-v3/labs/studies/updater/assistant/CSV, exact Origin+CSRF,
+  recovery/AI-v4/labs/studies/updater/assistant/CSV, exact Origin+CSRF,
   безопасное отклонение пустого upload и no-buffer assistant/lab/study SSE без
   создания chat turn;
-- database-owned originals после проверенного backfill, root-only dual-write lab
-  storage, web RW/ai-worker RO/parser no-mount и внутренний parser health;
-- root-only signed APK `1.2.0`, точный hash, read-only web mount,
+- database-owned originals после проверенного backfill, отсутствие implausible
+  laboratory dates после deterministic repair, analyte guide contract,
+  root-only dual-write lab storage, web RW/ai-worker RO/parser no-mount и
+  внутренний parser health;
+- root-only signed APK `1.2.1`, точный hash, read-only web mount,
   authenticated metadata и повторно скачанный APK с тем же hash;
 - точный ingest route: unsigned empty batch отклоняется до создания записи;
 - закрытые health endpoints, legacy assets и обе cron-строки.

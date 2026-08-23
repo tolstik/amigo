@@ -2,7 +2,7 @@
 
 ## TD-001 — Laboratory imports fail while resolving missing analyte guides
 
-- **Status:** fix implemented, production verification pending
+- **Status:** resolved in production
 - **Priority:** high
 - **Discovered:** 2026-08-21
 - **Affected production release:** `a46ddd7f2a30d580a423a2e62ed67549acfb5a7d`
@@ -50,8 +50,15 @@ fix failed.
    requeues only intact matches. Other `internal` and `timeout` failures remain
    untouched.
 
-Production deployment, the targeted retry, queue drain, and PostgreSQL-log
-verification remain required before this item can be marked resolved.
+### Production verification
+
+Release `8d1266a7aedb94b8df3b415facbdae0ced5e49d8` was deployed and fully verified
+on 2026-08-23. The integrity-checked recovery selected 14 exact TD-001 jobs,
+requeued all 14, and left the four pre-existing extraction-timeout jobs
+untouched. Thirteen recovered documents completed at 100%; one independently
+exhausted its bounded extraction attempts with `timeout` at 40%. The queue
+drained with no new PostgreSQL JSON equality error and no recurrence of the
+`internal` failure at 85%.
 
 ### Acceptance criteria
 

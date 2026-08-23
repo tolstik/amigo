@@ -30,7 +30,11 @@ from .ai_models import AiAnalysisJob
 from .ai_queue import enqueue_analysis, latest_analysis
 from .ai_snapshot import build_analysis_snapshot, enqueue_current_analysis
 from .legacy import import_legacy, import_legacy_weight_file
-from .labs import backfill_stored_files, repair_lab_observed_dates
+from .labs import (
+    backfill_stored_files,
+    repair_lab_observed_dates,
+    requeue_analyte_guide_regression_documents,
+)
 from .models import ProviderCredential
 from .crypto import SecretCipher
 from .service import ensure_default_plan
@@ -152,6 +156,10 @@ def build_parser() -> argparse.ArgumentParser:
     verification.add_argument("--directory", required=True)
     commands.add_parser("bootstrap", help="migrate, seed the plan, and import OAuth tokens from secrets")
     commands.add_parser("backfill-files", help="verify and copy legacy laboratory originals into PostgreSQL")
+    commands.add_parser(
+        "lab-retry-guide-regression",
+        help="integrity-check and requeue only terminal TD-001 laboratory jobs",
+    )
     commands.add_parser("telegram-test", help="send an explicitly marked non-health test message")
     commands.add_parser("ai-enqueue", help="enqueue an immediate minimized AI snapshot")
     commands.add_parser(
@@ -280,6 +288,17 @@ def execute(args: argparse.Namespace) -> int:
             return 75
         print(f"file backfill complete: copied={copied}")
         return 0
+    if args.command == "lab-retry-guide-regression":
+        with SessionLocal() as db:
+            eligible, requeued, skipped = requeue_analyte_guide_regression_documents(
+                db,
+                settings.lab_storage_dir,
+            )
+        print(
+            "laboratory TD-001 retry complete: "
+            f"eligible={eligible}, requeued={requeued}, skipped={skipped}"
+        )
+        return 75 if skipped else 0
     if args.command == "telegram-test":
         client = TelegramClient(settings)
         try:

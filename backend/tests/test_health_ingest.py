@@ -164,6 +164,32 @@ def test_health_connect_step_count_upper_bound_is_accepted(db):
         )
 
 
+def test_in_progress_provider_interval_is_accepted_with_clamped_watermark(db):
+    now = datetime(2026, 8, 23, 14, 14, tzinfo=timezone.utc)
+    private, device_id = register_and_approve(db, now - timedelta(minutes=2))
+    future_end = now + timedelta(minutes=20)
+    record = step("steps-current-interval", future_end, 321)
+    record["last_modified_time"] = now.isoformat()
+    payload = changes_payload(future_end, [record])
+
+    accepted = send(db, private, device_id, payload, now)
+
+    assert accepted.data_as_of == now
+    batch = db.scalar(select(HealthConnectBatch))
+    assert batch.data_as_of.replace(tzinfo=timezone.utc) == now
+    assert get_device_status(db, device_id).data_as_of.replace(tzinfo=timezone.utc) == now
+
+    too_far = now + timedelta(days=1, minutes=1)
+    with pytest.raises(HealthIngestError, match="data_as_of_in_future"):
+        send(
+            db,
+            private,
+            device_id,
+            changes_payload(too_far, [step("steps-too-far", too_far, 1)]),
+            now + timedelta(seconds=1),
+        )
+
+
 def test_deletion_origin_lock_and_allowlist(db):
     now = datetime(2026, 8, 19, 8, tzinfo=timezone.utc)
     private, device_id = register_and_approve(db, now - timedelta(minutes=2))

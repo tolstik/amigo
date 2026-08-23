@@ -116,7 +116,7 @@
   `/amigo/...`; authenticated CSV and laboratory-original downloads use the
   system document picker and forward in-memory cookies only to exact allowlisted
   same-origin GET routes, without redirects.
-- Android `1.2.2` (`versionCode 7`) accepts up to 25 dashboard uploads from the
+- Android `1.2.3` (`versionCode 8`) accepts up to 25 dashboard uploads from the
   system picker, refreshes a stale foreground WebView, records allowlisted
   background-sync diagnostics, and schedules immediate, hourly, and bounded
   one-minute backfill continuation work. Its in-app updater may download only
@@ -127,7 +127,10 @@
   replace their own running worker; background run IDs prevent stale workers
   from overwriting status. Retryable DNS failures do not advance sync cursors.
   Existing monthly empty cursors fast-forward without resetting pairing, the
-  device key, changes tokens, or current cursor state.
+  device key, changes tokens, or current cursor state. Health Connect freshness
+  prefers the provider modification timestamp over an interval's possibly
+  future rounded end, and one failed record type does not prevent later types
+  such as sleep from being attempted in the same bounded run.
 - Deterministic blood-pressure, heart, SpO2, and VO2 displays remain descriptive
   and never add severity colors or app-side diagnoses. Validated AI may use those
   metrics only for evidence-bound measurement/logging advice or discussion of a

@@ -45,6 +45,8 @@ and migrations. `frontend/` contains the React/TypeScript dashboard. `android/`
 contains the hybrid Amigo Android app: its default tab is the secured dashboard
 and its second tab is the native Health Connect companion. `deploy/` and
 `docs/runbook.md` contain the production, verification, and rollback procedures.
+Confirmed deferred defects and their correction criteria are tracked in
+[`docs/technical-debt.md`](docs/technical-debt.md).
 
 ## AI analysis boundary
 
@@ -140,7 +142,7 @@ a strict output schema; see the official
 
 ## Android app and Health Connect companion
 
-Amigo `1.2.2` (`versionCode 7`, package `ru.tolstik.amigo.sync`) opens the full
+Amigo `1.2.3` (`versionCode 8`, package `ru.tolstik.amigo.sync`) opens the full
 authenticated dashboard in a top-level WebView. It uses the same local account
 and 90-day server session as a browser, while signed ingest remains independent.
 Only the fixed production origin and known SPA routes are accepted; there is no
@@ -178,24 +180,25 @@ same-origin APK, verifies its declared size and SHA-256 plus package, higher
 version code, and installed signing certificate, then delegates to the Android
 system installer for explicit confirmation.
 
-Release 1.2.2 keeps the 1.2.1 worker/run-ID fixes and fast-forwards
-provider-confirmed empty history in one bounded snapshot. An already persisted
-monthly cursor resumes without resetting pairing, the device key, or changes
-tokens; after each non-empty window the client locates the next real record and
-skips the intervening empty years.
+Release 1.2.3 uses Health Connect's modification timestamp as the batch
+freshness watermark, so Mi Fitness intervals whose rounded end is still ahead
+do not stall synchronization. A rejected record type no longer prevents later
+types such as sleep from being attempted in the same bounded run. The release
+keeps the 1.2.2 worker/run-ID and empty-history fixes and preserves pairing, the
+device key, changes tokens, and resumable cursors during upgrade.
 
 Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.3/Amigo-1.2.2.apk)
-from release [`v5.0.3`](https://github.com/tolstik/amigo/releases/tag/v5.0.3).
+[`Amigo-1.2.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.4/Amigo-1.2.3.apk)
+from release [`v5.0.4`](https://github.com/tolstik/amigo/releases/tag/v5.0.4).
 Its SHA-256 is
-`4c8168013d49439072c0a084ea3284d88916d0164b5fba47201c60861ee9454a`, and its
+`f57cf09e1dd71c219ff7206ad0507310cf77a545fd976350a166df0b69c69e70`, and its
 signing-certificate SHA-256 is
 `25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
-The previous `1.2.1` APK remains available from `v5.0.1`. Verify the checksum
+The previous `1.2.2` APK remains available from `v5.0.3`. Verify the checksum
 before installing an APK.
 
 ## Telegram schedule

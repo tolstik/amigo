@@ -42,12 +42,22 @@ interface BatchUploader {
 }
 
 internal fun userFacingSyncError(error: Throwable): String {
-    val causes = generateSequence(error) { current -> current.cause }
+    val causes = generateSequence(error) { current -> current.cause }.toList()
+    val safeServerRejection = causes
+        .mapNotNull(Throwable::message)
+        .firstOrNull { message ->
+            message.matches(
+                Regex("^Amigo server returned HTTP [45]\\d\\d(?: \\([a-z][a-z0-9_]{0,63}\\))?$"),
+            )
+        }
     return when {
         causes.any { it is UnknownHostException } ->
             "Не удалось найти amigo.tolstik.ru. Проверьте интернет и настройки частного DNS; синхронизация повторится автоматически."
         causes.any { it is SocketTimeoutException } ->
             "Сервер не ответил вовремя. Синхронизация повторится автоматически."
+        safeServerRejection != null ->
+            "Сервер отклонил пакет: ${safeServerRejection.removePrefix("Amigo server returned ")}. " +
+                "Синхронизация повторится автоматически."
         error is IOException ->
             "Не удалось связаться с сервером. Данные не потеряны, синхронизация повторится автоматически."
         else -> error.message?.take(300) ?: "Синхронизация завершилась с ошибкой"
@@ -117,16 +127,32 @@ class SyncCoordinator(
             // Migrate every legacy cursor and persist every observation point before processing
             // pages. If a later type fails after an earlier one completes, a retry must not
             // reinterpret the remaining cursors using that newly completed type as evidence.
+            var firstFailure: Exception? = null
+            val preparedTypes = mutableListOf<RecordType>()
             for (type in enabledTypes) {
-                prepareSnapshotObservation(
-                    type,
-                    origin,
-                    legacyMigrationRequiresFullReconcile,
-                )
+                try {
+                    prepareSnapshotObservation(
+                        type,
+                        origin,
+                        legacyMigrationRequiresFullReconcile,
+                    )
+                    preparedTypes += type
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    if (firstFailure == null) firstFailure = error
+                }
             }
-            for (type in enabledTypes) {
-                uploaded += syncType(type, origin, maxPagesPerType)
+            for (type in preparedTypes) {
+                try {
+                    uploaded += syncType(type, origin, maxPagesPerType)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    if (firstFailure == null) firstFailure = error
+                }
             }
+            firstFailure?.let { throw it }
             state.setLastSync(clock.instant())
             state.setLastError(null)
         } catch (error: CancellationException) {

@@ -462,10 +462,14 @@ def missing_analyte_guides(
 ) -> list[LabAnalyte]:
     statement = select(LabAnalyte).order_by(LabAnalyte.id)
     if document_id is not None:
-        statement = (
-            statement.join(LabResult, LabResult.analyte_id == LabAnalyte.id)
-            .where(LabResult.document_id == document_id, LabResult.deleted.is_(False))
-            .distinct()
+        statement = statement.where(
+            select(LabResult.id)
+            .where(
+                LabResult.analyte_id == LabAnalyte.id,
+                LabResult.document_id == document_id,
+                LabResult.deleted.is_(False),
+            )
+            .exists()
         )
     return [
         analyte
@@ -473,6 +477,59 @@ def missing_analyte_guides(
         if _catalog_analyte_guide(analyte.id) is None
         and db.get(LabAnalyteGuide, analyte.id) is None
     ]
+
+
+def requeue_analyte_guide_regression_documents(
+    db: Session,
+    storage_dir: Path,
+    *,
+    now: datetime | None = None,
+) -> tuple[int, int, int]:
+    """Retry only documents with the exact TD-001 terminal failure signature."""
+
+    current = now or datetime.now(timezone.utc)
+    jobs = list(
+        db.scalars(
+            select(LabProcessingJob)
+            .join(LabDocument, LabDocument.id == LabProcessingJob.document_id)
+            .where(
+                LabDocument.status == "failed",
+                LabDocument.processing_stage == "failed",
+                LabDocument.progress_percent == 85,
+                LabDocument.error_code == "internal",
+                LabProcessingJob.status == "failed",
+                LabProcessingJob.attempts == 3,
+                LabProcessingJob.error_code == "internal",
+            )
+            .order_by(LabProcessingJob.id)
+        )
+    )
+    requeued = skipped = 0
+    for job in jobs:
+        document = db.get(LabDocument, job.document_id)
+        if document is None:
+            skipped += 1
+            continue
+        try:
+            original_bytes(db, document, storage_dir)
+        except LabFileError:
+            skipped += 1
+            continue
+        job.status = "pending"
+        job.attempts = 0
+        job.available_at = current
+        job.lease_until = None
+        job.error_code = None
+        job.finished_at = None
+        document.status = "queued"
+        document.processing_stage = "queued"
+        document.progress_percent = 0
+        document.error_code = None
+        document.completed_at = None
+        document.updated_at = current
+        requeued += 1
+    db.commit()
+    return len(jobs), requeued, skipped
 
 
 def enqueue_missing_analyte_guide_jobs(db: Session) -> int:

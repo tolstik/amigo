@@ -11,6 +11,22 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: amigo_test
+          POSTGRES_USER: amigo_test
+          POSTGRES_PASSWORD: amigo_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U amigo_test -d amigo_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      AMIGO_TEST_POSTGRES_URL: postgresql+psycopg://amigo_test:amigo_test_password@127.0.0.1:5432/amigo_test
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0

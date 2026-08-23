@@ -40,6 +40,16 @@ class SyncCoordinatorTest {
     }
 
     @Test
+    fun allowlistedServerRejectionRemainsVisibleAndRetryable() {
+        val message = userFacingSyncError(
+            IOException("Amigo server returned HTTP 422 (data_as_of_in_future)"),
+        )
+
+        assertTrue(message.contains("HTTP 422 (data_as_of_in_future)"))
+        assertTrue(message.contains("повторится автоматически"))
+    }
+
+    @Test
     fun cancellationDoesNotBecomeAStoredSyncError() = runTest {
         val state = FakeState(origin)
         val source = FakeHealthSource(
@@ -391,7 +401,7 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun allLegacyCursorsAreMigratedBeforeAnEarlierTypeCanCompleteAndFail() = runTest {
+    fun allLegacyCursorsAreMigratedAndLaterTypeContinuesAfterEarlierTypeFails() = runTest {
         val earliest = floor.plusSeconds(12 * 60 * 60)
         val source = FakeHealthSource(
             earliest = earliest,
@@ -422,15 +432,15 @@ class SyncCoordinatorTest {
             .onSuccess { error("Expected first type changes failure") }
 
         assertTrue(state.isSnapshotComplete(RecordType.STEPS))
-        assertEquals(now, state.snapshotTarget(RecordType.DISTANCE))
-        assertFalse(state.snapshotRequiresFullReconcile(RecordType.DISTANCE))
-
-        coordinator.syncAll(maxPagesPerType = 1)
-
+        assertTrue(state.isSnapshotComplete(RecordType.DISTANCE))
         val distanceBatch = uploader.batches.single { it.recordType == RecordType.DISTANCE }
         assertEquals(earliest, distanceBatch.rangeStart)
         assertEquals(now, distanceBatch.rangeEnd)
-        assertTrue(state.isSnapshotComplete(RecordType.DISTANCE))
+
+        coordinator.syncAll(maxPagesPerType = 1)
+
+        assertEquals("next-token", state.changesToken(RecordType.STEPS))
+        assertEquals("next-token", state.changesToken(RecordType.DISTANCE))
     }
 
     @Test
@@ -654,6 +664,28 @@ class SyncCoordinatorTest {
             CanonicalJson.encode(uploader.attemptedBatches[2].toJson()),
         )
         assertEquals(uploader.attemptedBatches[1].batchId, uploader.attemptedBatches[3].batchId)
+    }
+
+    @Test
+    fun currentProviderIntervalUsesModificationTimeInsteadOfFutureEndBoundary() {
+        val record = ExportRecord(
+            recordId = "in-progress-steps",
+            type = RecordType.STEPS,
+            startTime = now.minusSeconds(10 * 60),
+            endTime = now.plusSeconds(20 * 60),
+            dataOrigin = origin,
+            lastModifiedTime = now,
+            values = buildJsonObject { put("count", 100) },
+        )
+
+        val batch = BatchPlanner().changes(
+            RecordType.STEPS,
+            origin,
+            "current-token",
+            listOf(record),
+        ).single()
+
+        assertEquals(now, batch.dataAsOf)
     }
 
     private fun coordinator(

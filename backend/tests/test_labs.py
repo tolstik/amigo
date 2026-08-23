@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from hashlib import sha256
 from io import BytesIO
@@ -8,11 +8,13 @@ from io import BytesIO
 import fitz
 from PIL import Image
 import pytest
+from sqlalchemy import select
 
 from app.lab_contracts import (
     ExtractedLabReport,
     ExtractedLabResult,
     GatewayAnalyteGuideResponse,
+    GatewayLabResponse,
     LAB_ANALYTE_GUIDE_PROMPT_VERSION,
     LabExtraction,
 )
@@ -20,14 +22,17 @@ from app.auth_models import UserProfile
 from app.config import Settings
 from app.lab_models import (
     LabAnalyte,
+    LabAnalyteGuide,
     LabAnalyteGuideJob,
     LabDocument,
+    LabProcessingJob,
     LabReferenceRange,
     LabReport,
     LabResult,
     StoredFile,
 )
 from app.lab_parser import MAX_COORDINATE_BLOCKS, ParserError, _ocr, parse_document
+from app.lab_assistant_worker import process_lab_job
 from app.labs_api import ResultCreate, ResultPatch, analyte_history, create_result, patch_result
 from app.labs import (
     LAB_EXTRACTION_CHUNK_CHARS,
@@ -40,10 +45,12 @@ from app.labs import (
     detect_media_type,
     enqueue_document,
     enqueue_missing_analyte_guide_jobs,
+    missing_analyte_guides,
     original_bytes,
     persist_analyte_guides,
     persist_extraction,
     repair_lab_observed_dates,
+    requeue_analyte_guide_regression_documents,
     seed_reference_catalog,
 )
 from app.studies import enqueue_study, structure_study_text
@@ -231,6 +238,149 @@ def test_analyte_history_includes_catalog_and_generated_guides(db):
     assert known["guide"]["source"] == "catalog"
     assert "биологический процесс" in custom["guide"]["summary"]
     assert custom["guide"]["source"] == "ai_generated"
+
+
+def test_document_worker_completes_known_and_unknown_analytes_with_one_guide(db, tmp_path):
+    class Gateway:
+        def __init__(self):
+            self.guide_requests = []
+
+        def parse(self, _document, _content):
+            return {
+                "text": "Глюкоза 5.1; Новый маркер 7; Новый маркер 8",
+                "page_count": 1,
+                "pages": [{"page": 1, "text": "laboratory facts", "blocks": []}],
+            }
+
+        def extract(self, _request):
+            return GatewayLabResponse(
+                extraction=LabExtraction(
+                    report=ExtractedLabReport(observed_on=date(2026, 8, 21)),
+                    results=[
+                        ExtractedLabResult(
+                            analyte_name="Глюкоза",
+                            canonical_hint="glucose",
+                            value_numeric=Decimal("5.1"),
+                            unit="mmol/L",
+                        ),
+                        ExtractedLabResult(
+                            analyte_name="Новый маркер",
+                            canonical_hint="custom-flow-marker",
+                            value_numeric=Decimal("7"),
+                            unit="U/L",
+                        ),
+                        ExtractedLabResult(
+                            analyte_name="Новый маркер",
+                            canonical_hint="custom-flow-marker",
+                            value_numeric=Decimal("8"),
+                            unit="U/L",
+                        ),
+                    ],
+                )
+            )
+
+        def guides(self, request):
+            self.guide_requests.append(request)
+            return GatewayAnalyteGuideResponse(
+                guides=[
+                    {
+                        "analyte_id": item.analyte_id,
+                        "summary": "Новый маркер отражает лабораторно измеряемый биологический процесс.",
+                        "why_tested": "Исследование используют для уточнения связанного биологического процесса.",
+                        "low_meaning": "Снижение сопоставляют с методом, материалом и другими результатами.",
+                        "high_meaning": "Повышение сопоставляют с методом, материалом и другими результатами.",
+                    }
+                    for item in request.analytes
+                ]
+            )
+
+    content = b"%PDF-1.7\nsynthetic laboratory fixture"
+    document = enqueue_document(
+        db,
+        storage_key="worker-flow.bin",
+        filename="worker-flow.pdf",
+        file_sha256=sha256(content).hexdigest(),
+        media_type="application/pdf",
+        size_bytes=len(content),
+        content=content,
+    )
+    gateway = Gateway()
+    now = datetime.now(timezone.utc) + timedelta(minutes=1)
+
+    assert process_lab_job(
+        db,
+        Settings(ai_enabled=False, lab_storage_dir=tmp_path),
+        gateway,
+        now,
+    ) is True
+
+    db.refresh(document)
+    job = db.scalar(select(LabProcessingJob).where(LabProcessingJob.document_id == document.id))
+    assert document.status == "complete"
+    assert document.processing_stage == "complete"
+    assert document.progress_percent == 100
+    assert job.status == "success"
+    assert len(gateway.guide_requests) == 1
+    assert [item.analyte_id for item in gateway.guide_requests[0].analytes] == [
+        "custom-flow-marker"
+    ]
+    assert [item.id for item in missing_analyte_guides(db, document_id=document.id)] == []
+    guides = db.query(LabAnalyteGuide).all()
+    assert [guide.analyte_id for guide in guides] == ["custom-flow-marker"]
+
+
+def test_td001_retry_is_exact_and_requires_an_intact_original(db, tmp_path):
+    def document(name: str, content: bytes):
+        return enqueue_document(
+            db,
+            storage_key=f"{name}.bin",
+            filename=f"{name}.pdf",
+            file_sha256=sha256(content).hexdigest(),
+            media_type="application/pdf",
+            size_bytes=len(content),
+            content=content,
+        )
+
+    affected = document("affected", b"%PDF-1.7\naffected")
+    corrupted = document("corrupted", b"%PDF-1.7\ncorrupted")
+    unrelated = document("unrelated", b"%PDF-1.7\nunrelated")
+    for row in (affected, corrupted, unrelated):
+        job = db.scalar(select(LabProcessingJob).where(LabProcessingJob.document_id == row.id))
+        row.status = "failed"
+        row.processing_stage = "failed"
+        row.progress_percent = 85
+        row.error_code = "internal"
+        job.status = "failed"
+        job.attempts = 3
+        job.error_code = "internal"
+    unrelated.progress_percent = 40
+    corrupted.stored_file.content = b"changed"
+    db.commit()
+
+    assert requeue_analyte_guide_regression_documents(
+        db,
+        tmp_path,
+        now=datetime(2026, 8, 23, 13, tzinfo=timezone.utc),
+    ) == (2, 1, 1)
+
+    db.refresh(affected)
+    db.refresh(corrupted)
+    db.refresh(unrelated)
+    affected_job = db.scalar(
+        select(LabProcessingJob).where(LabProcessingJob.document_id == affected.id)
+    )
+    assert (affected.status, affected.processing_stage, affected.progress_percent) == (
+        "queued",
+        "queued",
+        0,
+    )
+    assert (affected_job.status, affected_job.attempts, affected_job.error_code) == (
+        "pending",
+        0,
+        None,
+    )
+    assert corrupted.status == "failed"
+    assert unrelated.status == "failed"
 
 
 def test_existing_unknown_analytes_are_enqueued_once_for_bounded_backfill(db):

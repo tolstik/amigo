@@ -50,7 +50,11 @@ data class ExportRecord(
     }
 
     val dataAsOf: Instant?
-        get() = listOfNotNull(lastModifiedTime, endTime, startTime).maxOrNull()
+        // Mi Fitness may publish an in-progress interval whose end boundary is still
+        // in the future. The Health Connect modification time is the source watermark;
+        // treating the interval end as freshness makes a valid current record look
+        // future-dated and can stall every later metric in the ordered sync.
+        get() = lastModifiedTime ?: endTime ?: startTime
 }
 
 enum class BatchMode(val wireName: String) {

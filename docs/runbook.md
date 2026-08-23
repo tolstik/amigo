@@ -189,11 +189,11 @@ backup. Теперь checkpoint сам создаёт локальный documen
    `ghcr.io/tolstik/amigo:GIT_SHA` доступен production или root Docker уже
    авторизован только для чтения package. OCI label
    `org.opencontainers.image.revision` должен совпадать с `GIT_SHA`.
-9. Для Android `1.2.2` (`versionCode 7`) использовать signed
-   [`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.3/Amigo-1.2.2.apk)
+9. Для Android `1.2.3` (`versionCode 8`) использовать signed
+   [`Amigo-1.2.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.4/Amigo-1.2.3.apk)
    из GitHub release
-   [`v5.0.3`](https://github.com/tolstik/amigo/releases/tag/v5.0.3) и сверить SHA-256
-   `4c8168013d49439072c0a084ea3284d88916d0164b5fba47201c60861ee9454a`.
+   [`v5.0.4`](https://github.com/tolstik/amigo/releases/tag/v5.0.4) и сверить SHA-256
+   `f57cf09e1dd71c219ff7206ad0507310cf77a545fd976350a166df0b69c69e70`.
    Signing certificate SHA-256 должен быть
    `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
    Keystore и его пароли не хранятся в Git или Markdown.
@@ -310,7 +310,7 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    MariaDB строку и импорт legacy-only весов из root-only TSV. Неизменившийся
    TSV не переписывается.
 6. Запуск `web` без workers, direct health на `127.0.0.1:18181` и атомарная
-   установка проверенного APK `1.2.2` в root-only Android directory.
+   установка проверенного APK `1.2.3` в root-only Android directory.
 7. Запуск изолированных `ai-gateway` и `lab-parser`; synthetic smoke через
    `ai-worker` последовательно проверяет live-контракты analysis, laboratory
    extraction, analyte guide и assistant turn, включая auth, sandbox, model,
@@ -461,17 +461,17 @@ medication/dosage instructions и fixed calorie target.
 
 ## Android APK, pairing и backfill
 
-1. Установить проверенный signed Android `1.2.2` (`versionCode 7`) —
-   [`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.3/Amigo-1.2.2.apk)
-   из release [`v5.0.3`](https://github.com/tolstik/amigo/releases/tag/v5.0.3) —
-   или обновить `1.2.1`:
+1. Установить проверенный signed Android `1.2.3` (`versionCode 8`) —
+   [`Amigo-1.2.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.4/Amigo-1.2.3.apk)
+   из release [`v5.0.4`](https://github.com/tolstik/amigo/releases/tag/v5.0.4) —
+   или обновить `1.2.2`:
 
    ```bash
    adb install -r <PATH_TO_SIGNED_APK>
    ```
 
-   SHA-256 asset `Amigo-1.2.2.apk`:
-   `4c8168013d49439072c0a084ea3284d88916d0164b5fba47201c60861ee9454a`.
+   SHA-256 asset `Amigo-1.2.3.apk`:
+   `f57cf09e1dd71c219ff7206ad0507310cf77a545fd976350a166df0b69c69e70`.
    Upgrade через `adb install -r` сохраняет pairing state, non-exportable
    Android Keystore key, выбранный Mi Fitness origin и resumable sync cursors.
 
@@ -545,8 +545,13 @@ client/server idempotency и snapshot reconciliation уже предусмотр
 Health Connect step record принимается до документированного значения
 `1 000 000` включительно. При отклонении сервер пишет только стабильный
 `detail.code`, без payload, headers, device ID, batch ID и validation details;
-Android `1.2.2` показывает только allowlisted code рядом с HTTP status и не
-отражает произвольное тело ответа.
+Android `1.2.3` показывает только allowlisted code рядом с HTTP status и не
+отражает произвольное тело ответа. Для freshness watermark он предпочитает
+Health Connect `lastModifiedTime`, а ошибка одного record type не отменяет
+попытку синхронизации следующих типов, включая sleep. Сервер совместимости
+принимает watermark не более чем на сутки вперед и сохраняет его не позднее
+момента приема, поэтому установленный `1.2.2` также не застревает на текущем
+интервале Mi Fitness до обновления приложения.
 
 ## Telegram schedule
 
@@ -603,7 +608,7 @@ sudo bash /srv/amigo/deploy/verify-production.sh
   failure текущего контракта и analyte guide contract,
   root-only dual-write lab storage, web RW/ai-worker RO/parser no-mount и
   внутренний parser health;
-- root-only signed APK `1.2.2`, точный hash, read-only web mount,
+- root-only signed APK `1.2.3`, точный hash, read-only web mount,
   authenticated metadata и повторно скачанный APK с тем же hash;
 - точный ingest route: unsigned empty batch отклоняется до создания записи;
 - закрытые health endpoints, legacy assets и обе cron-строки.

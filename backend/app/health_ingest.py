@@ -608,7 +608,7 @@ def _reconcile_snapshot(
         row.primary_value = None
         row.primary_unit = None
         row.subtype = None
-        row.source_updated_at = payload.data_as_of
+        row.source_updated_at = batch.data_as_of
         row.source_batch_id = batch.id
         reconciled += 1
     return reconciled
@@ -713,8 +713,14 @@ def ingest_signed_batch(
         raise HealthIngestError(422, "invalid_batch_payload") from exc
     if payload.batch_id is not None and payload.batch_id != batch_id:
         raise HealthIngestError(409, "batch_id_header_mismatch")
-    if payload.data_as_of > current + timedelta(minutes=5):
+    # Mi Fitness publishes some current step/calorie intervals before their rounded
+    # end boundary. Existing Android 1.2.2 envelopes use that end as data_as_of, so a
+    # normal in-progress interval can be tens of minutes ahead even though the signed
+    # client clock and Health Connect modification timestamp are current. Keep the
+    # existing one-day record bound, then clamp the operational freshness watermark.
+    if payload.data_as_of > current + timedelta(days=1):
         raise HealthIngestError(422, "data_as_of_in_future")
+    effective_data_as_of = min(_iso_utc(payload.data_as_of), current)
     record_ids = [record.record_id for record in payload.records]
     if len(record_ids) != len(set(record_ids)):
         raise HealthIngestError(422, "duplicate_record_id")
@@ -734,7 +740,7 @@ def ingest_signed_batch(
         mode=payload.mode,
         record_type=payload.record_type,
         data_origin=payload.data_origin,
-        data_as_of=payload.data_as_of,
+        data_as_of=effective_data_as_of,
         snapshot_id=payload.snapshot_id,
         range_start=payload.range_start,
         range_end=payload.range_end,
@@ -753,7 +759,7 @@ def ingest_signed_batch(
         # an envelope watermark (which may be EPOCH for a deletion-only page)
         # would incorrectly treat a real deletion as older than the record.
         effective_updated_at = incoming.updated_at or (
-            current if incoming.deleted else payload.data_as_of
+            current if incoming.deleted else effective_data_as_of
         )
         if _aware(effective_updated_at) > current + timedelta(days=1):
             raise HealthIngestError(422, "record_update_time_in_future")
@@ -809,8 +815,8 @@ def ingest_signed_batch(
         db.flush()
         batch.reconciled_count = _reconcile_snapshot(db, device, batch, payload)
     device.last_sync_at = current
-    if device.data_as_of is None or _aware(payload.data_as_of) > _aware(device.data_as_of):
-        device.data_as_of = payload.data_as_of
+    if device.data_as_of is None or effective_data_as_of > _aware(device.data_as_of):
+        device.data_as_of = effective_data_as_of
     device.last_error = None
     try:
         db.commit()

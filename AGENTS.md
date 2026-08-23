@@ -116,7 +116,7 @@
   `/amigo/...`; authenticated CSV and laboratory-original downloads use the
   system document picker and forward in-memory cookies only to exact allowlisted
   same-origin GET routes, without redirects.
-- Android `1.2.3` (`versionCode 8`) accepts up to 25 dashboard uploads from the
+- Android `1.2.4` (`versionCode 9`) accepts up to 25 dashboard uploads from the
   system picker, refreshes a stale foreground WebView, records allowlisted
   background-sync diagnostics, and schedules immediate, hourly, and bounded
   one-minute backfill continuation work. Its in-app updater may download only
@@ -130,7 +130,10 @@
   device key, changes tokens, or current cursor state. Health Connect freshness
   prefers the provider modification timestamp over an interval's possibly
   future rounded end, and one failed record type does not prevent later types
-  such as sleep from being attempted in the same bounded run.
+  such as sleep from being attempted in the same bounded run. Upgrading from
+  an earlier release performs one full heart-rate-only reconciliation with a
+  fresh changes token; pairing, the device key, the selected origin, and every
+  unrelated record-type cursor remain intact.
 - Deterministic blood-pressure, heart, SpO2, and VO2 displays remain descriptive
   and never add severity colors or app-side diagnoses. Validated AI may use those
   metrics only for evidence-bound measurement/logging advice or discussion of a
@@ -203,6 +206,11 @@
   terminal current-contract job; it never delays cutover until the entire
   historical backlog drains. The superseded v1 batch of 20 exceeded the pinned
   Codex deadline and must not be restored.
+  Laboratory extraction sends at most 3,000 OCR characters per gateway call.
+  A timed-out extraction chunk may be divided at most twice; the document job
+  still has only three bounded attempts. The exact recovery command may requeue
+  only intact terminal `timeout` documents that failed at extraction progress
+  40, and must not revive unrelated terminal jobs.
 - Study-report uploads support the same bounded formats and queue for ultrasound,
   MRI, CT, X-ray, ECG, and other reports; DICOM is not supported. PostgreSQL
   stores the original plus structured findings/conclusion. Obvious identifier

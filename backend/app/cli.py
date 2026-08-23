@@ -34,6 +34,7 @@ from .labs import (
     backfill_stored_files,
     repair_lab_observed_dates,
     requeue_analyte_guide_regression_documents,
+    requeue_extraction_timeout_documents,
 )
 from .models import ProviderCredential
 from .crypto import SecretCipher
@@ -159,6 +160,10 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "lab-retry-guide-regression",
         help="integrity-check and requeue only terminal TD-001 laboratory jobs",
+    )
+    commands.add_parser(
+        "lab-retry-extraction-timeouts",
+        help="integrity-check and requeue only terminal whole-page extraction timeouts",
     )
     commands.add_parser("telegram-test", help="send an explicitly marked non-health test message")
     commands.add_parser("ai-enqueue", help="enqueue an immediate minimized AI snapshot")
@@ -296,6 +301,17 @@ def execute(args: argparse.Namespace) -> int:
             )
         print(
             "laboratory TD-001 retry complete: "
+            f"eligible={eligible}, requeued={requeued}, skipped={skipped}"
+        )
+        return 75 if skipped else 0
+    if args.command == "lab-retry-extraction-timeouts":
+        with SessionLocal() as db:
+            eligible, requeued, skipped = requeue_extraction_timeout_documents(
+                db,
+                settings.lab_storage_dir,
+            )
+        print(
+            "laboratory extraction-timeout retry complete: "
             f"eligible={eligible}, requeued={requeued}, skipped={skipped}"
         )
         return 75 if skipped else 0

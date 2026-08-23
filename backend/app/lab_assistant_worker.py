@@ -56,6 +56,8 @@ from .studies import claim_study_job, structure_study_text
 
 
 ANALYTE_GUIDE_BATCH_SIZE = 5
+LAB_EXTRACTION_TIMEOUT_SPLIT_DEPTH = 2
+LAB_EXTRACTION_TIMEOUT_SPLIT_MIN_CHARS = 900
 
 
 class WorkError(RuntimeError):
@@ -239,6 +241,61 @@ def _generate_analyte_guides(
         persist_analyte_guides(db, gateway.guides(request), now=now)
 
 
+def _extract_lab_chunk(
+    gateway: LabAssistantGateway,
+    *,
+    document_id: str,
+    chunk_index: int,
+    page_from: int,
+    page_to: int,
+    text: str,
+    split_depth: int = 0,
+) -> list[tuple[str, GatewayLabResponse]]:
+    request = GatewayLabRequest(
+        document_id=document_id,
+        chunk_index=chunk_index,
+        page_from=page_from,
+        page_to=page_to,
+        text=text,
+        contract_version=LAB_EXTRACTION_PROMPT_VERSION,
+        model=AI_MODEL,
+    )
+    try:
+        return [(text, gateway.extract(request))]
+    except WorkError as exc:
+        can_split = (
+            exc.code == "timeout"
+            and split_depth < LAB_EXTRACTION_TIMEOUT_SPLIT_DEPTH
+            and len(text) > LAB_EXTRACTION_TIMEOUT_SPLIT_MIN_CHARS * 2
+        )
+        if not can_split:
+            raise
+        split_size = max(LAB_EXTRACTION_TIMEOUT_SPLIT_MIN_CHARS, len(text) // 2)
+        pieces = [
+            piece
+            for _piece_from, _piece_to, piece in bounded_page_chunks(
+                [{"page": page_from, "text": text}],
+                split_size,
+            )
+        ]
+        if len(pieces) < 2:
+            raise
+        extracted: list[tuple[str, GatewayLabResponse]] = []
+        for piece in pieces:
+            extracted.extend(
+                _extract_lab_chunk(
+                    gateway,
+                    document_id=document_id,
+                    chunk_index=chunk_index + len(extracted),
+                    page_from=page_from,
+                    page_to=page_to,
+                    text=piece,
+                    split_depth=split_depth + 1,
+                )
+            )
+        return extracted
+
+
 def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGateway, now: datetime) -> bool:
     job = claim_lab_job(db, now, lease_seconds=max(300, settings.ai_lease_seconds))
     if job is None:
@@ -259,19 +316,21 @@ def process_lab_job(db: Session, settings: Settings, gateway: LabAssistantGatewa
         pages = parsed["pages"]
         extraction_chunks: list[tuple[int, str, GatewayLabResponse]] = []
         chunks = bounded_page_chunks(pages, LAB_EXTRACTION_CHUNK_CHARS)
-        for index, (page_from, page_to, text) in enumerate(chunks):
-            request = GatewayLabRequest(
+        for base_index, (page_from, page_to, text) in enumerate(chunks):
+            extracted = _extract_lab_chunk(
+                gateway,
                 document_id=document.id,
-                chunk_index=index,
+                chunk_index=len(extraction_chunks),
                 page_from=page_from,
                 page_to=page_to,
                 text=text,
-                contract_version=LAB_EXTRACTION_PROMPT_VERSION,
-                model=AI_MODEL,
             )
-            extraction_chunks.append((index, text, gateway.extract(request)))
+            for source_text, response in extracted:
+                extraction_chunks.append((len(extraction_chunks), source_text, response))
             document.processing_stage = "extracting"
-            document.progress_percent = 40 + round(45 * (index + 1) / max(1, len(chunks)))
+            document.progress_percent = 40 + round(
+                45 * (base_index + 1) / max(1, len(chunks))
+            )
             db.commit()
 
         db.execute(delete(LabResult).where(LabResult.document_id == document.id))

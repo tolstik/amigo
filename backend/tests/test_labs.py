@@ -32,7 +32,7 @@ from app.lab_models import (
     StoredFile,
 )
 from app.lab_parser import MAX_COORDINATE_BLOCKS, ParserError, _ocr, parse_document
-from app.lab_assistant_worker import process_lab_job
+from app.lab_assistant_worker import WorkError, process_lab_job
 from app.labs_api import ResultCreate, ResultPatch, analyte_history, create_result, patch_result
 from app.labs import (
     LAB_EXTRACTION_CHUNK_CHARS,
@@ -51,6 +51,7 @@ from app.labs import (
     persist_extraction,
     repair_lab_observed_dates,
     requeue_analyte_guide_regression_documents,
+    requeue_extraction_timeout_documents,
     seed_reference_catalog,
 )
 from app.studies import enqueue_study, structure_study_text
@@ -198,7 +199,7 @@ def test_long_single_page_is_split_for_extraction_and_retrieval():
     retrieval = bounded_page_chunks(pages, LAB_RETRIEVAL_CHUNK_CHARS)
 
     assert len(extraction) > 1
-    assert len(retrieval) > len(extraction)
+    assert len(extraction) > len(retrieval)
     assert all(len(text) <= LAB_EXTRACTION_CHUNK_CHARS for _, _, text in extraction)
     assert all(len(text) <= LAB_RETRIEVAL_CHUNK_CHARS for _, _, text in retrieval)
     assert all((page_from, page_to) == (7, 7) for page_from, page_to, _ in extraction)
@@ -329,6 +330,62 @@ def test_document_worker_completes_known_and_unknown_analytes_with_one_guide(db,
     assert [guide.analyte_id for guide in guides] == ["custom-flow-marker"]
 
 
+def test_document_worker_splits_dense_extraction_and_bounds_timeout_recovery(db, tmp_path):
+    class Gateway:
+        def __init__(self):
+            self.requests = []
+
+        def parse(self, _document, _content):
+            text = "\n".join(f"Marker {index} {index}.0 U/L" for index in range(400))
+            return {
+                "text": text,
+                "page_count": 1,
+                "pages": [{"page": 1, "text": text, "blocks": []}],
+            }
+
+        def extract(self, request):
+            self.requests.append(request)
+            if len(request.text) > 1_800:
+                raise WorkError("timeout")
+            return GatewayLabResponse(
+                extraction=LabExtraction(
+                    report=ExtractedLabReport(observed_on=date(2026, 8, 21)),
+                    results=[],
+                )
+            )
+
+        def guides(self, _request):
+            raise AssertionError("empty extraction must not request guides")
+
+    content = b"%PDF-1.7\ndense synthetic laboratory fixture"
+    document = enqueue_document(
+        db,
+        storage_key="dense-worker-flow.bin",
+        filename="dense-worker-flow.pdf",
+        file_sha256=sha256(content).hexdigest(),
+        media_type="application/pdf",
+        size_bytes=len(content),
+        content=content,
+    )
+    gateway = Gateway()
+
+    assert process_lab_job(
+        db,
+        Settings(ai_enabled=False, lab_storage_dir=tmp_path),
+        gateway,
+        datetime.now(timezone.utc) + timedelta(minutes=1),
+    ) is True
+
+    db.refresh(document)
+    job = db.scalar(select(LabProcessingJob).where(LabProcessingJob.document_id == document.id))
+    assert document.status == "complete"
+    assert job.status == "success"
+    assert any(len(request.text) > 1_800 for request in gateway.requests)
+    assert all(len(request.text) <= LAB_EXTRACTION_CHUNK_CHARS for request in gateway.requests)
+    assert max(request.chunk_index for request in gateway.requests) < 8
+    assert len(gateway.requests) < 16
+
+
 def test_td001_retry_is_exact_and_requires_an_intact_original(db, tmp_path):
     def document(name: str, content: bytes):
         return enqueue_document(
@@ -361,6 +418,60 @@ def test_td001_retry_is_exact_and_requires_an_intact_original(db, tmp_path):
         db,
         tmp_path,
         now=datetime(2026, 8, 23, 13, tzinfo=timezone.utc),
+    ) == (2, 1, 1)
+
+    db.refresh(affected)
+    db.refresh(corrupted)
+    db.refresh(unrelated)
+    affected_job = db.scalar(
+        select(LabProcessingJob).where(LabProcessingJob.document_id == affected.id)
+    )
+    assert (affected.status, affected.processing_stage, affected.progress_percent) == (
+        "queued",
+        "queued",
+        0,
+    )
+    assert (affected_job.status, affected_job.attempts, affected_job.error_code) == (
+        "pending",
+        0,
+        None,
+    )
+    assert corrupted.status == "failed"
+    assert unrelated.status == "failed"
+
+
+def test_extraction_timeout_retry_is_exact_and_requires_an_intact_original(db, tmp_path):
+    def document(name: str, content: bytes):
+        return enqueue_document(
+            db,
+            storage_key=f"{name}.bin",
+            filename=f"{name}.pdf",
+            file_sha256=sha256(content).hexdigest(),
+            media_type="application/pdf",
+            size_bytes=len(content),
+            content=content,
+        )
+
+    affected = document("timeout-affected", b"%PDF-1.7\naffected")
+    corrupted = document("timeout-corrupted", b"%PDF-1.7\ncorrupted")
+    unrelated = document("timeout-unrelated", b"%PDF-1.7\nunrelated")
+    for row in (affected, corrupted, unrelated):
+        job = db.scalar(select(LabProcessingJob).where(LabProcessingJob.document_id == row.id))
+        row.status = "failed"
+        row.processing_stage = "failed"
+        row.progress_percent = 40
+        row.error_code = "timeout"
+        job.status = "failed"
+        job.attempts = 3
+        job.error_code = "timeout"
+    unrelated.progress_percent = 85
+    corrupted.stored_file.content = b"changed"
+    db.commit()
+
+    assert requeue_extraction_timeout_documents(
+        db,
+        tmp_path,
+        now=datetime(2026, 8, 23, 17, tzinfo=timezone.utc),
     ) == (2, 1, 1)
 
     db.refresh(affected)

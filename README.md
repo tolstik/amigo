@@ -142,7 +142,7 @@ a strict output schema; see the official
 
 ## Android app and Health Connect companion
 
-Amigo `1.2.3` (`versionCode 8`, package `ru.tolstik.amigo.sync`) opens the full
+Amigo `1.2.4` (`versionCode 9`, package `ru.tolstik.amigo.sync`) opens the full
 authenticated dashboard in a top-level WebView. It uses the same local account
 and 90-day server session as a browser, while signed ingest remains independent.
 Only the fixed production origin and known SPA routes are accepted; there is no
@@ -180,25 +180,27 @@ same-origin APK, verifies its declared size and SHA-256 plus package, higher
 version code, and installed signing certificate, then delegates to the Android
 system installer for explicit confirmation.
 
-Release 1.2.3 uses Health Connect's modification timestamp as the batch
+Release 1.2.4 uses Health Connect's modification timestamp as the batch
 freshness watermark, so Mi Fitness intervals whose rounded end is still ahead
 do not stall synchronization. A rejected record type no longer prevents later
-types such as sleep from being attempted in the same bounded run. The release
-keeps the 1.2.2 worker/run-ID and empty-history fixes and preserves pairing, the
-device key, changes tokens, and resumable cursors during upgrade.
+types such as sleep from being attempted in the same bounded run. It performs
+one heart-rate-only full reconciliation with a fresh changes token after the
+upgrade, while preserving pairing, the device key, the selected origin, and all
+other type cursors. The release keeps the earlier worker/run-ID, DNS, and
+empty-history fixes.
 
 Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.2.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.4/Amigo-1.2.3.apk)
-from release [`v5.0.4`](https://github.com/tolstik/amigo/releases/tag/v5.0.4).
+[`Amigo-1.2.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.5/Amigo-1.2.4.apk)
+from release [`v5.0.5`](https://github.com/tolstik/amigo/releases/tag/v5.0.5).
 Its SHA-256 is
-`f57cf09e1dd71c219ff7206ad0507310cf77a545fd976350a166df0b69c69e70`, and its
+`ebf6c4eef3f77578263a65be610360b0bf06630a08a395741b65562c07b3cdaa`, and its
 signing-certificate SHA-256 is
 `25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
-The previous `1.2.2` APK remains available from `v5.0.3`. Verify the checksum
+The previous `1.2.3` APK remains available from `v5.0.4`. Verify the checksum
 before installing an APK.
 
 ## Telegram schedule

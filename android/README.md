@@ -6,17 +6,17 @@ second tab. The sync client reads Mi Fitness data and sends signed, idempotent
 batches to the Amigo server. It never requests write access, weight, blood
 pressure, location, or exercise routes.
 
-Current signed release `1.2.3` (`versionCode 8`) for project release
-[`v5.0.4`](https://github.com/tolstik/amigo/releases/tag/v5.0.4):
-[`Amigo-1.2.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.4/Amigo-1.2.3.apk),
+Current signed release `1.2.4` (`versionCode 9`) for project release
+[`v5.0.5`](https://github.com/tolstik/amigo/releases/tag/v5.0.5):
+[`Amigo-1.2.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.5/Amigo-1.2.4.apk),
 SHA-256
-`f57cf09e1dd71c219ff7206ad0507310cf77a545fd976350a166df0b69c69e70`.
+`ebf6c4eef3f77578263a65be610360b0bf06630a08a395741b65562c07b3cdaa`.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
-The previous published release is `1.2.2`:
-[`Amigo-1.2.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.3/Amigo-1.2.2.apk),
-SHA-256 `4c8168013d49439072c0a084ea3284d88916d0164b5fba47201c60861ee9454a`.
+The previous published release is `1.2.3`:
+[`Amigo-1.2.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.4/Amigo-1.2.3.apk),
+SHA-256 `f57cf09e1dd71c219ff7206ad0507310cf77a545fd976350a166df0b69c69e70`.
 
 ## Dashboard tab
 
@@ -143,11 +143,13 @@ heart-rate record at 5,000 evenly sampled points while preserving the first and
 last point. Batch starts are separated by at least 1,100 ms to remain below the
 production 60 requests/minute limit. A failed upload leaves the cursor/token
 unchanged, so the same deterministic batch ID and body are retried. No raw
-health payload or private key is written to logs. Release 1.2.3 prefers a
+health payload or private key is written to logs. Release 1.2.4 prefers a
 record's Health Connect modification timestamp over a future interval end when
 forming the freshness watermark. It also continues later record types after an
 earlier type fails, then reports the first safe allowlisted rejection and keeps
 the bounded WorkManager retry. This prevents current Mi Fitness step/calorie
-intervals from blocking sleep in the same run. It retains the 1.2.2 worker,
-run-ID, DNS, and empty-cursor behavior. Installing it over 1.2.2 preserves the
-pairing key, selected origin, changes tokens, and resumable sync cursors.
+intervals from blocking sleep in the same run. On first start after upgrade it
+replaces only the heart-rate changes token and performs a full reconciliation
+for that record type. Pairing, the non-exportable key, selected origin, and all
+other type tokens/cursors remain unchanged. It retains the earlier worker,
+run-ID, DNS, and empty-cursor behavior.

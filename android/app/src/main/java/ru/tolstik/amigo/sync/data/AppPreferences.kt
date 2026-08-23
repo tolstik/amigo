@@ -58,14 +58,20 @@ class AppPreferences(context: Context) : SyncStateStore {
     )
 
     @Synchronized
-    fun prepareHourlyHeartRateReplay() {
-        if (values.getInt(KEY_HEART_RATE_AGGREGATE_VERSION, 0) >= 1) return
-        val editor = values.edit().putInt(KEY_HEART_RATE_AGGREGATE_VERSION, 1)
-        if (registration() != null) {
-            val type = RecordType.HEART_RATE
-            editor.remove(syncKey(type, "cursor"))
-                .remove(syncKey(type, "target"))
-                .putBoolean(syncKey(type, "complete"), false)
+    fun prepareHeartRateReconciliation() {
+        val migration = heartRateReconciliationMigration(
+            currentVersion = values.getInt(KEY_HEART_RATE_AGGREGATE_VERSION, 0),
+            hasRegistration = registration() != null,
+        ) ?: return
+        val editor = values.edit().putInt(
+            KEY_HEART_RATE_AGGREGATE_VERSION,
+            migration.targetVersion,
+        )
+        migration.recordTypes.forEach { type ->
+            migration.removedStateSuffixes.forEach { suffix ->
+                editor.remove(syncKey(type, suffix))
+            }
+            editor.putBoolean(syncKey(type, "complete"), false)
                 .putBoolean(syncKey(type, "reconcile"), true)
         }
         editor.apply()
@@ -341,8 +347,28 @@ class AppPreferences(context: Context) : SyncStateStore {
     }
 }
 
+internal data class RecordReconciliationMigration(
+    val targetVersion: Int,
+    val recordTypes: Set<RecordType>,
+    val removedStateSuffixes: Set<String>,
+)
+
+internal fun heartRateReconciliationMigration(
+    currentVersion: Int,
+    hasRegistration: Boolean,
+): RecordReconciliationMigration? {
+    if (currentVersion >= HEART_RATE_RECONCILIATION_VERSION) return null
+    return RecordReconciliationMigration(
+        targetVersion = HEART_RATE_RECONCILIATION_VERSION,
+        recordTypes = if (hasRegistration) setOf(RecordType.HEART_RATE) else emptySet(),
+        removedStateSuffixes = setOf("changes_token", "cursor", "target"),
+    )
+}
+
 private fun kotlinx.serialization.json.JsonObject.required(key: String): String =
     getValue(key).jsonPrimitive.content
 
 private fun kotlinx.serialization.json.JsonObject.optional(key: String): String? =
     get(key)?.jsonPrimitive?.content
+
+private const val HEART_RATE_RECONCILIATION_VERSION = 2

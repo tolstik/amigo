@@ -42,7 +42,11 @@ from .lab_models import (
 MAX_LAB_FILE_BYTES = 20 * 1024 * 1024
 MAX_LAB_PAGES = 50
 MAX_IMAGE_PIXELS = 40_000_000
-LAB_EXTRACTION_CHUNK_CHARS = 80_000
+# Dense one-page laboratory reports can produce a large structured response even
+# when their OCR text is fairly short. Keep each inference request small enough
+# to finish inside the fixed gateway deadline; the worker may split a timed-out
+# chunk twice more, but never retries an unbounded number of times.
+LAB_EXTRACTION_CHUNK_CHARS = 3_000
 LAB_RETRIEVAL_CHUNK_CHARS = 36_000
 CATALOG_PATH = Path(__file__).parent / "data" / "lab_reference_catalog.v1.json"
 ANALYTE_GUIDE_PATH = Path(__file__).parent / "data" / "lab_analyte_guides.v1.json"
@@ -500,6 +504,59 @@ def requeue_analyte_guide_regression_documents(
                 LabProcessingJob.status == "failed",
                 LabProcessingJob.attempts == 3,
                 LabProcessingJob.error_code == "internal",
+            )
+            .order_by(LabProcessingJob.id)
+        )
+    )
+    requeued = skipped = 0
+    for job in jobs:
+        document = db.get(LabDocument, job.document_id)
+        if document is None:
+            skipped += 1
+            continue
+        try:
+            original_bytes(db, document, storage_dir)
+        except LabFileError:
+            skipped += 1
+            continue
+        job.status = "pending"
+        job.attempts = 0
+        job.available_at = current
+        job.lease_until = None
+        job.error_code = None
+        job.finished_at = None
+        document.status = "queued"
+        document.processing_stage = "queued"
+        document.progress_percent = 0
+        document.error_code = None
+        document.completed_at = None
+        document.updated_at = current
+        requeued += 1
+    db.commit()
+    return len(jobs), requeued, skipped
+
+
+def requeue_extraction_timeout_documents(
+    db: Session,
+    storage_dir: Path,
+    *,
+    now: datetime | None = None,
+) -> tuple[int, int, int]:
+    """Retry only intact documents exhausted by the former whole-page extractor."""
+
+    current = now or datetime.now(timezone.utc)
+    jobs = list(
+        db.scalars(
+            select(LabProcessingJob)
+            .join(LabDocument, LabDocument.id == LabProcessingJob.document_id)
+            .where(
+                LabDocument.status == "failed",
+                LabDocument.processing_stage == "failed",
+                LabDocument.progress_percent == 40,
+                LabDocument.error_code == "timeout",
+                LabProcessingJob.status == "failed",
+                LabProcessingJob.attempts == 3,
+                LabProcessingJob.error_code == "timeout",
             )
             .order_by(LabProcessingJob.id)
         )

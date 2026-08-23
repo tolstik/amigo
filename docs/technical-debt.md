@@ -1,5 +1,47 @@
 # Technical debt
 
+## TD-002 — Dense one-page laboratory reports exhaust extraction timeout
+
+- **Status:** implemented; production verification pending
+- **Priority:** high
+- **Discovered:** 2026-08-23
+- **Affected production release:** `8d1266a7aedb94b8df3b415facbdae0ced5e49d8`
+- **User-visible symptom:** five intact PDF laboratory documents stop at 40%
+  with the sanitized `timeout` code after all three bounded job attempts.
+
+### Confirmed cause
+
+All five failures occur in the first `extract-labs` inference call after local
+parsing. They are one-page PDFs with 5,400–5,577 OCR characters; the old
+80,000-character extraction limit therefore sent each dense result sheet as a
+single request. A representative 2,966-character half completed against the
+production gateway in 31.6 seconds and returned 12 rows, while the whole-page
+request repeatedly exceeded the fixed 75-second Codex deadline. Parser,
+original storage, database integrity, and ingest are not involved.
+
+### Implemented correction
+
+1. Base extraction chunks are capped at 3,000 characters, retaining page
+   bounds and deterministic source ordering.
+2. Only a sanitized `timeout` can split the current chunk again, at most twice
+   and never below the configured minimum. Gateway and whole-document retries
+   remain finite.
+3. Persistence still begins only after all chunks validate; a failed attempt
+   cannot publish a partial report.
+4. `python -m app.cli lab-retry-extraction-timeouts` selects only the exact
+   terminal signature (`timeout`, extraction progress 40, three attempts),
+   verifies original size/SHA-256, and requeues only intact matches.
+5. Regression tests require dense input to split, exercise timeout subdivision,
+   reach 100%, and prove unrelated/corrupted failed jobs remain untouched.
+
+### Acceptance criteria
+
+- All five production timeout documents complete at 100% and the laboratory
+  queue drains without `timeout` or `internal` terminal jobs.
+- Extraction requests and retries remain bounded, and no OCR, filename,
+  document identifier, payload, or model output enters operational logs.
+- All seven production services remain healthy after recovery.
+
 ## TD-001 — Laboratory imports fail while resolving missing analyte guides
 
 - **Status:** resolved in production

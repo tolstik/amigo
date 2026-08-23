@@ -2,7 +2,7 @@
 
 ## TD-002 — Dense one-page laboratory reports exhaust extraction timeout
 
-- **Status:** implemented; production verification pending
+- **Status:** resolved in production
 - **Priority:** high
 - **Discovered:** 2026-08-23
 - **Affected production release:** `8d1266a7aedb94b8df3b415facbdae0ced5e49d8`
@@ -33,6 +33,15 @@ original storage, database integrity, and ingest are not involved.
    verifies original size/SHA-256, and requeues only intact matches.
 5. Regression tests require dense input to split, exercise timeout subdivision,
    reach 100%, and prove unrelated/corrupted failed jobs remain untouched.
+
+### Production verification
+
+Release `dfe4654c7c1150e19c400c175c389a07a7c2e24d` was deployed and fully
+verified on 2026-08-23. The integrity-checked TD-002 recovery selected and
+requeued all five exact timeout documents. Every document completed at 100% on
+its first new attempt; the laboratory queue then contained zero pending, zero
+processing, and zero failed documents, with 18 complete documents in total.
+All seven services remained healthy.
 
 ### Acceptance criteria
 

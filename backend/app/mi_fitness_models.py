@@ -38,6 +38,7 @@ class MiFitnessSource(Base):
     region: Mapped[str | None] = mapped_column(String(8))
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="disabled")
+    activation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_status_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

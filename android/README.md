@@ -111,8 +111,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
    and schedules a one-minute continuation while the bounded backfill remains
    incomplete. The screen shows the last background start, result, and finish.
 
-The direct-cloud activation window covers the latest three days for all ten
-allowlisted types and becomes authoritative only when cloud heart rate is newer
+The direct-cloud activation window is fixed by the first qualifying recent
+three-day snapshot in the current enablement episode. All ten allowlisted types
+must finalize coverage for that same window, even when bounded pagination takes
+longer than the normal freshness tolerance, and cloud heart rate must be newer
 than the retained Health Connect watermark. Backfill then descends in resumable
 30-day windows to `2000-01-01`; hourly refresh checks three days and a weekly job
 reconciles 30 days. If Xiaomi Cloud is not fresher, it remains pending instead

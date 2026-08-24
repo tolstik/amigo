@@ -177,6 +177,7 @@ def test_disable_clears_active_source_freshness_before_another_account(db):
         request_id="status-first-account",
     )
     source = db.get(MiFitnessSource, device_id)
+    assert source.activation_started_at.replace(tzinfo=timezone.utc) == now
     source.activated_at = now
     db.commit()
 
@@ -192,6 +193,7 @@ def test_disable_clears_active_source_freshness_before_another_account(db):
     db.refresh(source)
     assert source.enabled is False
     assert source.account_fingerprint is None
+    assert source.activation_started_at is None
     assert source.activated_at is None
     assert source.last_success_at is None
     assert source.data_as_of is None
@@ -207,6 +209,9 @@ def test_disable_clears_active_source_freshness_before_another_account(db):
     )
     db.refresh(source)
     assert source.account_fingerprint == "b" * 64
+    assert source.activation_started_at.replace(tzinfo=timezone.utc) == now + timedelta(
+        seconds=2
+    )
     assert source.activated_at is None
     assert source.data_as_of is None
 
@@ -314,7 +319,7 @@ def test_identical_snapshot_is_structural_noop_and_empty_snapshot_suppresses(db)
     assert _records(db, frozenset({"steps"}), timezone.utc) == []
 
 
-def test_recent_all_type_coverage_activates_only_with_fresher_cloud_heart_rate(db):
+def test_fixed_all_type_coverage_activates_after_bounded_upload_delay(db):
     now = datetime(2026, 8, 24, 8, tzinfo=timezone.utc)
     start, end = now - timedelta(days=3), now
     private, device_id = paired(db, now)
@@ -371,10 +376,197 @@ def test_recent_all_type_coverage_activates_only_with_fresher_cloud_heart_rate(d
         private,
         device_id,
         status_payload("success"),
-        now + timedelta(seconds=20),
+        now + timedelta(hours=2),
     )
     assert success.active is True
     assert success.activation_missing_types == []
     assert db.query(MiFitnessCoverage).count() == len(MI_FITNESS_RECORD_TYPES)
     assert db.query(MiFitnessBatch).count() == len(MI_FITNESS_RECORD_TYPES)
     assert db.query(MiFitnessRecord).count() == 1
+
+
+def test_historical_backfill_cannot_anchor_a_new_activation_episode(db):
+    now = datetime(2026, 8, 24, 8, tzinfo=timezone.utc)
+    historical_end = now - timedelta(days=3)
+    historical_start = historical_end - timedelta(days=30)
+    private, device_id = paired(db, now)
+    signed_call(
+        report_signed_status,
+        db,
+        private,
+        device_id,
+        status_payload("pending"),
+        now,
+        request_id="status-enable",
+    )
+    signed_call(
+        report_signed_status,
+        db,
+        private,
+        device_id,
+        status_payload("pending"),
+        now + timedelta(minutes=30),
+        request_id="status-still-pending",
+    )
+    source = db.get(MiFitnessSource, device_id)
+    assert source.activation_started_at.replace(tzinfo=timezone.utc) == now
+
+    for index, record_type in enumerate(sorted(MI_FITNESS_RECORD_TYPES)):
+        signed_call(
+            ingest_signed_mi_fitness_batch,
+            db,
+            private,
+            device_id,
+            batch_payload(
+                record_type,
+                historical_start,
+                historical_end,
+                f"historical-{record_type}",
+                [],
+            ),
+            now + timedelta(minutes=31, seconds=index),
+        )
+    pending = signed_call(
+        report_signed_status,
+        db,
+        private,
+        device_id,
+        status_payload("success"),
+        now + timedelta(minutes=32),
+        request_id="status-success-with-history-only",
+    )
+    assert pending.active is False
+    assert pending.activation_missing_types == sorted(MI_FITNESS_RECORD_TYPES)
+
+
+def test_future_skewed_coverage_cannot_anchor_activation(db):
+    now = datetime(2026, 8, 24, 8, tzinfo=timezone.utc)
+    future_end = now + timedelta(hours=12)
+    future_start = future_end - timedelta(days=30)
+    private, device_id = paired(db, now)
+    signed_call(
+        report_signed_status,
+        db,
+        private,
+        device_id,
+        status_payload("pending"),
+        now,
+        request_id="status-enable",
+    )
+    for index, record_type in enumerate(sorted(MI_FITNESS_RECORD_TYPES)):
+        signed_call(
+            ingest_signed_mi_fitness_batch,
+            db,
+            private,
+            device_id,
+            batch_payload(
+                record_type,
+                future_start,
+                future_end,
+                f"future-{record_type}",
+                [],
+            ),
+            now + timedelta(seconds=index),
+        )
+    pending = signed_call(
+        report_signed_status,
+        db,
+        private,
+        device_id,
+        status_payload("success"),
+        now + timedelta(minutes=1),
+        request_id="status-success-with-future-only",
+    )
+    assert pending.active is False
+    assert pending.activation_missing_types == sorted(MI_FITNESS_RECORD_TYPES)
+
+
+def test_reenable_requires_new_activation_episode_coverages(db):
+    now = datetime(2026, 8, 24, 8, tzinfo=timezone.utc)
+    start, end = now - timedelta(days=3), now
+    private, device_id = paired(db, now)
+    signed_call(
+        report_signed_status,
+        db,
+        private,
+        device_id,
+        status_payload("pending"),
+        now,
+        request_id="status-first-enable",
+    )
+    for index, record_type in enumerate(sorted(MI_FITNESS_RECORD_TYPES)):
+        signed_call(
+            ingest_signed_mi_fitness_batch,
+            db,
+            private,
+            device_id,
+            batch_payload(record_type, start, end, f"first-{record_type}", []),
+            now + timedelta(seconds=index),
+        )
+    first_success = signed_call(
+        report_signed_status,
+        db,
+        private,
+        device_id,
+        status_payload("success"),
+        now + timedelta(minutes=1),
+        request_id="status-first-success",
+    )
+    assert first_success.active is True
+
+    disabled_at = now + timedelta(minutes=2)
+    signed_call(
+        report_signed_status,
+        db,
+        private,
+        device_id,
+        status_payload("disabled", enabled=False),
+        disabled_at,
+        request_id="status-disable",
+    )
+    source = db.get(MiFitnessSource, device_id)
+    assert source.activation_started_at is None
+    assert source.activated_at is None
+
+    reenabled_at = now + timedelta(minutes=3)
+    pending = signed_call(
+        report_signed_status,
+        db,
+        private,
+        device_id,
+        status_payload("success"),
+        reenabled_at,
+        request_id="status-reenable",
+    )
+    assert pending.active is False
+    assert pending.activation_missing_types == sorted(MI_FITNESS_RECORD_TYPES)
+    db.refresh(source)
+    assert source.activation_started_at.replace(tzinfo=timezone.utc) == reenabled_at
+
+    second_start = reenabled_at - timedelta(days=3)
+    for index, record_type in enumerate(sorted(MI_FITNESS_RECORD_TYPES)):
+        signed_call(
+            ingest_signed_mi_fitness_batch,
+            db,
+            private,
+            device_id,
+            batch_payload(
+                record_type,
+                second_start,
+                reenabled_at,
+                f"second-{record_type}",
+                [],
+            ),
+            reenabled_at + timedelta(seconds=index),
+        )
+    second_success = signed_call(
+        report_signed_status,
+        db,
+        private,
+        device_id,
+        status_payload("success"),
+        reenabled_at + timedelta(minutes=1),
+        request_id="status-second-success",
+    )
+    assert second_success.active is True
+    assert second_success.activation_missing_types == []

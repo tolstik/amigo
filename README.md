@@ -207,13 +207,16 @@ types such as sleep from being attempted in the same bounded run. It performs
 one heart-rate-only full reconciliation with a fresh changes token after the
 upgrade, while preserving pairing, the device key, the selected origin, and all
 other type cursors. The release keeps the earlier worker/run-ID, DNS, and
-empty-history fixes. Direct cloud activation requires finalized three-day
-coverage for all ten mapped types and heart rate newer than the retained Health
-Connect watermark. Partial snapshots are invisible; a final cloud snapshot,
-including a confirmed-empty one, atomically takes precedence only for the same
-metric and interval. Backfill descends in 30-day windows to `2000-01-01`, then
-uses three-day hourly and 30-day weekly reconciliation. Auth expiry stays
-visible and never silently switches the active source.
+empty-history fixes. Direct cloud activation fixes its three-day window from
+the first qualifying recent coverage in the current enablement episode, so
+bounded pagination cannot make the gate recede while pages upload. It requires
+finalized coverage for all ten mapped types from that episode and heart rate
+newer than the retained Health Connect watermark. Partial snapshots are
+invisible; a final cloud snapshot, including a confirmed-empty one, atomically
+takes precedence only for the same metric and interval. Backfill descends in
+30-day windows to `2000-01-01`, then uses three-day hourly and 30-day weekly
+reconciliation. Auth expiry stays visible and never silently switches the
+active source.
 
 Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are

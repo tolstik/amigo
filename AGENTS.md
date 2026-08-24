@@ -90,7 +90,10 @@
   Health Connect remains an independently uploaded rollback history. A
   completed Xiaomi snapshot, including a confirmed-empty interval, takes
   precedence over Health Connect for the same metric and time only after the
-  direct source passes its three-day activation gate. Never import cloud or
+  direct source passes its three-day activation gate. The gate is anchored by
+  the first qualifying recent finalized coverage in the current source-enable
+  episode, counts only coverage finalized in that episode, and must not move
+  while bounded provider pages upload. Never import cloud or
   Health Connect weight, blood pressure, GPS/location, or exercise routes.
   Dashboard, CSV, Telegram, and minimized AI
   snapshots use daily average/minimum/maximum watch heart rate, while the watch

@@ -123,6 +123,7 @@ def _coverage_spans(
     record_type: str,
     start: datetime,
     end: datetime,
+    finalised_not_before: datetime,
 ) -> bool:
     if source.account_fingerprint is None:
         return False
@@ -133,6 +134,7 @@ def _coverage_spans(
                 MiFitnessCoverage.device_id == source.device_id,
                 MiFitnessCoverage.account_fingerprint == source.account_fingerprint,
                 MiFitnessCoverage.record_type == record_type,
+                MiFitnessCoverage.finalised_at >= finalised_not_before,
                 MiFitnessCoverage.range_end > start,
                 MiFitnessCoverage.range_start < end,
             )
@@ -151,7 +153,38 @@ def _coverage_spans(
     return False
 
 
-def _heart_freshness_ready(db: Session, source: MiFitnessSource) -> bool:
+def _activation_anchor(db: Session, source: MiFitnessSource) -> datetime | None:
+    if source.account_fingerprint is None or source.activation_started_at is None:
+        return None
+    candidates = db.scalars(
+        select(MiFitnessCoverage)
+        .where(
+            MiFitnessCoverage.device_id == source.device_id,
+            MiFitnessCoverage.account_fingerprint == source.account_fingerprint,
+            MiFitnessCoverage.finalised_at >= source.activation_started_at,
+            MiFitnessCoverage.range_end
+            >= source.activation_started_at - ACTIVATION_END_TOLERANCE,
+        )
+        .order_by(MiFitnessCoverage.finalised_at, MiFitnessCoverage.id)
+    )
+    minimum_span = ACTIVATION_WINDOW - 2 * ACTIVATION_END_TOLERANCE
+    return next(
+        (
+            row.range_end
+            for row in candidates
+            if _aware(row.range_end) - _aware(row.range_start) >= minimum_span
+            and _aware(row.range_end)
+            <= _aware(row.finalised_at) + ACTIVATION_END_TOLERANCE
+        ),
+        None,
+    )
+
+
+def _heart_freshness_ready(
+    db: Session,
+    source: MiFitnessSource,
+    finalised_not_before: datetime,
+) -> bool:
     latest_hc = db.scalar(
         select(HealthConnectRecord.start_time)
         .join(HealthConnectDevice, HealthConnectRecord.device_id == HealthConnectDevice.id)
@@ -179,6 +212,7 @@ def _heart_freshness_ready(db: Session, source: MiFitnessSource) -> bool:
             MiFitnessRecord.account_fingerprint == source.account_fingerprint,
             MiFitnessRecord.record_type == "heart_rate",
             MiFitnessRecord.is_deleted.is_(False),
+            MiFitnessCoverage.finalised_at >= finalised_not_before,
         )
         .order_by(MiFitnessRecord.start_time.desc())
         .limit(1)
@@ -191,16 +225,33 @@ def _activation_missing(
     source: MiFitnessSource,
     now: datetime,
 ) -> list[str]:
-    end = now - ACTIVATION_END_TOLERANCE
+    anchor = _activation_anchor(db, source)
+    if anchor is None or source.activation_started_at is None:
+        return sorted(MI_FITNESS_RECORD_TYPES)
+    anchor = min(_aware(anchor), _aware(now))
+    end = anchor - ACTIVATION_END_TOLERANCE
     # Phone workers begin each per-type window a few seconds apart. Use the same
     # bounded tolerance at both edges while still requiring essentially three days.
-    start = now - ACTIVATION_WINDOW + ACTIVATION_END_TOLERANCE
+    # The first finalised window fixes the anchor for this enablement episode so
+    # bounded provider pagination cannot chase a gate that moves while it uploads.
+    start = anchor - ACTIVATION_WINDOW + ACTIVATION_END_TOLERANCE
     missing = [
         record_type
         for record_type in sorted(MI_FITNESS_RECORD_TYPES)
-        if not _coverage_spans(db, source, record_type, start, end)
+        if not _coverage_spans(
+            db,
+            source,
+            record_type,
+            start,
+            end,
+            source.activation_started_at,
+        )
     ]
-    if not missing and not _heart_freshness_ready(db, source):
+    if not missing and not _heart_freshness_ready(
+        db,
+        source,
+        source.activation_started_at,
+    ):
         missing.append("heart_rate_freshness")
     return missing
 
@@ -265,6 +316,7 @@ def report_signed_status(
     if not payload.enabled:
         source.enabled = False
         source.status = "disabled"
+        source.activation_started_at = None
         source.activated_at = None
         source.account_fingerprint = None
         source.region = None
@@ -279,9 +331,12 @@ def report_signed_status(
         ):
             raise HealthIngestError(409, "mi_account_mismatch")
         if not was_enabled:
+            source.activation_started_at = current
             source.activated_at = None
             source.last_success_at = None
             source.data_as_of = None
+        elif source.activation_started_at is None:
+            source.activation_started_at = current
         source.enabled = True
         source.account_fingerprint = payload.account_fingerprint
         source.region = payload.region

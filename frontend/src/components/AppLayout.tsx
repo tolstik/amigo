@@ -11,13 +11,17 @@ const navItems: Array<{ to: string; label: string; icon: IconName; end?: boolean
   { to: "/", label: "Обзор", icon: "overview", end: true },
   { to: "/progress", label: "Прогресс", icon: "progress" },
   { to: "/history", label: "Вся история", icon: "history" },
+  { to: "/data-quality", label: "Качество данных", icon: "overview" },
+  { to: "/tasks", label: "Задачи", icon: "calendar" },
   { to: "/pressure", label: "Давление", icon: "pressure" },
   { to: "/composition", label: "Состав тела", icon: "composition" },
   { to: "/activity", label: "Активность", icon: "activity" },
   { to: "/recovery", label: "Восстановление", icon: "clock" },
   { to: "/labs", label: "Анализы", icon: "composition" },
+  { to: "/labs/compare", label: "Сравнить анализы", icon: "progress" },
   { to: "/studies", label: "Исследования", icon: "history" },
   { to: "/assistant", label: "Ассистент", icon: "sparkle" },
+  { to: "/reports/doctor", label: "Для врача", icon: "download" },
 ];
 
 const statusLabels = {

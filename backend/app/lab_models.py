@@ -232,6 +232,7 @@ class AssistantMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     draft_segments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     evidence_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    evidence_snapshot: Mapped[dict[str, dict[str, Any]] | None] = mapped_column(JSON)
     error_code: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)

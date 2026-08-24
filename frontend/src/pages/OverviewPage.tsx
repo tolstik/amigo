@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import type { OverviewContext } from "../App";
 import { api, csvUrl } from "../api/client";
@@ -9,6 +9,8 @@ import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { WeightTable } from "../components/DataTables";
+import { EvidenceChips } from "../components/EvidenceChips";
+import { TaskDialog, type TaskDialogSource } from "../components/TaskDialog";
 import { useApi } from "../hooks/useApi";
 import { clampProgress, formatDate, formatDateTime, formatDelta, formatKg, formatNumber, formatPercent } from "../lib/format";
 
@@ -28,6 +30,8 @@ export function OverviewPage() {
   const ai = useApi(loadAi);
   const activity = useApi(loadActivity);
   const recovery = useApi(loadRecovery);
+  const [taskSource, setTaskSource] = useState<TaskDialogSource | null>(null);
+  const [taskNotice, setTaskNotice] = useState<string | null>(null);
 
   if (overview.loading && !overview.data) return <LoadingState />;
   if (overview.error && !overview.data) return <ErrorState message={overview.error.message} onRetry={overview.reload} />;
@@ -119,7 +123,7 @@ export function OverviewPage() {
           </Link>
           <Link className="today-row" to="/activity">
             <span className="today-row__icon today-row__icon--green"><Icon name="activity" /></span>
-            <span><small>Активность</small><strong>{activity.data?.summary.steps == null ? "—" : `${formatNumber(activity.data.summary.steps, 0)} шагов`}</strong><em>{activity.data?.summary.latestDate ? formatDate(activity.data.summary.latestDate) : "Ожидаем Health Connect"}</em></span>
+            <span><small>Шаги · Xiaomi Cloud</small><strong>{activity.data?.summary.steps == null ? "—" : `${formatNumber(activity.data.summary.steps, 0)} шагов`}</strong><em>{activity.data?.summary.steps == null ? "Нет данных Xiaomi Cloud" : activity.data.summary.latestDate ? formatDate(activity.data.summary.latestDate) : "Дата Xiaomi Cloud неизвестна"}</em></span>
             <Icon name="arrow" />
           </Link>
           <Link className="today-row" to="/recovery">
@@ -147,7 +151,7 @@ export function OverviewPage() {
               {aiItems.slice(0, 6).map((item) => (
                 <article className={`insight ${item.kind === "recommendation" ? "insight--recommendation" : ""}`} key={`${item.kind}-${item.id}`}>
                   <span className="insight__icon"><Icon name={item.kind === "recommendation" ? "progress" : "activity"} /></span>
-                  <div><strong>{item.title}</strong><p>{item.text}</p>{item.evidenceIds.length > 0 && <small>Основание: {item.evidenceIds.join(", ")}</small>}</div>
+                  <div className="insight__body"><strong>{item.title}</strong><p>{item.text}</p><EvidenceChips evidenceIds={item.evidenceIds} evidence={ai.data?.evidence ?? {}} />{item.kind === "recommendation" && ai.data?.analysisId !== null && ai.data?.analysisId !== undefined && <button className="insight__task" type="button" onClick={() => setTaskSource({ analysisId: ai.data!.analysisId!, itemId: item.id, title: item.title, text: item.text })}>Создать задачу</button>}</div>
                 </article>
               ))}
             </div>}
@@ -169,6 +173,8 @@ export function OverviewPage() {
       ) : preview.loading ? <LoadingState compact /> : preview.error ? (
         <ErrorState message={preview.error.message} onRetry={preview.reload} />
       ) : null}
+      <div className="sr-status" aria-live="polite">{taskNotice}</div>
+      {taskSource && <TaskDialog initial={{ title: taskSource.title, note: taskSource.text }} source={taskSource} onSubmit={async (input) => { await api.createTask(input); setTaskNotice("Задача создана и доступна в разделе «Задачи»."); }} onClose={() => setTaskSource(null)} />}
     </>
   );
 }

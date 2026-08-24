@@ -34,7 +34,11 @@ AI gateway and laboratory parser have no
 host ports. The dashboard, JSON APIs, CSV, uploaded originals, APK update, and
 assistant require the single local account; Android signed ingest is independent.
 Health Connect appears there only as daily/weekly aggregates, without device or
-pairing metadata.
+pairing metadata. Published steps are stricter: only active, finalized Xiaomi
+Cloud snapshots may reach the dashboard, CSV, Telegram, AI, correlations, or a
+doctor PDF. Health Connect step rows remain in PostgreSQL solely as rollback
+history. Sleep stays in minutes in storage and API/CSV/AI contracts, while
+dashboard and PDF charts display the scale and tooltips in hours.
 Its theme selector offers Light, Dark, Ocean, and Sunset. A fresh browser always
 starts in Light regardless of the operating-system setting; an explicit choice
 is persisted and applied to both the interface and charts. An explicit 30-day,
@@ -61,8 +65,11 @@ Analysis is generated asynchronously with a SHA-256-pinned Codex CLI and the
 fixed `gpt-5.6-sol` model. The gateway runs `codex exec` in an ephemeral,
 read-only sandbox with a strict JSON schema and no database, Withings, Telegram,
 or Docker secrets. Results are validated against the supplied evidence keys and
-cached in PostgreSQL. Authenticated GET requests only read that cache and never invoke
-Codex.
+cached in PostgreSQL. Every displayed citation is resolved from that completed
+run's immutable saved snapshot, so its value, date, and range cannot drift after
+a later import or user correction; current PostgreSQL state is consulted only
+to mark a deep-link target available or unavailable. Authenticated GET requests
+only read that cache and never invoke Codex.
 
 The private snapshot includes the configured height of 176 cm and a
 deterministically calculated current BMI when a current Withings weight exists.
@@ -127,6 +134,11 @@ original, extracted findings, and conclusion in PostgreSQL and provides the same
 queue, view, edit, confirmation, retry, and delete flow. Obvious identifier
 header lines are removed before structured study facts can enter AI context.
 
+Laboratory comparison accepts exactly two or three completed panels and matches
+rows only by the persisted canonical `analyte_id`. Numeric deltas are shown only
+for one value per panel with identical unit, specimen, and method; there is no
+fuzzy name matching or implicit unit conversion.
+
 Before the first laboratory upload or assistant question, the profile requires explicit
 `amigo-ai-data-v1` consent. The disclosure states that Codex CLI runs locally,
 but full extracted text and questions may be sent to OpenAI inference. The one
@@ -141,9 +153,33 @@ retained as complete. The gateway uses ephemeral `codex app-server` turns with
 a strict output schema; see the official
 [`app-server` turns documentation](https://learn.chatgpt.com/docs/app-server#turns).
 
+## Data quality, tasks, and doctor reports
+
+The authenticated data-quality center summarizes the last 30 or 90 completed
+days by source and metric. It distinguishes an available value, a finalized
+provider-confirmed empty interval, and a genuinely missing day without exposing
+device/account identity or provider payloads. Its steps policy is always
+`xiaomi_finalized_only`; Health Connect contributes no published step coverage.
+
+Health tasks support one-time, daily, weekly, and calendar-month recurrence.
+They can be created manually or from a saved AI recommendation; the source
+recommendation text and cited evidence IDs are copied into the task so later AI
+runs cannot rewrite its meaning. The worker creates a deduplicated Telegram
+reminder for each due occurrence. Telegram receives only the task title, due
+time, and authenticated dashboard link, never its note or health evidence.
+
+The “Doctor package” creates an immutable, authenticated report snapshot for
+`30d`, `90d`, or `1y`. It contains only selected deterministic aggregates,
+confirmed/corrected laboratory results, verified study findings/conclusions,
+and optionally validated AI recommendations with evidence IDs. Filenames,
+originals, OCR, chat, device/account identity, and raw provider data are
+excluded. The locally rendered PDF is limited to 40 pages and 10 MiB; snapshot
+and download expire after 24 hours and can be deleted earlier. Its step chart is
+explicitly Xiaomi Cloud-only and its sleep chart is labelled in hours.
+
 ## Android app and Xiaomi/Health Connect companion
 
-Amigo `1.3.4` (`versionCode 14`, package `ru.tolstik.amigo.sync`) opens the full
+Amigo `1.4.0` (`versionCode 15`, package `ru.tolstik.amigo.sync`) opens the full
 authenticated dashboard in a top-level WebView. It uses the same local account
 and 90-day server session as a browser, while signed ingest remains independent.
 Only the fixed production origin and known SPA routes are accepted; there is no
@@ -153,6 +189,10 @@ Laboratory and study uploads use the system file picker with up to 25 selected
 files, and authenticated CSV/original downloads use system “Save as” with an
 exact same-origin allowlist and no redirects. Returning to a WebView that has
 been backgrounded for 30 seconds refreshes it so current server data is shown.
+The same download boundary accepts only an exact authenticated `GET` for
+`/amigo/api/v1/reports/doctor/<canonical-lowercase-UUID>.pdf`; query strings,
+fragments, redirects, malformed IDs, other methods, and other origins are
+rejected. The doctor PDF has a separate 25 MiB client-side download ceiling.
 
 The native synchronization tab reads steps, distance, active calories, workout
 summaries, sleep, heart/resting heart rate, HRV, SpO2, and VO2 max directly from
@@ -200,7 +240,7 @@ same-origin APK, verifies its declared size and SHA-256 plus package, higher
 version code, and installed signing certificate, then delegates to the Android
 system installer for explicit confirmation.
 
-Release 1.3.4 retains the `1.2.4` Health Connect behavior: modification timestamp as the batch
+Release 1.4.0 retains the `1.2.4` Health Connect behavior: modification timestamp as the batch
 freshness watermark, so Mi Fitness intervals whose rounded end is still ahead
 do not stall synchronization. A rejected record type no longer prevents later
 types such as sleep from being attempted in the same bounded run. It performs
@@ -223,13 +263,13 @@ Build, install, and phone setup are documented in
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.3.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.5/Amigo-1.3.4.apk)
-from release [`v5.1.5`](https://github.com/tolstik/amigo/releases/tag/v5.1.5).
+[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.0/Amigo-1.4.0.apk)
+from release [`v5.2.0`](https://github.com/tolstik/amigo/releases/tag/v5.2.0).
 Its SHA-256 is
-`59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1`, and its
-signing-certificate SHA-256 is
+`4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`; its
+size is `3,504,370` bytes and its signing-certificate SHA-256 is
 `25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
-The previous `1.3.3` APK remains available from `v5.1.4`. Verify the checksum
+The previous `1.3.4` APK remains available from `v5.1.5`. Verify the checksum
 before installing an APK.
 
 ## Telegram schedule

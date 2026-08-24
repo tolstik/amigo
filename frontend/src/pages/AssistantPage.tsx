@@ -4,6 +4,8 @@ import { api, ApiError, assistantEventsUrl } from "../api/client";
 import type { AssistantMessage, AssistantSegment } from "../api/types";
 import { ErrorState, LoadingState } from "../components/AsyncState";
 import { PageHeader } from "../components/PageHeader";
+import { EvidenceChips } from "../components/EvidenceChips";
+import { TaskDialog, type TaskDialogSource } from "../components/TaskDialog";
 import { useApi } from "../hooks/useApi";
 
 export function AssistantPage() {
@@ -12,6 +14,8 @@ export function AssistantPage() {
   const [question, setQuestion] = useState("");
   const [drafts, setDrafts] = useState<Record<string, AssistantSegment[]>>({});
   const [error, setError] = useState<string | null>(null);
+  const [taskSource, setTaskSource] = useState<TaskDialogSource | null>(null);
+  const [taskNotice, setTaskNotice] = useState<string | null>(null);
   const streams = useRef<Map<string, EventSource>>(new Map());
   const inFlight = messages.data?.items.find((item) => item.role === "assistant" && ["queued", "streaming", "validating"].includes(item.status));
 
@@ -61,18 +65,20 @@ export function AssistantPage() {
     <div className="emergency-note"><strong>Важно</strong><span>Ассистент не предназначен для экстренной оценки. При острых или быстро усиливающихся симптомах используйте местную службу экстренной помощи.</span></div>
     {messages.loading && <LoadingState />}
     {messages.error && <ErrorState onRetry={messages.reload} />}
-    {!!messages.data?.recommendations.length && <section className="assistant-recommendations"><h2>Актуальные рекомендации</h2><div className="insight-grid">{messages.data.recommendations.map((item) => <article className="insight insight--recommendation" key={item.id}><div><strong>{item.title}</strong><p>{item.text}</p></div></article>)}</div></section>}
+    {!!messages.data?.recommendations.length && <section className="assistant-recommendations"><h2>Актуальные рекомендации</h2><div className="insight-grid">{messages.data.recommendations.map((item) => <article className="insight insight--recommendation" key={item.id}><div className="insight__body"><strong>{item.title}</strong><p>{item.text}</p><EvidenceChips evidenceIds={item.evidenceIds} evidence={messages.data?.evidence ?? {}} />{messages.data?.analysisId !== null && messages.data?.analysisId !== undefined && <button className="insight__task" type="button" onClick={() => { setTaskNotice(null); setTaskSource({ analysisId: messages.data!.analysisId!, itemId: item.id, title: item.title, text: item.text }); }}>Создать задачу</button>}</div></article>)}</div></section>}
     {!messages.loading && <section className="panel chat-panel">
       <div className="chat-messages" aria-live="polite">
         {!rows.length && <div className="chat-empty"><strong>Контекст уже собран</strong><p>Можно спросить о динамике показателей, подготовке к визиту или о том, какие значения стоит перепроверить.</p></div>}
         {rows.map((message) => {
           const visibleDrafts = drafts[message.id] ?? message.draft_segments ?? [];
           const content = message.status === "complete" ? message.content : visibleDrafts.map((segment) => segment.text).join("\n\n");
-          return <article className={`chat-message chat-message--${message.role}`} key={message.id}><span>{message.role === "user" ? "Вы" : "Amigo"}</span>{content ? <p>{content}</p> : <p className="chat-typing"><i /><i /><i /></p>}{message.role === "assistant" && message.status !== "complete" && <small>{message.status === "validating" ? "Проверяем финальный ответ…" : visibleDrafts.length ? "Черновик · ответ формируется" : "Готовим ответ…"}</small>}{message.status === "failed" && <button className="button button--ghost" onClick={async () => { const retried = await api.retryAssistantMessage(message.id); messages.reload(); watch(retried); }}>Повторить</button>}</article>;
+          return <article className={`chat-message chat-message--${message.role}`} key={message.id}><span>{message.role === "user" ? "Вы" : "Amigo"}</span>{content ? <p>{content}</p> : <p className="chat-typing"><i /><i /><i /></p>}{message.role === "assistant" && message.status === "complete" && <EvidenceChips evidenceIds={message.evidence_keys} evidence={message.evidence} />}{message.role === "assistant" && message.status !== "complete" && <small>{message.status === "validating" ? "Проверяем финальный ответ…" : visibleDrafts.length ? "Черновик · ответ формируется" : "Готовим ответ…"}</small>}{message.status === "failed" && <button className="button button--ghost" onClick={async () => { const retried = await api.retryAssistantMessage(message.id); messages.reload(); watch(retried); }}>Повторить</button>}</article>;
         })}
       </div>
       <form className="chat-composer" onSubmit={send}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} maxLength={4000} placeholder="Задайте вопрос по вашим данным…" disabled={Boolean(inFlight)} /><div><small>Структурированные данные и релевантные фрагменты анализов будут добавлены автоматически.</small><button className="button button--primary" disabled={!question.trim() || Boolean(inFlight)}>Отправить</button></div></form>
       {error && <p className="form-error">{error} {error.includes("профиле") && <Link to="/profile">Открыть профиль</Link>}</p>}
     </section>}
+    <div className="sr-status" role="status" aria-live="polite">{taskNotice}</div>
+    {taskSource && <TaskDialog initial={{ title: taskSource.title, note: taskSource.text }} source={taskSource} onSubmit={async (input) => { await api.createTask(input); setTaskNotice("Задача создана и доступна в разделе «Задачи»."); }} onClose={() => setTaskSource(null)} />}
   </>;
 }

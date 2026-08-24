@@ -27,13 +27,40 @@ import type {
   WeeklyWeightPoint,
   AssistantMessage,
   AuthSession,
+  DataQualityDay,
+  DataQualityMetric,
+  DataQualityRange,
+  DataQualityResponse,
+  DataQualitySource,
+  DataSourceStatus,
+  DoctorReport,
+  DoctorReportAiItem,
+  DoctorReportLabItem,
+  DoctorReportPeriod,
+  DoctorReportSection,
+  DoctorReportStudyItem,
+  EvidenceDescriptor,
+  EvidenceMap,
+  HealthTask,
+  HealthTaskInput,
+  HealthTaskList,
+  HealthTaskPatch,
+  HealthTaskSource,
   LabAnalyteGuide,
+  LabCompareDelta,
+  LabCompareIncompatibility,
+  LabComparePanel,
+  LabCompareResponse,
+  LabCompareRow,
   LabDocument,
   LabResult,
   LabResultInput,
   UserProfile,
   StudyDocument,
   StudyModality,
+  TaskRecurrence,
+  TaskStateFilter,
+  TaskStatus,
 } from "./types";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -567,11 +594,69 @@ function normalizeAiItem(value: unknown, index: number, prefix: string): AiNarra
   const textValue = string(value, "text", "message", "description");
   if (!textValue) return null;
   return {
-    id: string(value, "id") ?? `${prefix}-${index}`,
+    id: string(value, "id") ?? `${prefix}-${index + 1}`,
     title: string(value, "title") ?? (prefix === "recommendation" ? "Рекомендация" : "Наблюдение"),
     text: textValue,
-    evidenceIds: list(value, "evidence_ids", "evidenceIds").filter((item): item is string => typeof item === "string"),
+    evidenceIds: list(value, "evidence_ids", "evidenceIds", "evidence_keys").filter((item): item is string => typeof item === "string"),
   };
+}
+
+const evidenceMetricLabels: Record<string, string> = {
+  profile: "Профиль",
+  weight: "Вес",
+  composition: "Состав тела",
+  activity: "Активность",
+  sleep: "Сон",
+  recovery: "Восстановление",
+  heart: "Пульс и сердце",
+  oxygen: "Сатурация",
+  vo2: "VO₂ max",
+  pressure: "Давление",
+  quality: "Качество данных",
+  correlation: "Корреляция",
+  laboratory: "Лабораторный результат",
+};
+
+function scalar(value: unknown): number | string | boolean | null {
+  return typeof value === "number" || typeof value === "string" || typeof value === "boolean" ? value : null;
+}
+
+export function normalizeEvidenceMap(payload: unknown): EvidenceMap {
+  const source = record(payload);
+  return Object.entries(source).reduce<EvidenceMap>((result, [fallbackKey, raw]) => {
+    if (!isRecord(raw)) return result;
+    const key = string(raw, "key") ?? fallbackKey;
+    const metric = string(raw, "metric") ?? "unknown";
+    const range = record(raw.range);
+    const target = record(raw.target);
+    const referenceStatus = string(raw, "reference_status", "status");
+    const descriptor: EvidenceDescriptor = {
+      key,
+      kind: string(raw, "kind") ?? "fact",
+      metric,
+      label: string(raw, "label") ?? evidenceMetricLabels[metric] ?? "Основание",
+      value: scalar(pick(raw, "value", "value_numeric")),
+      text: string(raw, "text", "value_text"),
+      comparator: string(raw, "comparator"),
+      unit: string(raw, "unit"),
+      observedOn: string(raw, "date", "observed_on"),
+      period: string(raw, "period"),
+      rangeStart: string(range, "from") ?? string(raw, "range_start"),
+      rangeEnd: string(range, "to") ?? string(raw, "range_end"),
+      count: number(raw, "count"),
+      referenceLow: number(range, "low") ?? number(raw, "reference_low"),
+      referenceHigh: number(range, "high") ?? number(raw, "reference_high"),
+      referenceText: string(range, "text") ?? string(raw, "reference_text"),
+      referenceStatus,
+      verification: string(raw, "verification"),
+      target: {
+        path: string(target, "path"),
+        available: boolean(target, "available"),
+      },
+    };
+    result[key] = descriptor;
+    return result;
+  }, {});
 }
 
 export function normalizeAiAnalysis(payload: unknown): AiAnalysis {
@@ -581,6 +666,7 @@ export function normalizeAiAnalysis(payload: unknown): AiAnalysis {
     ? statusValue
     : string(body, "generated_at", "generatedAt") ? "fresh" : "unavailable";
   return {
+    analysisId: number(body, "analysis_id", "analysisId"),
     status,
     headline: string(body, "headline"),
     summary: string(body, "summary"),
@@ -590,6 +676,336 @@ export function normalizeAiAnalysis(payload: unknown): AiAnalysis {
     generatedAt: string(body, "generated_at", "generatedAt"),
     dataAsOf: string(body, "data_as_of", "dataAsOf"),
     model: string(body, "model"),
+    evidence: normalizeEvidenceMap(at(body, "evidence")),
+  };
+}
+
+function normalizedDataSourceStatus(value: string | null): DataSourceStatus {
+  return value && ["healthy", "pending", "delayed", "error", "not_configured"].includes(value)
+    ? value as DataSourceStatus
+    : "not_configured";
+}
+
+function normalizedDataDay(value: unknown, stepsOnly: boolean): DataQualityDay | null {
+  const date = string(value, "date");
+  const rawState = string(value, "state");
+  if (!date || !rawState || !["available", "confirmed_empty", "missing"].includes(rawState)) return null;
+  const rawSource = string(value, "source");
+  if (stepsOnly && rawSource !== "mi_fitness") return { date, state: "missing", source: null };
+  return {
+    date,
+    state: rawState as DataQualityDay["state"],
+    source: rawSource,
+  };
+}
+
+function normalizedDataMetric(value: unknown): DataQualityMetric | null {
+  const key = string(value, "key");
+  if (!key) return null;
+  const days = list(value, "days")
+    .map((day) => normalizedDataDay(day, key === "steps"))
+    .filter((day): day is DataQualityDay => day !== null)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  const known = days.filter((day) => day.state !== "missing");
+  const available = days.filter((day) => day.state === "available");
+  const confirmedEmpty = days.filter((day) => day.state === "confirmed_empty");
+  const missing = days.filter((day) => day.state === "missing");
+  const status = available.length === days.length && days.length
+    ? "available"
+    : confirmedEmpty.length === days.length && days.length
+      ? "confirmed_empty"
+      : known.length === 0
+        ? "missing"
+        : "partial";
+  const latest = available.at(-1) ?? null;
+  return {
+    key,
+    family: string(value, "family") ?? "other",
+    sourcePolicy: string(value, "source_policy", "sourcePolicy") ?? "unknown",
+    status,
+    latestDate: latest?.date ?? null,
+    latestSource: latest?.source ?? null,
+    observationDays: available.length,
+    coverage: {
+      known: known.length,
+      withValues: available.length,
+      withings: known.filter((day) => day.source === "withings").length,
+      miFitness: known.filter((day) => day.source === "mi_fitness").length,
+      healthConnect: known.filter((day) => day.source === "health_connect").length,
+      confirmedEmpty: confirmedEmpty.length,
+      missing: missing.length,
+    },
+    days,
+  };
+}
+
+export function normalizeDataQuality(payload: unknown, fallbackRange: DataQualityRange): DataQualityResponse {
+  const body = unbox(payload);
+  const rawRange = string(body, "range");
+  const range: DataQualityRange = rawRange === "90d" ? "90d" : rawRange === "30d" ? "30d" : fallbackRange;
+  const sources = Object.entries(record(at(body, "sources"))).map(([key, value]): DataQualitySource => ({
+    key,
+    status: normalizedDataSourceStatus(string(value, "status")),
+    lastSuccessAt: string(value, "last_success_at", "lastSuccessAt"),
+    dataAsOf: string(value, "data_as_of", "dataAsOf"),
+  }));
+  return {
+    range,
+    from: string(body, "from") ?? "",
+    to: string(body, "to") ?? "",
+    timezone: string(body, "timezone") ?? "Europe/Moscow",
+    generatedAt: string(body, "generated_at", "generatedAt"),
+    sources,
+    metrics: list(body, "metrics").map(normalizedDataMetric).filter((value): value is DataQualityMetric => value !== null),
+  };
+}
+
+function normalizedTaskStatus(value: string | null): TaskStatus {
+  return value && ["active", "completed", "cancelled"].includes(value) ? value as TaskStatus : "active";
+}
+
+function normalizedRecurrence(value: string | null): TaskRecurrence {
+  return value && ["once", "daily", "weekly", "monthly"].includes(value) ? value as TaskRecurrence : "once";
+}
+
+function normalizeTaskSource(value: unknown): HealthTaskSource | null {
+  if (!isRecord(value)) return null;
+  const textValue = string(value, "text");
+  if (!textValue) return null;
+  return {
+    kind: string(value, "kind") ?? "ai_recommendation",
+    title: string(value, "title") ?? "Рекомендация",
+    text: textValue,
+    evidenceIds: list(value, "evidence_ids", "evidenceIds").filter((item): item is string => typeof item === "string"),
+    generatedAt: string(value, "generated_at", "generatedAt"),
+  };
+}
+
+export function normalizeHealthTask(payload: unknown): HealthTask {
+  const body = unbox(payload);
+  return {
+    id: string(body, "id") ?? "",
+    title: string(body, "title") ?? "Задача",
+    note: string(body, "note"),
+    nextDueAt: string(body, "next_due_at", "nextDueAt"),
+    recurrence: normalizedRecurrence(string(body, "recurrence")),
+    telegramEnabled: boolean(body, "telegram_enabled", "telegramEnabled"),
+    status: normalizedTaskStatus(string(body, "status")),
+    overdue: boolean(body, "overdue"),
+    sourceAnalysisId: number(body, "source_analysis_id", "sourceAnalysisId"),
+    sourceItemId: string(body, "source_item_id", "sourceItemId"),
+    source: normalizeTaskSource(at(body, "source")),
+    createdAt: string(body, "created_at", "createdAt") ?? "",
+    updatedAt: string(body, "updated_at", "updatedAt") ?? "",
+    completedAt: string(body, "completed_at", "completedAt"),
+    cancelledAt: string(body, "cancelled_at", "cancelledAt"),
+  };
+}
+
+export function normalizeHealthTaskList(payload: unknown): HealthTaskList {
+  const body = unbox(payload);
+  return {
+    items: list(body, "items").map(normalizeHealthTask).filter((item) => Boolean(item.id)),
+    openCount: number(body, "open_count", "openCount") ?? 0,
+  };
+}
+
+const labStatuses = ["within_reference", "below_reference", "above_reference", "outside_reference", "indeterminate"] as const;
+
+function normalizeLabResult(value: unknown): LabResult | null {
+  const id = string(value, "id");
+  if (!id) return null;
+  const statusValue = string(value, "status");
+  const verification = string(value, "verification_status");
+  const referenceSource = string(value, "reference_source");
+  return {
+    id,
+    document_id: string(value, "document_id") ?? "",
+    analyte_id: string(value, "analyte_id"),
+    analyte_name: string(value, "analyte_name") ?? "Показатель",
+    value_numeric: number(value, "value_numeric"),
+    value_text: string(value, "value_text"),
+    comparator: string(value, "comparator"),
+    unit: string(value, "unit"),
+    observed_on: string(value, "observed_on"),
+    specimen: string(value, "specimen"),
+    method: string(value, "method"),
+    reference_low: number(value, "reference_low"),
+    reference_high: number(value, "reference_high"),
+    reference_text: string(value, "reference_text"),
+    reference_source: referenceSource && ["laboratory", "catalog", "user", "none"].includes(referenceSource)
+      ? referenceSource as LabResult["reference_source"] : "none",
+    laboratory_flag: string(value, "laboratory_flag"),
+    status: statusValue && labStatuses.includes(statusValue as typeof labStatuses[number])
+      ? statusValue as LabResult["status"] : "indeterminate",
+    verification_status: verification && ["unverified", "verified", "corrected"].includes(verification)
+      ? verification as LabResult["verification_status"] : "unverified",
+    source_page: number(value, "source_page"),
+    deleted: boolean(value, "deleted"),
+  };
+}
+
+const incompatibilities = ["missing_result", "multiple_results", "non_numeric_value", "qualified_value", "different_unit", "different_specimen", "different_method"] as const;
+
+export function normalizeLabCompare(payload: unknown): LabCompareResponse {
+  const body = unbox(payload);
+  const panels = list(body, "panels").map((value): LabComparePanel | null => {
+    const documentId = string(value, "document_id", "documentId");
+    return documentId ? {
+      documentId,
+      observedOn: string(value, "observed_on", "observedOn"),
+      verified: boolean(value, "verified"),
+      resultCount: number(value, "result_count", "resultCount") ?? 0,
+    } : null;
+  }).filter((value): value is LabComparePanel => value !== null);
+  const rows = list(body, "rows").map((value): LabCompareRow | null => {
+    const analyteName = string(value, "analyte_name", "analyteName");
+    if (!analyteName) return null;
+    const cells = list(value, "cells").map((cell) => Array.isArray(cell)
+      ? cell.map(normalizeLabResult).filter((item): item is LabResult => item !== null)
+      : []);
+    const reason = string(value, "incompatibility");
+    const deltas = list(value, "deltas").map((delta): LabCompareDelta | null => {
+      const fromDocumentId = string(delta, "from_document_id", "fromDocumentId");
+      const toDocumentId = string(delta, "to_document_id", "toDocumentId");
+      const absolute = number(delta, "absolute");
+      return fromDocumentId && toDocumentId && absolute !== null ? {
+        fromDocumentId,
+        toDocumentId,
+        absolute,
+        percent: number(delta, "percent"),
+      } : null;
+    }).filter((delta): delta is LabCompareDelta => delta !== null);
+    return {
+      analyteId: string(value, "analyte_id", "analyteId"),
+      analyteName,
+      cells,
+      comparable: boolean(value, "comparable"),
+      incompatibility: reason && incompatibilities.includes(reason as typeof incompatibilities[number])
+        ? reason as LabCompareIncompatibility : null,
+      deltas,
+      missing: boolean(value, "missing"),
+      statusChanged: boolean(value, "status_changed", "statusChanged"),
+      valueChanged: boolean(value, "value_changed", "valueChanged"),
+    };
+  }).filter((value): value is LabCompareRow => value !== null);
+  return { panels, rows };
+}
+
+const doctorSections = ["summary", "weight", "pressure", "activity", "recovery", "labs", "studies", "ai"] as const;
+
+export function normalizeDoctorReport(payload: unknown): DoctorReport {
+  const body = unbox(payload);
+  const id = string(body, "id") ?? "";
+  const options = record(at(body, "options"));
+  const rawPeriod = string(options, "period");
+  const period: DoctorReportPeriod = rawPeriod === "30d" || rawPeriod === "1y" ? rawPeriod : "90d";
+  const sections = list(options, "sections").filter((value): value is DoctorReportSection =>
+    typeof value === "string" && doctorSections.includes(value as typeof doctorSections[number]));
+  const rawPreview = record(at(body, "preview"));
+  const meta = record(rawPreview.meta);
+  const rawPreviewSections = record(rawPreview.sections);
+  const rawLabs = at(rawPreviewSections, "labs");
+  const labs = Array.isArray(rawLabs) ? rawLabs.map((value): DoctorReportLabItem | null => {
+    const analyte = string(value, "analyte");
+    const resultValue = string(value, "value");
+    if (!analyte || !resultValue) return null;
+    const rawStatus = string(value, "status");
+    return {
+      analyte,
+      value: resultValue,
+      observedOn: string(value, "observed_on", "observedOn"),
+      reference: string(value, "reference"),
+      status: rawStatus && labStatuses.includes(rawStatus as typeof labStatuses[number]) ? rawStatus as LabResult["status"] : "indeterminate",
+      verificationStatus: string(value, "verification_status") === "corrected" ? "corrected" : "verified",
+    };
+  }).filter((value): value is DoctorReportLabItem => value !== null) : null;
+  const rawStudies = at(rawPreviewSections, "studies");
+  const studies = Array.isArray(rawStudies) ? rawStudies.map((value): DoctorReportStudyItem | null => {
+    const modality = string(value, "modality");
+    if (!modality || !["ultrasound", "mri", "ct", "xray", "ecg", "other"].includes(modality)) return null;
+    return {
+      modality: modality as StudyModality,
+      observedOn: string(value, "observed_on", "observedOn"),
+      findings: list(value, "findings").filter((item): item is string => typeof item === "string"),
+      conclusion: string(value, "conclusion"),
+    };
+  }).filter((value): value is DoctorReportStudyItem => value !== null) : null;
+  const rawAi = at(rawPreviewSections, "ai");
+  const ai = Array.isArray(rawAi) ? rawAi.map((value): DoctorReportAiItem | null => {
+    const textValue = string(value, "text");
+    return textValue ? {
+      title: string(value, "title") ?? "Рекомендация",
+      text: textValue,
+      evidenceIds: list(value, "evidence_ids", "evidenceIds").filter((item): item is string => typeof item === "string"),
+    } : null;
+  }).filter((value): value is DoctorReportAiItem => value !== null) : null;
+  const reportedDownload = string(body, "download_url", "downloadUrl");
+  const exactDownload = `${API_ROOT}/reports/doctor/${encodeURIComponent(id)}.pdf`;
+  return {
+    id,
+    period,
+    sections,
+    preview: {
+      meta: {
+        createdAt: string(meta, "created_at", "createdAt"),
+        period,
+        from: string(meta, "from"),
+        to: string(meta, "to"),
+        timezone: string(meta, "timezone") ?? "Europe/Moscow",
+      },
+      summary: isRecord(rawPreviewSections.summary) ? rawPreviewSections.summary : null,
+      weight: isRecord(rawPreviewSections.weight) ? normalizeWeightSeries(rawPreviewSections.weight, period) : null,
+      pressure: isRecord(rawPreviewSections.pressure) ? normalizePressureSeries(rawPreviewSections.pressure, period) : null,
+      activity: isRecord(rawPreviewSections.activity) ? normalizeActivitySeries(rawPreviewSections.activity, period) : null,
+      recovery: isRecord(rawPreviewSections.recovery) ? normalizeRecoverySeries(rawPreviewSections.recovery, period) : null,
+      labs,
+      studies,
+      ai,
+    },
+    pageCount: number(body, "page_count", "pageCount") ?? 0,
+    sizeBytes: number(body, "size_bytes", "sizeBytes") ?? 0,
+    createdAt: string(body, "created_at", "createdAt") ?? "",
+    expiresAt: string(body, "expires_at", "expiresAt") ?? "",
+    downloadUrl: reportedDownload === exactDownload ? reportedDownload : exactDownload,
+  };
+}
+
+function normalizeAssistantMessage(value: unknown): AssistantMessage | null {
+  const id = string(value, "id");
+  const role = string(value, "role");
+  const status = string(value, "status");
+  if (!id || (role !== "user" && role !== "assistant") || !status || !["queued", "streaming", "validating", "complete", "failed"].includes(status)) return null;
+  const drafts = list(value, "draft_segments").map((segment) => ({
+    text: string(segment, "text") ?? "",
+    evidence_keys: list(segment, "evidence_keys").filter((item): item is string => typeof item === "string"),
+  })).filter((segment) => segment.text);
+  return {
+    id,
+    role,
+    status: status as AssistantMessage["status"],
+    content: string(value, "content") ?? "",
+    draft_segments: drafts,
+    evidence_keys: list(value, "evidence_keys").filter((item): item is string => typeof item === "string"),
+    evidence: normalizeEvidenceMap(at(value, "evidence")),
+    error_code: string(value, "error_code"),
+    created_at: string(value, "created_at") ?? "",
+    updated_at: string(value, "updated_at") ?? "",
+  };
+}
+
+export function normalizeAssistantMessages(payload: unknown): {
+  items: AssistantMessage[];
+  analysisId: number | null;
+  recommendations: AiNarrativeItem[];
+  evidence: EvidenceMap;
+} {
+  const body = unbox(payload);
+  return {
+    items: list(body, "items").map(normalizeAssistantMessage).filter((item): item is AssistantMessage => item !== null),
+    analysisId: number(body, "analysis_id", "analysisId"),
+    recommendations: list(body, "recommendations").map((value, index) => normalizeAiItem(value, index, "recommendation")).filter((item): item is AiNarrativeItem => item !== null),
+    evidence: normalizeEvidenceMap(at(body, "evidence")),
   };
 }
 
@@ -665,6 +1081,8 @@ export const api = {
     normalizeActivitySeries(await fetchJson(`/series/activity${queryRange(range)}`, signal), range),
   recovery: async (range: Period, signal?: AbortSignal) =>
     normalizeRecoverySeries(await fetchJson(`/series/recovery${queryRange(range)}`, signal), range),
+  dataQuality: async (range: DataQualityRange, signal?: AbortSignal) =>
+    normalizeDataQuality(await fetchJson(`/data-quality?${new URLSearchParams({ range }).toString()}`, signal), range),
   aiAnalysis: async (signal?: AbortSignal) => normalizeAiAnalysis(await fetchJson("/ai-analysis", signal)),
   insights: async (signal?: AbortSignal): Promise<Insight[]> => {
     const payload = unbox(await fetchJson("/insights", signal));
@@ -710,12 +1128,35 @@ export const api = {
   labSummary: async (signal?: AbortSignal) => fetchJson("/labs/summary", signal) as Promise<{ items: LabResult[]; counts: Record<string, number> }>,
   labHistory: async (analyteId: string, signal?: AbortSignal) =>
     fetchJson(`/labs/analytes/${encodeURIComponent(analyteId)}/history`, signal) as Promise<{ analyte_id: string; guide: LabAnalyteGuide; items: LabResult[] }>,
+  compareLabs: async (documentIds: string[]) =>
+    normalizeLabCompare(await requestJson("/labs/compare", jsonBody({ document_ids: documentIds }))),
+  tasks: async (state: TaskStateFilter, signal?: AbortSignal) =>
+    normalizeHealthTaskList(await fetchJson(`/tasks?${new URLSearchParams({ state }).toString()}`, signal)),
+  createTask: async (task: HealthTaskInput) => normalizeHealthTask(await requestJson("/tasks", jsonBody(task))),
+  updateTask: async (id: string, patch: HealthTaskPatch) =>
+    normalizeHealthTask(await requestJson(`/tasks/${encodeURIComponent(id)}`, { ...jsonBody(patch), method: "PATCH" })),
+  completeTask: async (id: string) =>
+    normalizeHealthTask(await requestJson(`/tasks/${encodeURIComponent(id)}/complete`, { method: "POST" })),
+  cancelTask: async (id: string) =>
+    normalizeHealthTask(await requestJson(`/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" })),
+  createDoctorReport: async (period: DoctorReportPeriod, sections: DoctorReportSection[]) =>
+    normalizeDoctorReport(await requestJson("/reports/doctor", jsonBody({ period, sections }))),
+  doctorReport: async (id: string, signal?: AbortSignal) =>
+    normalizeDoctorReport(await fetchJson(`/reports/doctor/${encodeURIComponent(id)}`, signal)),
+  deleteDoctorReport: async (id: string) =>
+    requestJson(`/reports/doctor/${encodeURIComponent(id)}`, { method: "DELETE" }),
   assistantMessages: async (signal?: AbortSignal) =>
-    fetchJson("/assistant/messages", signal) as Promise<{ items: AssistantMessage[]; recommendations: AiNarrativeItem[] }>,
-  sendAssistantMessage: async (content: string, clientRequestId: string) =>
-    requestJson("/assistant/messages", jsonBody({ content, client_request_id: clientRequestId })) as Promise<AssistantMessage>,
-  retryAssistantMessage: async (id: string) =>
-    requestJson(`/assistant/messages/${id}/retry`, { method: "POST" }) as Promise<AssistantMessage>,
+    normalizeAssistantMessages(await fetchJson("/assistant/messages", signal)),
+  sendAssistantMessage: async (content: string, clientRequestId: string) => {
+    const message = normalizeAssistantMessage(await requestJson("/assistant/messages", jsonBody({ content, client_request_id: clientRequestId })));
+    if (!message) throw new Error("Некорректный ответ ассистента");
+    return message;
+  },
+  retryAssistantMessage: async (id: string) => {
+    const message = normalizeAssistantMessage(await requestJson(`/assistant/messages/${id}/retry`, { method: "POST" }));
+    if (!message) throw new Error("Некорректный ответ ассистента");
+    return message;
+  },
   clearAssistantHistory: async () => requestJson("/assistant/history", { method: "DELETE" }),
 };
 

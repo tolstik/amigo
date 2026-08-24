@@ -65,12 +65,23 @@ def get_insights(db: Session = Depends(get_db)) -> dict:
         }
         for item in payload["insights"]
     ]
+    cited = {
+        key
+        for item in items
+        for key in item["evidence_ids"]
+        if isinstance(key, str)
+    }
     return {
         "generated_at": payload["generated_at"],
         "data_as_of": payload["data_as_of"],
         "status": payload["status"],
         "ai_generated": True,
         "items": items,
+        "evidence": {
+            key: descriptor
+            for key, descriptor in payload["evidence"].items()
+            if key in cited
+        },
     }
 
 
@@ -82,6 +93,7 @@ def _public_ai_analysis(db: Session) -> dict:
     )
     observations = analysis.get("observations") if isinstance(analysis.get("observations"), list) else []
     recommendations = analysis.get("recommendations") if isinstance(analysis.get("recommendations"), list) else []
+    evidence = stored.get("evidence") if isinstance(stored.get("evidence"), dict) else {}
 
     def items(values: list, prefix: str) -> list[dict]:
         result = []
@@ -102,6 +114,7 @@ def _public_ai_analysis(db: Session) -> dict:
         return result
 
     return {
+        "analysis_id": stored.get("analysis_id"),
         "status": status,
         "headline": analysis.get("headline") if isinstance(analysis.get("headline"), str) else None,
         "summary": analysis.get("summary") if isinstance(analysis.get("summary"), str) else None,
@@ -116,6 +129,11 @@ def _public_ai_analysis(db: Session) -> dict:
         "model": stored.get("model"),
         "prompt_version": stored.get("prompt_version"),
         "ai_generated": True,
+        "evidence": {
+            key: value
+            for key, value in evidence.items()
+            if isinstance(key, str) and isinstance(value, dict)
+        },
     }
 
 

@@ -253,9 +253,9 @@ def test_partial_snapshot_is_invisible_then_cloud_coverage_wins(db):
     )
     result = signed_call(ingest_signed_mi_fitness_batch, db, private, device_id, first, now)
     assert result.coverage_published is False
-    assert [row.external_record_id for row in _records(db, frozenset({"steps"}), timezone.utc)] == [
-        "hc-step"
-    ]
+    # Health Connect steps are retained for rollback history but are never a
+    # publication fallback while the Xiaomi snapshot is incomplete.
+    assert _records(db, frozenset({"steps"}), timezone.utc) == []
 
     final = batch_payload("steps", start, end, "steps-two-pages", [], page=1, final=True)
     result = signed_call(

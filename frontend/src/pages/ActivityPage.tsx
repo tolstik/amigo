@@ -19,7 +19,8 @@ const metricLabels: Record<string, string> = {
 };
 
 function stepsComparison(actual: number | null, baseline: number | null): string {
-  if (actual === null || baseline === null || baseline === 0) return "База появится после 28 полных дней";
+  if (actual === null) return "Нет данных Xiaomi Cloud";
+  if (baseline === null || baseline === 0) return "База появится после 28 полных дней Xiaomi Cloud";
   const delta = ((actual - baseline) / baseline) * 100;
   const sign = delta > 0 ? "+" : "";
   return `${sign}${formatNumber(delta, 0)}% к личной базе`;
@@ -36,9 +37,9 @@ export function ActivityPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Mi Fitness · Health Connect"
+        eyebrow="Xiaomi Cloud"
         title="Активность"
-        description="Шаги, дистанция, активные минуты и тренировки. Недельный факт сравнивается с вашей личной базой предыдущих 28 полных дней."
+        description="Шаги поступают только напрямую из Xiaomi Cloud и не подменяются Health Connect. Недельный факт сравнивается с личной базой предыдущих 28 полных дней."
         actions={<a className="button button--secondary" href={csvUrl("activity", period)} download><Icon name="download" /> Скачать CSV</a>}
       />
 
@@ -64,7 +65,7 @@ export function ActivityPage() {
               <details className="data-table-wrap">
                 <summary>Таблица дневной активности</summary>
                 <div className="data-table-scroll"><table className="data-table"><thead><tr><th>Дата</th><th>Шаги</th><th>Км</th><th>Активность</th><th>Тренировки</th></tr></thead><tbody>
-                  {[...points].reverse().map((point) => <tr key={point.measuredAt}><td>{formatDate(point.measuredAt)}</td><td>{formatNumber(point.steps, 0)}</td><td>{formatNumber(point.distanceKm)}</td><td>{point.activeMinutes == null ? "—" : `${formatNumber(point.activeMinutes, 0)} мин`}</td><td>{point.workouts}</td></tr>)}
+                  {[...points].reverse().map((point) => <tr key={point.measuredAt}><td>{formatDate(point.measuredAt)}</td><td>{point.steps === null ? "Нет данных Xiaomi Cloud" : formatNumber(point.steps, 0)}</td><td>{formatNumber(point.distanceKm)}</td><td>{point.activeMinutes == null ? "—" : `${formatNumber(point.activeMinutes, 0)} мин`}</td><td>{point.workouts}</td></tr>)}
                 </tbody></table></div>
               </details>
             }
@@ -77,7 +78,7 @@ export function ActivityPage() {
             height={390}
             footer={
               <details className="data-table-wrap"><summary>Таблица недельной активности</summary><div className="data-table-scroll"><table className="data-table"><thead><tr><th>Неделя</th><th>Факт</th><th>База</th><th>Дней</th><th>Статус</th></tr></thead><tbody>
-                {[...weekly].reverse().map((point) => <tr key={point.startDate}><td>{formatDate(point.startDate)} — {formatDate(point.endDate)}</td><td>{formatNumber(point.actualSteps, 0)}</td><td>{formatNumber(point.baselineSteps, 0)}</td><td>{point.coverageDays}</td><td>{point.isPartial ? "Неполная" : "Полная"}</td></tr>)}
+                {[...weekly].reverse().map((point) => <tr key={point.startDate}><td>{formatDate(point.startDate)} — {formatDate(point.endDate)}</td><td>{point.actualSteps === null ? "Нет данных Xiaomi Cloud" : formatNumber(point.actualSteps, 0)}</td><td>{point.baselineSteps === null ? "Нет базы Xiaomi Cloud" : formatNumber(point.baselineSteps, 0)}</td><td>{point.coverageDays}</td><td>{point.isPartial ? "Неполная" : "Полная"}</td></tr>)}
               </tbody></table></div></details>
             }
           />}
@@ -93,7 +94,7 @@ export function ActivityPage() {
             <p className="panel-note">{series.data.correlations[0].disclaimer}</p>
           </section> : null}
         </>
-      ) : <EmptyState title="Данных активности пока нет" text="Установите Amigo Sync, разрешите чтение Health Connect и подтвердите pairing-код на сервере." />}
+      ) : <EmptyState title="Данных активности пока нет" text="Подключите Xiaomi Cloud в Amigo Sync. Если прямых данных о шагах нет, Amigo не подставляет ноль или историю Health Connect." />}
     </>
   );
 }

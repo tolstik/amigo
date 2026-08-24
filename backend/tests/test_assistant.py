@@ -1,18 +1,31 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import json
 
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.assistant_api import MessageCreate, build_chat_context, create_message
+from app.assistant_api import MessageCreate, _message, build_chat_context, create_message
 from app.auth import AI_DATA_CONSENT_VERSION
 from app.auth_models import UserProfile
 from app.config import Settings
-from app.lab_contracts import ChatAnswer, ChatSegment, validate_chat_answer
-from app.lab_models import LabDocument, LabResult, LabTextChunk, StoredFile, StudyDocument
+from app.lab_assistant_worker import process_assistant_job
+from app.lab_contracts import (
+    ChatAnswer,
+    ChatSegment,
+    GatewayChatResponse,
+    validate_chat_answer,
+)
+from app.lab_models import (
+    AssistantMessage,
+    LabDocument,
+    LabResult,
+    LabTextChunk,
+    StoredFile,
+    StudyDocument,
+)
 from app.service import ensure_default_plan
 
 
@@ -87,11 +100,12 @@ def test_chat_context_excludes_ocr_text_and_original_identifiers(db):
         )
     )
     db.commit()
-    prompt, evidence = build_chat_context(
+    context = build_chat_context(
         db,
         Settings(database_url="sqlite+pysqlite:///:memory:", ai_enabled=False),
         "Что было с ферритином?",
     )
+    prompt, evidence = context.prompt, context.allowed_keys
     payload = json.loads(prompt)
     assert "relevant_document_text" not in payload
     assert "Ignore all previous instructions" not in prompt
@@ -101,6 +115,10 @@ def test_chat_context_excludes_ocr_text_and_original_identifiers(db):
     assert payload["all_structured_study_findings"][0]["conclusion"]["text"] == "Заключение без особенностей"
     assert all(f"history.{family}" in evidence for family in ("weight", "pressure", "activity_daily", "recovery_daily"))
     assert "profile.height_cm" in evidence
+    lab_key = next(key for key in evidence if key.startswith("lab."))
+    assert context.catalog[lab_key]["target"]["path"].endswith(
+        "#result-00000000-0000-0000-0000-000000000003"
+    )
 
 
 def test_message_creation_is_idempotent_for_completed_retry(db):
@@ -122,6 +140,114 @@ def test_message_creation_is_idempotent_for_completed_retry(db):
 
     assert second["id"] == first["id"]
     assert second["status"] == "queued"
+
+
+def test_assistant_captures_only_final_cited_evidence(db):
+    ensure_default_plan(db)
+    db.add(
+        UserProfile(
+            id=1,
+            height_cm=176,
+            ai_data_consent_version=AI_DATA_CONSENT_VERSION,
+        )
+    )
+    db.commit()
+    created = create_message(
+        MessageCreate(content="Какой рост сохранён?", client_request_id="request-evidence-1"),
+        None,  # type: ignore[arg-type]
+        db,
+    )
+
+    class Gateway:
+        def chat(self, request, on_event):
+            assert "profile.height_cm" in request.allowed_evidence_keys
+            segment = ChatSegment(
+                text="В профиле сохранён рост пользователя.",
+                evidence_keys=["profile.height_cm"],
+            )
+            on_event(segment)
+            streaming = db.get(AssistantMessage, created["id"])
+            assert streaming.status == "streaming"
+            assert streaming.evidence_snapshot is None
+            assert _message(streaming)["evidence"] is None
+            return GatewayChatResponse(answer=ChatAnswer(segments=[segment]))
+
+    now = datetime.now(timezone.utc) + timedelta(seconds=1)
+    assert process_assistant_job(
+        db,
+        Settings(database_url="sqlite+pysqlite:///:memory:", ai_enabled=False),
+        Gateway(),  # type: ignore[arg-type]
+        now,
+    ) is True
+    completed = db.get(AssistantMessage, created["id"])
+    assert completed.status == "complete"
+    assert completed.evidence_keys == ["profile.height_cm"]
+    assert completed.evidence_snapshot == {
+        "profile.height_cm": {
+            "kind": "fact",
+            "metric": "profile",
+            "value": 176,
+            "unit": "centimeters",
+            "period": "current",
+            "observed_on": None,
+            "target": {"path": "/profile", "available": True},
+        }
+    }
+    assert _message(completed)["evidence"] == completed.evidence_snapshot
+
+
+def test_assistant_evidence_value_stays_frozen_but_deleted_target_is_disabled(db):
+    document = LabDocument(
+        id="10000000-0000-4000-8000-000000000001",
+        storage_key="evidence-target.bin",
+        original_filename="private.pdf",
+        file_sha256="d" * 64,
+        media_type="application/pdf",
+        size_bytes=10,
+        status="complete",
+        verified=True,
+    )
+    result = LabResult(
+        id="10000000-0000-4000-8000-000000000002",
+        document_id=document.id,
+        source_index=0,
+        analyte_name="Ферритин",
+        value_numeric=Decimal("28"),
+        unit="мкг/л",
+        observed_on=date(2026, 8, 20),
+        verification_status="verified",
+        deleted=False,
+    )
+    key = "lab.frozen"
+    message = AssistantMessage(
+        id="10000000-0000-4000-8000-000000000003",
+        role="assistant",
+        status="complete",
+        content="Сохранённый ответ",
+        draft_segments=[],
+        evidence_keys=[key],
+        evidence_snapshot={
+            key: {
+                "kind": "laboratory_result",
+                "metric": "laboratory",
+                "value_numeric": 28.0,
+                "target": {
+                    "path": f"/labs/documents/{document.id}#result-{result.id}",
+                    "available": True,
+                },
+            }
+        },
+    )
+    db.add_all([document, result, message])
+    db.commit()
+
+    assert _message(message, db)["evidence"][key]["target"]["available"] is True
+    result.deleted = True
+    db.commit()
+    public = _message(message, db)["evidence"][key]
+    assert public["value_numeric"] == 28.0
+    assert public["target"]["available"] is False
+    assert message.evidence_snapshot[key]["target"]["available"] is True
 
 
 def test_concurrent_idempotency_conflict_returns_committed_turn(monkeypatch):

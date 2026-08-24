@@ -6,12 +6,17 @@ import signal
 import threading
 import time
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
 from .ai_snapshot import enqueue_current_analysis
 from .db import SessionLocal
+from .feature_models import (
+    DoctorReportSnapshot,
+    HealthTask,
+    HealthTaskReminderDelivery,
+)
 from .models import JobRun, Outbox, utcnow
 from .telegram import TelegramNotifier
 from .withings import SyncResult, WithingsClient
@@ -76,6 +81,92 @@ def schedule_daily_digest(db: Session, settings: Settings, now: datetime | None 
     return True
 
 
+def schedule_task_reminders(
+    db: Session,
+    settings: Settings,
+    now: datetime | None = None,
+) -> int:
+    """Create at most one Telegram outbox event for each due task occurrence."""
+
+    current = now or datetime.now(timezone.utc)
+    lower_bound = current - timedelta(hours=24)
+    already_scheduled = (
+        select(HealthTaskReminderDelivery.id)
+        .where(
+            HealthTaskReminderDelivery.task_id == HealthTask.id,
+            HealthTaskReminderDelivery.occurrence_at == HealthTask.next_due_at,
+            HealthTaskReminderDelivery.channel == "telegram",
+        )
+        .exists()
+    )
+    rows = list(
+        db.scalars(
+            select(HealthTask)
+            .where(
+                HealthTask.status == "active",
+                HealthTask.telegram_enabled.is_(True),
+                HealthTask.next_due_at.is_not(None),
+                HealthTask.next_due_at <= current,
+                HealthTask.next_due_at >= lower_bound,
+                ~already_scheduled,
+            )
+            .order_by(HealthTask.next_due_at, HealthTask.id)
+            .limit(50)
+        )
+    )
+    created = 0
+    for task in rows:
+        occurrence = task.next_due_at
+        if occurrence is None:
+            continue
+        aware_occurrence = (
+            occurrence.replace(tzinfo=timezone.utc)
+            if occurrence.tzinfo is None
+            else occurrence.astimezone(timezone.utc)
+        )
+        existing = db.scalar(
+            select(HealthTaskReminderDelivery.id).where(
+                HealthTaskReminderDelivery.task_id == task.id,
+                HealthTaskReminderDelivery.occurrence_at == aware_occurrence,
+                HealthTaskReminderDelivery.channel == "telegram",
+            )
+        )
+        if existing is not None:
+            continue
+        event = Outbox(
+            event_key=f"task-reminder:{task.id}:{aware_occurrence.isoformat()}",
+            event_type="task.reminder",
+            payload={"task_id": task.id, "occurrence_at": aware_occurrence.isoformat()},
+            available_at=current,
+        )
+        db.add(event)
+        db.flush()
+        db.add(
+            HealthTaskReminderDelivery(
+                task_id=task.id,
+                occurrence_at=aware_occurrence,
+                channel="telegram",
+                status="pending",
+                outbox_id=event.id,
+                created_at=current,
+            )
+        )
+        created += 1
+    if created:
+        db.commit()
+    return created
+
+
+def cleanup_doctor_reports(db: Session, now: datetime | None = None) -> int:
+    current = now or datetime.now(timezone.utc)
+    result = db.execute(
+        delete(DoctorReportSnapshot).where(DoctorReportSnapshot.expires_at <= current)
+    )
+    if result.rowcount:
+        db.commit()
+    return result.rowcount or 0
+
+
 class OutboxProcessor:
     def __init__(self, db: Session, settings: Settings):
         self.db = db
@@ -118,6 +209,15 @@ class OutboxProcessor:
             event.status = "sent"
             event.sent_at = utcnow()
             event.last_error = None
+            if event.event_type == "task.reminder":
+                delivery = self.db.scalar(
+                    select(HealthTaskReminderDelivery).where(
+                        HealthTaskReminderDelivery.outbox_id == event.id
+                    )
+                )
+                if delivery is not None:
+                    delivery.status = "sent"
+                    delivery.sent_at = event.sent_at
             for key in result.advice_run_keys:
                 if self.db.scalar(select(JobRun.id).where(JobRun.run_key == key)) is None:
                     self.db.add(
@@ -139,6 +239,14 @@ class OutboxProcessor:
             else:
                 event.status = "pending"
                 event.available_at = utcnow() + timedelta(minutes=min(60, 2**event.attempts))
+            if event.event_type == "task.reminder":
+                delivery = self.db.scalar(
+                    select(HealthTaskReminderDelivery).where(
+                        HealthTaskReminderDelivery.outbox_id == event.id
+                    )
+                )
+                if delivery is not None:
+                    delivery.status = "failed" if event.status == "failed" else "pending"
             self.db.commit()
             logger.warning("outbox delivery %s failed: %s", event.id, type(exc).__name__)
         return True
@@ -236,6 +344,8 @@ class Worker:
                 self._recorded_job(db, "ai-digest-prepare", run_key, prepare_ai_digest)
             schedule_weekly_digest(db, self.settings, now)
             schedule_daily_digest(db, self.settings, now)
+            schedule_task_reminders(db, self.settings, now)
+            cleanup_doctor_reports(db, now)
             processor.drain()
     def run(self) -> None:
         while self.running:

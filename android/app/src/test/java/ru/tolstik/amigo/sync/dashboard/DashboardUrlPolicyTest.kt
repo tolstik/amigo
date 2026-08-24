@@ -11,6 +11,11 @@ class DashboardUrlPolicyTest {
     fun acceptsOnlyKnownDashboardRoutesOnTheCanonicalOrigin() {
         assertTrue(DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru/amigo/"))
         assertTrue(DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru/amigo/labs"))
+        for (path in listOf("data-quality", "tasks", "labs/compare", "reports/doctor")) {
+            assertTrue(
+                DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru/amigo/$path"),
+            )
+        }
         assertTrue(
             DashboardUrlPolicy.isAllowedNavigation(
                 "https://amigo.tolstik.ru/amigo/labs/documents/" +
@@ -75,6 +80,12 @@ class DashboardUrlPolicyTest {
                     "20000000-0000-0000-0000-000000000001/download",
             ),
         )
+        assertTrue(
+            DashboardUrlPolicy.isAllowedDownload(
+                "https://amigo.tolstik.ru/amigo/api/v1/reports/doctor/" +
+                    "20000000-0000-0000-0000-000000000001.pdf",
+            ),
+        )
         assertFalse(
             DashboardUrlPolicy.isAllowedDownload(
                 "https://amigo.tolstik.ru/amigo/api/v1/export/weight.csv?next=https://evil.test",
@@ -88,6 +99,30 @@ class DashboardUrlPolicyTest {
         assertFalse(
             DashboardUrlPolicy.isAllowedDownload(
                 "https://amigo.tolstik.ru/amigo/api/v1/export/weight.csv?range=7d",
+            ),
+        )
+        assertFalse(
+            DashboardUrlPolicy.isAllowedDownload(
+                "https://amigo.tolstik.ru/amigo/api/v1/reports/doctor/not-a-uuid.pdf",
+            ),
+        )
+        assertFalse(
+            DashboardUrlPolicy.isAllowedDownload(
+                "https://amigo.tolstik.ru/amigo/api/v1/reports/doctor/" +
+                    "20000000-0000-0000-0000-000000000001.pdf?download=1",
+            ),
+        )
+        assertFalse(
+            DashboardUrlPolicy.isAllowedDownload(
+                "https://evil.test/amigo/api/v1/reports/doctor/" +
+                    "20000000-0000-0000-0000-000000000001.pdf",
+            ),
+        )
+        assertFalse(
+            DashboardUrlPolicy.isAllowedDownload(
+                "https://amigo.tolstik.ru/amigo/api/v1/reports/doctor/" +
+                    "20000000-0000-0000-0000-000000000001.pdf",
+                method = "POST",
             ),
         )
     }

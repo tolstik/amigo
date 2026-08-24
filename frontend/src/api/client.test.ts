@@ -1,7 +1,12 @@
 import {
   normalizeActivitySeries,
   normalizeAiAnalysis,
+  normalizeAssistantMessages,
   normalizeCompositionSeries,
+  normalizeDataQuality,
+  normalizeDoctorReport,
+  normalizeHealthTaskList,
+  normalizeLabCompare,
   normalizeOverview,
   normalizePressureSeries,
   normalizeRecoverySeries,
@@ -186,6 +191,7 @@ describe("API normalization", () => {
 
   it("normalizes schema-validated AI analysis without template fields", () => {
     const result = normalizeAiAnalysis({
+      analysis_id: 42,
       status: "fresh",
       headline: "Темп устойчив",
       summary: "Активность выросла относительно личной базы.",
@@ -194,9 +200,99 @@ describe("API normalization", () => {
       limitations: ["Неполная неделя"],
       generated_at: "2026-08-19T06:00:00Z",
       model: "gpt-5.6-sol",
+      evidence: {
+        "activity.week": { key: "activity.week", kind: "series", metric: "activity", label: "Активность", unit: "steps", range: { from: "2026-08-12", to: "2026-08-19" }, count: 7, target: { path: "/activity", available: true } },
+      },
     });
+    expect(result.analysisId).toBe(42);
     expect(result.status).toBe("fresh");
     expect(result.insights[0].evidenceIds).toEqual(["activity.week"]);
     expect(result.recommendations[0].title).toBe("Следующий шаг");
+    expect(result.evidence["activity.week"]).toMatchObject({ label: "Активность", rangeStart: "2026-08-12", count: 7, target: { path: "/activity", available: true } });
+  });
+
+  it("keeps steps fail-closed to Xiaomi Cloud in data quality", () => {
+    const result = normalizeDataQuality({
+      range: "30d",
+      from: "2026-08-01",
+      to: "2026-08-02",
+      timezone: "Europe/Moscow",
+      sources: { mi_fitness: { status: "healthy", last_success_at: "2026-08-03T06:00:00Z" } },
+      metrics: [{
+        key: "steps",
+        family: "activity",
+        source_policy: "xiaomi_finalized_only",
+        days: [
+          { date: "2026-08-01", state: "available", source: "health_connect" },
+          { date: "2026-08-02", state: "confirmed_empty", source: "mi_fitness" },
+        ],
+      }],
+    }, "30d");
+    expect(result.sources[0]).toMatchObject({ key: "mi_fitness", status: "healthy" });
+    expect(result.metrics[0].days).toEqual([
+      { date: "2026-08-01", state: "missing", source: null },
+      { date: "2026-08-02", state: "confirmed_empty", source: "mi_fitness" },
+    ]);
+    expect(result.metrics[0].coverage).toMatchObject({ withValues: 0, confirmedEmpty: 1, missing: 1, healthConnect: 0 });
+  });
+
+  it("normalizes tasks and immutable assistant evidence", () => {
+    const tasks = normalizeHealthTaskList({ items: [{
+      id: "task-1", title: "Повторить измерение", note: null, next_due_at: "2026-09-04T06:00:00Z",
+      recurrence: "weekly", telegram_enabled: true, status: "active", overdue: false,
+      source_analysis_id: 42, source_item_id: "recommendation-1",
+      source: { kind: "ai_recommendation", title: "Контроль", text: "Повторите измерение.", evidence_ids: ["pressure.latest"], generated_at: "2026-09-01T06:00:00Z" },
+      created_at: "2026-09-01T06:00:00Z", updated_at: "2026-09-01T06:00:00Z",
+    }], open_count: 1 });
+    expect(tasks.items[0]).toMatchObject({ recurrence: "weekly", telegramEnabled: true, sourceAnalysisId: 42 });
+
+    const assistant = normalizeAssistantMessages({ analysis_id: 42, items: [{
+      id: "message-1", role: "assistant", status: "complete", content: "Значение сохранено.", draft_segments: [], evidence_keys: ["lab.ferritin"],
+      evidence: { "lab.ferritin": { kind: "laboratory_result", metric: "laboratory", label: "Ферритин", value_numeric: 42, unit: "нг/мл", observed_on: "2026-08-28", verification: "verified", target: { path: null, available: false } } },
+      error_code: null, created_at: "2026-09-01T06:00:00Z", updated_at: "2026-09-01T06:00:01Z",
+    }], recommendations: [{ title: "Контроль", text: "Сверьте показатель.", evidence_ids: ["lab.ferritin"] }], evidence: {
+      "lab.ferritin": { key: "lab.ferritin", kind: "laboratory", metric: "laboratory", label: "Ферритин", value: 42, unit: "нг/мл", date: "2026-08-28", target: { path: null, available: false } },
+    } });
+    expect(assistant.items[0].evidence["lab.ferritin"]).toMatchObject({ label: "Ферритин", value: 42, verification: "verified" });
+    expect(assistant.analysisId).toBe(42);
+    expect(assistant.recommendations[0]).toMatchObject({ id: "recommendation-1", evidenceIds: ["lab.ferritin"] });
+    expect(assistant.evidence["lab.ferritin"]).toMatchObject({ label: "Ферритин", value: 42 });
+  });
+
+  it("normalizes lab comparison arrays and deterministic incompatibility", () => {
+    const result = normalizeLabCompare({
+      panels: [{ document_id: "doc-a", observed_on: "2026-08-01", verified: true, result_count: 1 }, { document_id: "doc-b", observed_on: "2026-09-01", verified: false, result_count: 2 }],
+      rows: [{
+        analyte_id: "ferritin", analyte_name: "Ферритин", comparable: false, incompatibility: "multiple_results", missing: false, status_changed: false, value_changed: false, deltas: [],
+        cells: [
+          [{ id: "result-a", document_id: "doc-a", analyte_id: "ferritin", analyte_name: "Ферритин", value_numeric: 42, unit: "нг/мл", status: "within_reference", verification_status: "verified" }],
+          [{ id: "result-b", document_id: "doc-b", analyte_id: "ferritin", analyte_name: "Ферритин", value_numeric: 39, unit: "нг/мл", status: "within_reference", verification_status: "unverified" }, { id: "result-c", document_id: "doc-b", analyte_id: "ferritin", analyte_name: "Ферритин", value_numeric: 41, unit: "нг/мл", status: "within_reference", verification_status: "unverified" }],
+        ],
+      }],
+    });
+    expect(result.panels.map((panel) => panel.documentId)).toEqual(["doc-a", "doc-b"]);
+    expect(result.rows[0]).toMatchObject({ analyteId: "ferritin", incompatibility: "multiple_results", comparable: false });
+    expect(result.rows[0].cells[1]).toHaveLength(2);
+  });
+
+  it("normalizes one immutable doctor-report preview while retaining sleep minutes", () => {
+    const result = normalizeDoctorReport({
+      id: "report-1",
+      options: { period: "90d", sections: ["activity", "recovery", "labs"] },
+      preview: {
+        meta: { created_at: "2026-09-02T08:00:00Z", period: "90d", from: "2026-06-06", to: "2026-09-02", timezone: "Europe/Moscow" },
+        sections: {
+          activity: { daily: [{ date: "2026-09-01", steps: null }], summary: { steps: null } },
+          recovery: { daily: [{ date: "2026-09-01", sleep_minutes: 461 }] },
+          labs: [{ analyte: "Ферритин", value: "42 нг/мл", observed_on: "2026-08-28", reference: "15–150 нг/мл", status: "within_reference", verification_status: "verified" }],
+        },
+      },
+      page_count: 3, size_bytes: 120000, created_at: "2026-09-02T08:00:00Z", expires_at: "2026-09-03T08:00:00Z",
+      download_url: "/unexpected/report.pdf",
+    });
+    expect(result.preview.recovery?.points[0].sleepMinutes).toBe(461);
+    expect(result.preview.activity?.points[0].steps).toBeNull();
+    expect(result.preview.labs?.[0].verificationStatus).toBe("verified");
+    expect(result.downloadUrl).toMatch(/\/api\/v1\/reports\/doctor\/report-1\.pdf$/);
   });
 });

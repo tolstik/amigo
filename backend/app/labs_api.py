@@ -92,6 +92,16 @@ class ResultCreate(StrictModel):
         return self
 
 
+class LabCompareRequest(StrictModel):
+    document_ids: list[str] = Field(min_length=2, max_length=3)
+
+    @model_validator(mode="after")
+    def unique_documents(self) -> "LabCompareRequest":
+        if len(set(self.document_ids)) != len(self.document_ids):
+            raise ValueError("document_ids must be unique")
+        return self
+
+
 def _consent_required(db: Session) -> None:
     profile = db.get(UserProfile, 1)
     if profile is None or profile.ai_data_consent_version != AI_DATA_CONSENT_VERSION:
@@ -606,3 +616,124 @@ def reference_catalog(db: Session = Depends(get_db)) -> dict:
             "version": row.catalog_version,
         } for row in rows
     ]}
+
+
+@router.post("/compare")
+def compare_lab_documents(
+    payload: LabCompareRequest,
+    _context: AuthContext = Depends(require_csrf),
+    db: Session = Depends(get_db),
+) -> dict:
+    documents = list(
+        db.scalars(
+            select(LabDocument)
+            .where(LabDocument.id.in_(payload.document_ids))
+            .options(
+                selectinload(LabDocument.results),
+                selectinload(LabDocument.reports),
+            )
+        )
+    )
+    by_id = {row.id: row for row in documents}
+    if any(document_id not in by_id for document_id in payload.document_ids):
+        raise HTTPException(status_code=404, detail="lab_document_not_found")
+    ordered = [by_id[document_id] for document_id in payload.document_ids]
+    if any(row.status != "complete" for row in ordered):
+        raise HTTPException(status_code=409, detail="lab_document_not_complete")
+
+    panels = []
+    for row in ordered:
+        dates = sorted(
+            {
+                *(
+                    report.observed_on
+                    for report in row.reports
+                    if report.observed_on is not None
+                ),
+                *(
+                    result.observed_on
+                    for result in row.results
+                    if not result.deleted and result.observed_on is not None
+                ),
+            }
+        )
+        panels.append(
+            {
+                "document_id": row.id,
+                "observed_on": dates[-1] if dates else None,
+                "verified": row.verified,
+                "result_count": len([item for item in row.results if not item.deleted]),
+            }
+        )
+
+    grouped: dict[str, dict] = {}
+    for panel_index, document in enumerate(ordered):
+        for result in sorted(document.results, key=lambda item: item.source_index):
+            if result.deleted:
+                continue
+            group_key = (
+                f"analyte:{result.analyte_id}"
+                if result.analyte_id is not None
+                else f"unmatched:{document.id}:{result.id}"
+            )
+            group = grouped.setdefault(
+                group_key,
+                {
+                    "analyte_id": result.analyte_id,
+                    "analyte_name": result.analyte_name,
+                    "cells": [[] for _ in ordered],
+                },
+            )
+            group["cells"][panel_index].append(_result(result))
+
+    rows = []
+    for group in grouped.values():
+        cells: list[list[dict]] = group["cells"]
+        reason: str | None = None
+        singles = [cell[0] for cell in cells if len(cell) == 1]
+        if any(len(cell) == 0 for cell in cells):
+            reason = "missing_result"
+        elif any(len(cell) != 1 for cell in cells):
+            reason = "multiple_results"
+        elif any(item.get("value_numeric") is None for item in singles):
+            reason = "non_numeric_value"
+        elif any(item.get("comparator") not in (None, "=") for item in singles):
+            reason = "qualified_value"
+        elif len({item.get("unit") for item in singles}) != 1:
+            reason = "different_unit"
+        elif len({item.get("specimen") for item in singles}) != 1:
+            reason = "different_specimen"
+        elif len({item.get("method") for item in singles}) != 1:
+            reason = "different_method"
+
+        deltas = []
+        if reason is None:
+            baseline = float(singles[0]["value_numeric"])
+            for panel_index, item in enumerate(singles[1:], start=1):
+                current = float(item["value_numeric"])
+                deltas.append(
+                    {
+                        "from_document_id": ordered[0].id,
+                        "to_document_id": ordered[panel_index].id,
+                        "absolute": round(current - baseline, 6),
+                        "percent": round((current - baseline) / abs(baseline) * 100, 2)
+                        if baseline != 0
+                        else None,
+                    }
+                )
+        statuses = [item.get("status") for item in singles]
+        rows.append(
+            {
+                "analyte_id": group["analyte_id"],
+                "analyte_name": group["analyte_name"],
+                "cells": cells,
+                "comparable": reason is None,
+                "incompatibility": reason,
+                "deltas": deltas,
+                "missing": any(not cell for cell in cells),
+                "status_changed": len(set(statuses)) > 1 if len(statuses) > 1 else False,
+                "value_changed": any(item["absolute"] != 0 for item in deltas),
+            }
+        )
+    rows.sort(key=lambda item: (str(item["analyte_name"]).casefold(), item["analyte_id"] or ""))
+    return {"panels": panels, "rows": rows}

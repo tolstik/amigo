@@ -52,29 +52,35 @@ def _records(
     tz: ZoneInfo,
     start: date | None = None,
 ) -> list[HealthConnectRecord | MiFitnessRecord]:
-    query = (
-        select(HealthConnectRecord)
-        .join(
-            HealthConnectDevice,
-            HealthConnectRecord.device_id == HealthConnectDevice.id,
-        )
-        .where(
-            HealthConnectDevice.status == "approved",
-            HealthConnectRecord.is_deleted.is_(False),
-            HealthConnectRecord.record_type.in_(record_types),
-            HealthConnectRecord.start_time.is_not(None),
-        )
-        .order_by(HealthConnectRecord.start_time, HealthConnectRecord.id)
-    )
-    if start is not None:
-        boundary = _utc_start(start, tz)
-        query = query.where(
-            or_(
-                HealthConnectRecord.start_time >= boundary,
-                HealthConnectRecord.end_time >= boundary,
+    # Steps are a Xiaomi Cloud-only publication contract. Health Connect rows
+    # stay in PostgreSQL as rollback history, but must never reach analytics or
+    # any downstream consumer which shares this selector (CSV, Telegram or AI).
+    health_connect_types = record_types - {"steps"}
+    health_connect: list[HealthConnectRecord] = []
+    if health_connect_types:
+        query = (
+            select(HealthConnectRecord)
+            .join(
+                HealthConnectDevice,
+                HealthConnectRecord.device_id == HealthConnectDevice.id,
             )
+            .where(
+                HealthConnectDevice.status == "approved",
+                HealthConnectRecord.is_deleted.is_(False),
+                HealthConnectRecord.record_type.in_(health_connect_types),
+                HealthConnectRecord.start_time.is_not(None),
+            )
+            .order_by(HealthConnectRecord.start_time, HealthConnectRecord.id)
         )
-    health_connect = list(db.scalars(query))
+        if start is not None:
+            boundary = _utc_start(start, tz)
+            query = query.where(
+                or_(
+                    HealthConnectRecord.start_time >= boundary,
+                    HealthConnectRecord.end_time >= boundary,
+                )
+            )
+        health_connect = list(db.scalars(query))
     sources = list(
         db.scalars(
             select(MiFitnessSource).where(

@@ -7,17 +7,18 @@ Connect as rollback history, and sends only normalized signed/idempotent batches
 to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
-Current signed release `1.3.4` (`versionCode 14`) for project release
-[`v5.1.5`](https://github.com/tolstik/amigo/releases/tag/v5.1.5):
-[`Amigo-1.3.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.5/Amigo-1.3.4.apk),
+Current signed release `1.4.0` (`versionCode 15`) for project release
+[`v5.2.0`](https://github.com/tolstik/amigo/releases/tag/v5.2.0):
+[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.0/Amigo-1.4.0.apk),
 SHA-256
-`59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1`.
+`4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`, size
+`3,504,370` bytes.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
-The previous published release is `1.3.3`:
-[`Amigo-1.3.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.4/Amigo-1.3.3.apk),
-SHA-256 `6f4156d6cf24df27b95b6cc53b26f83bd965c266da144e04f6feb3ccb884f156`.
+The previous published release is `1.3.4`:
+[`Amigo-1.3.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.5/Amigo-1.3.4.apk),
+SHA-256 `59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1`.
 
 ## Dashboard tab
 
@@ -31,7 +32,10 @@ SHA-256 `6f4156d6cf24df27b95b6cc53b26f83bd965c266da144e04f6feb3ccb884f156`.
 - Uses Android Files/Photos to choose up to 25 PDF/JPG/PNG/HEIC/HEIF files, each
   up to 20 MiB.
   Camera capture is intentionally not requested.
-- Handles only exact authenticated CSV and laboratory-original download routes.
+- Handles only exact authenticated CSV, laboratory-original, and doctor-report
+  PDF download routes. A doctor PDF must be an exact same-origin `GET` to
+  `/amigo/api/v1/reports/doctor/<canonical-lowercase-UUID>.pdf`; query strings,
+  fragments, malformed IDs, other methods, and redirects are rejected.
   The session cookie stays in memory, redirects are disabled, the response is
   capped at 25 MiB, and the destination is selected through system “Save as”.
 - Keeps no offline medical archive. A failed connection or renderer shows a
@@ -71,15 +75,18 @@ An unsigned optimized release is built with:
 ./gradlew assembleRelease
 ```
 
-To sign the release, provide all four values through the build environment (do
-not put them in Gradle files, shell history, or the repository):
+To sign the release, provide the keystore path, alias, and both passwords
+through the build environment (do not put them in Gradle files, shell history,
+or the repository):
 
 - `AMIGO_ANDROID_KEYSTORE` — absolute path to the release keystore;
-- `AMIGO_ANDROID_KEYSTORE_PASSWORD`;
+- `AMIGO_ANDROID_KEYSTORE_PASSWORD` or the preferred root-only
+  `AMIGO_ANDROID_KEYSTORE_PASSWORD_FILE`;
 - `AMIGO_ANDROID_KEY_ALIAS`;
-- `AMIGO_ANDROID_KEY_PASSWORD`.
+- `AMIGO_ANDROID_KEY_PASSWORD` or the preferred root-only
+  `AMIGO_ANDROID_KEY_PASSWORD_FILE`.
 
-Then run `./gradlew assembleRelease`. With all four values present, Gradle uses
+Then run `./gradlew assembleRelease`. With all four inputs present, Gradle uses
 that signing configuration; without them, the release stays unsigned.
 
 Install or update the debug build over USB with:
@@ -103,8 +110,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
    in-progress Xiaomi form is preserved while switching to the mail app.
 5. Optionally grant the requested read permissions in Health Connect, tap
    **Найти источники**, and explicitly select Mi Fitness. These signed records
-   remain rollback history; finalized Xiaomi Cloud coverage is authoritative
-   only after its activation gate succeeds.
+   remain rollback history. In particular, Health Connect steps never become
+   published dashboard steps; only finalized Xiaomi Cloud steps are eligible
+   after the direct-source activation gate succeeds.
 6. Tap **Синхронизировать сейчас**. WorkManager continues best-effort sync about
    once an hour when networking and background Health Connect reads are
    available. It also starts one immediate run when the app process is created

@@ -138,6 +138,10 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
                 "/api/v1/studies/documents",
                 "/api/v1/app-update",
                 "/api/v1/assistant/messages",
+                "/api/v1/data-quality",
+                "/api/v1/tasks",
+                "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000",
+                "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000.pdf",
                 "/api/v1/profile",
             ):
                 assert client.get(path).status_code == 401, path
@@ -146,5 +150,109 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
             ).status_code == 401
             assert client.post("/api/v1/labs/uploads").status_code == 401
             assert client.post("/api/v1/studies/uploads").status_code == 401
+            assert client.post(
+                "/api/v1/labs/compare",
+                json={
+                    "document_ids": [
+                        "00000000-0000-4000-8000-000000000001",
+                        "00000000-0000-4000-8000-000000000002",
+                    ]
+                },
+            ).status_code == 401
+            assert client.post(
+                "/api/v1/tasks",
+                json={
+                    "title": "Проверка",
+                    "next_due_at": "2030-01-01T09:00:00+03:00",
+                },
+            ).status_code == 401
+            assert client.patch(
+                "/api/v1/tasks/00000000-0000-4000-8000-000000000000",
+                json={"title": "Проверка"},
+            ).status_code == 401
+            assert client.post(
+                "/api/v1/tasks/00000000-0000-4000-8000-000000000000/complete"
+            ).status_code == 401
+            assert client.post(
+                "/api/v1/tasks/00000000-0000-4000-8000-000000000000/cancel"
+            ).status_code == 401
+            assert client.post(
+                "/api/v1/reports/doctor",
+                json={"period": "30d", "sections": ["summary"]},
+            ).status_code == 401
+            assert client.delete(
+                "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000"
+            ).status_code == 401
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_new_mutations_require_exact_origin_and_csrf(db):
+    set_password(db, "amigo", "correct horse battery staple")
+    requests = (
+        (
+            "post",
+            "/api/v1/tasks",
+            {
+                "title": "Проверка",
+                "next_due_at": "2030-01-01T09:00:00+03:00",
+            },
+        ),
+        (
+            "patch",
+            "/api/v1/tasks/00000000-0000-4000-8000-000000000000",
+            {"title": "Проверка"},
+        ),
+        (
+            "post",
+            "/api/v1/tasks/00000000-0000-4000-8000-000000000000/complete",
+            {},
+        ),
+        (
+            "post",
+            "/api/v1/tasks/00000000-0000-4000-8000-000000000000/cancel",
+            {},
+        ),
+        (
+            "post",
+            "/api/v1/labs/compare",
+            {
+                "document_ids": [
+                    "00000000-0000-4000-8000-000000000001",
+                    "00000000-0000-4000-8000-000000000002",
+                ]
+            },
+        ),
+        (
+            "post",
+            "/api/v1/reports/doctor",
+            {"period": "30d", "sections": ["summary"]},
+        ),
+    )
+    try:
+        with client_for(db) as client:
+            assert login(client).status_code == 200
+            csrf = client.cookies.get(CSRF_COOKIE)
+            for method, path, payload in requests:
+                assert client.request(method, path, json=payload).status_code == 403
+                assert client.request(
+                    method,
+                    path,
+                    json=payload,
+                    headers={
+                        "Origin": "https://evil.example",
+                        "X-CSRF-Token": csrf,
+                    },
+                ).status_code == 403
+            assert client.delete(
+                "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000"
+            ).status_code == 403
+            assert client.delete(
+                "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000",
+                headers={
+                    "Origin": "https://evil.example",
+                    "X-CSRF-Token": csrf,
+                },
+            ).status_code == 403
     finally:
         app.dependency_overrides.clear()

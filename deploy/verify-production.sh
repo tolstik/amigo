@@ -24,6 +24,10 @@ readonly DASHBOARD_HEADERS="${TMP_DIR}/dashboard.headers"
 readonly DASHBOARD_BODY="${TMP_DIR}/dashboard.body"
 readonly API_HEADERS="${TMP_DIR}/api.headers"
 readonly API_BODY="${TMP_DIR}/api.body"
+readonly REPORT_HEADERS="${TMP_DIR}/doctor-report.headers"
+readonly REPORT_BODY="${VERIFICATION_DIR}/doctor-report.json"
+readonly REPORT_PDF_HEADERS="${TMP_DIR}/doctor-report-pdf.headers"
+readonly REPORT_PDF_BODY="${VERIFICATION_DIR}/doctor-report.pdf"
 readonly CSV_HEADERS="${TMP_DIR}/csv.headers"
 readonly CSV_BODY="${TMP_DIR}/csv.body"
 readonly INGEST_HEADERS="${TMP_DIR}/ingest.headers"
@@ -41,8 +45,16 @@ readonly ASSETLINKS_HEADERS="${TMP_DIR}/assetlinks.headers"
 readonly ASSETLINKS_BODY="${TMP_DIR}/assetlinks.json"
 readonly REDIRECT_HEADERS="${TMP_DIR}/redirect.headers"
 readonly CRONTAB_FILE="${TMP_DIR}/tolstik.crontab"
+DOCTOR_REPORT_ID=""
 
 cleanup() {
+    if [[ -n "${DOCTOR_REPORT_ID}" && -f "${AUTH_CURL_CONFIG}" ]]; then
+        curl --config "${AUTH_CURL_CONFIG}" \
+            --request DELETE \
+            --output /dev/null \
+            "${AMIGO_PUBLIC_URL}api/v1/reports/doctor/${DOCTOR_REPORT_ID}" \
+            >/dev/null 2>&1 || true
+    fi
     rm -f -- \
         "${SESSION_DESCRIPTOR}" \
         "${AUTH_CURL_CONFIG}" \
@@ -51,6 +63,10 @@ cleanup() {
         "${DASHBOARD_BODY}" \
         "${API_HEADERS}" \
         "${API_BODY}" \
+        "${REPORT_HEADERS}" \
+        "${REPORT_BODY}" \
+        "${REPORT_PDF_HEADERS}" \
+        "${REPORT_PDF_BODY}" \
         "${CSV_HEADERS}" \
         "${CSV_BODY}" \
         "${INGEST_HEADERS}" \
@@ -411,7 +427,8 @@ parser_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destinati
     || amigo_die "isolated parser unexpectedly mounts laboratory originals"
 amigo_log "PASS root-only laboratory originals and least-privilege mounts"
 
-readonly EXPECTED_ANDROID_APK_SHA256="59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1"
+readonly EXPECTED_ANDROID_APK_SHA256="4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995"
+readonly EXPECTED_ANDROID_APK_SIZE_BYTES=3504370
 [[ -f "${AMIGO_ANDROID_APK}" && ! -L "${AMIGO_ANDROID_APK}" ]] \
     || amigo_die "signed Android update is missing or is a symlink"
 [[ "$(stat -c '%a' "${AMIGO_ANDROID_APK}")" == "600" ]] \
@@ -420,7 +437,9 @@ readonly EXPECTED_ANDROID_APK_SHA256="59f2ed60986da849e7ddf45b93a03be63ecce1202a
     || amigo_die "signed Android update is not owned by root:root"
 [[ "$(sha256sum "${AMIGO_ANDROID_APK}" | awk '{ print $1 }')" \
     == "${EXPECTED_ANDROID_APK_SHA256}" ]] \
-    || amigo_die "installed Android update hash differs from signed 1.3.4"
+    || amigo_die "installed Android update hash differs from signed 1.4.0"
+[[ "$(stat -c '%s' "${AMIGO_ANDROID_APK}")" -eq "${EXPECTED_ANDROID_APK_SIZE_BYTES}" ]] \
+    || amigo_die "installed Android update size differs from signed 1.4.0"
 web_android_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/android"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${web_container}")"
 [[ "${web_android_mount}" == "$(dirname -- "${AMIGO_ANDROID_APK}")|false" ]] \
     || amigo_die "web Android update mount is missing, writable, or sourced unexpectedly"
@@ -499,7 +518,7 @@ with SessionLocal() as db:
 done
 [[ ${ANALYTE_GUIDES_READY} -eq 1 ]] \
     || amigo_die "analyte guide backfill made no verified progress within three minutes"
-amigo_log "PASS database-owned originals, repaired laboratory dates, bounded analyte-guide backfill progress, and signed Android 1.3.4 artifact"
+amigo_log "PASS database-owned originals, repaired laboratory dates, bounded analyte-guide backfill progress, and signed Android 1.4.0 artifact"
 
 check_loopback_listener() {
     local port=$1
@@ -648,9 +667,13 @@ amigo_log "PASS hashed frontend assets retain immutable caching"
 for protected_path in \
     api/v1/auth/session \
     api/v1/overview \
+    'api/v1/data-quality?range=30d' \
     api/v1/export/weight.csv \
     api/v1/labs/documents \
     api/v1/studies/documents \
+    'api/v1/tasks?state=open' \
+    api/v1/reports/doctor/00000000-0000-0000-0000-000000000000 \
+    api/v1/reports/doctor/00000000-0000-0000-0000-000000000000.pdf \
     api/v1/app-update \
     api/v1/assistant/messages; do
     [[ "$(public_status "${protected_path}")" == "401" ]] \
@@ -663,7 +686,14 @@ readonly LAB_RESULT_CREATE_PATH="api/v1/labs/documents/00000000-0000-0000-0000-0
     || amigo_die "unauthenticated laboratory upload route did not return 401"
 [[ "$(public_status 'api/v1/studies/uploads' POST)" == "401" ]] \
     || amigo_die "unauthenticated study upload route did not return 401"
-amigo_log "PASS dashboard JSON, CSV, laboratory, studies, updater, and assistant require authentication"
+for protected_post_path in \
+    api/v1/labs/compare \
+    api/v1/tasks \
+    api/v1/reports/doctor; do
+    [[ "$(public_status "${protected_post_path}" POST)" == "401" ]] \
+        || amigo_die "unauthenticated protected POST route did not return 401: ${protected_post_path}"
+done
+amigo_log "PASS dashboard JSON, CSV, quality, laboratory comparison, tasks, doctor reports, updater, and assistant require authentication"
 
 amigo_compose run --rm --no-deps --user 0 \
     --volume "${VERIFICATION_DIR}:/verification" \
@@ -739,6 +769,39 @@ elif contract == "overview":
 elif contract in {"activity", "recovery"}:
     if not isinstance(payload.get("daily"), list) or not isinstance(payload.get("weekly"), list):
         raise SystemExit(f"{contract} contract is incomplete")
+    if contract == "recovery":
+        for row in payload["daily"]:
+            if not isinstance(row, dict):
+                raise SystemExit("recovery daily row is not an object")
+            value = row.get("sleep_minutes")
+            if value is not None and not isinstance(value, (int, float)):
+                raise SystemExit("recovery API no longer preserves sleep_minutes")
+            if "sleep_hours" in row:
+                raise SystemExit("recovery persistence/API contract unexpectedly changed to hours")
+elif contract == "data-quality":
+    sources = payload.get("sources")
+    metrics = payload.get("metrics")
+    if not isinstance(sources, dict) or not all(
+        isinstance(sources.get(key), dict)
+        for key in ("withings", "health_connect", "mi_fitness")
+    ):
+        raise SystemExit("data-quality source contract is incomplete")
+    if not isinstance(metrics, list):
+        raise SystemExit("data-quality metric contract is incomplete")
+    steps = [item for item in metrics if isinstance(item, dict) and item.get("key") == "steps"]
+    if len(steps) != 1 or steps[0].get("source_policy") != "xiaomi_finalized_only":
+        raise SystemExit("data-quality steps are not Xiaomi-finalized-only")
+    coverage = steps[0].get("coverage")
+    if not isinstance(coverage, dict) or coverage.get("health_connect") != 0:
+        raise SystemExit("data-quality exposes Health Connect steps")
+    days = steps[0].get("days")
+    if not isinstance(days, list) or any(
+        not isinstance(day, dict)
+        or day.get("state") not in {"available", "confirmed_empty", "missing"}
+        or day.get("source") not in {None, "mi_fitness"}
+        for day in days
+    ):
+        raise SystemExit("data-quality step-day source contract is invalid")
 elif contract == "ai":
     if payload.get("ai_generated") is not True or payload.get("status") != "fresh":
         raise SystemExit("AI payload is not a fresh generated result")
@@ -749,13 +812,62 @@ elif contract == "ai":
     recommendations = payload.get("recommendations")
     if not isinstance(recommendations, list) or not recommendations:
         raise SystemExit("AI payload has no validated recommendations")
-elif contract in {"documents", "lab-summary", "analytes", "assistant"}:
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, dict) or not evidence:
+        raise SystemExit("AI payload has no stable evidence descriptors")
+    for item in [*payload.get("insights", []), *recommendations]:
+        keys = item.get("evidence_ids") if isinstance(item, dict) else None
+        if not isinstance(keys, list) or not keys or any(key not in evidence for key in keys):
+            raise SystemExit("AI item does not resolve every evidence ID")
+    for key, descriptor in evidence.items():
+        if (
+            not isinstance(key, str)
+            or not isinstance(descriptor, dict)
+            or descriptor.get("key") != key
+            or descriptor.get("kind") not in {"fact", "series", "laboratory"}
+            or not isinstance(descriptor.get("target"), dict)
+        ):
+            raise SystemExit("AI evidence descriptor contract is incomplete")
+elif contract in {"documents", "lab-summary", "analytes", "assistant", "tasks"}:
     if not isinstance(payload.get("items"), list):
         raise SystemExit(f"{contract} items contract is incomplete")
     if contract == "lab-summary" and not isinstance(payload.get("counts"), dict):
         raise SystemExit("laboratory summary counts are missing")
     if contract == "assistant" and not isinstance(payload.get("recommendations"), list):
         raise SystemExit("assistant recommendations are missing")
+    if contract == "assistant":
+        for item in payload["items"]:
+            if not isinstance(item, dict):
+                raise SystemExit("assistant item is not an object")
+            evidence = item.get("evidence")
+            keys = item.get("evidence_keys")
+            if evidence is not None and (
+                not isinstance(evidence, dict)
+                or not isinstance(keys, list)
+                or set(evidence) != set(keys)
+            ):
+                raise SystemExit("assistant stable evidence snapshot is inconsistent")
+        recommendations = payload["recommendations"]
+        evidence = payload.get("evidence")
+        if (
+            not recommendations
+            or not isinstance(payload.get("analysis_id"), int)
+            or not isinstance(evidence, dict)
+            or not evidence
+        ):
+            raise SystemExit("assistant recommendation evidence/task source is incomplete")
+        for index, item in enumerate(recommendations, 1):
+            keys = item.get("evidence_ids") if isinstance(item, dict) else None
+            if (
+                not isinstance(item, dict)
+                or item.get("id") != f"recommendation-{index}"
+                or not isinstance(keys, list)
+                or not keys
+                or any(key not in evidence for key in keys)
+            ):
+                raise SystemExit("assistant recommendation cannot resolve its stable evidence")
+    if contract == "tasks" and not isinstance(payload.get("open_count"), int):
+        raise SystemExit("task list count is missing")
 elif contract == "analyte-guide":
     guide = payload.get("guide")
     if not isinstance(guide, dict) or not all(
@@ -765,12 +877,11 @@ elif contract == "analyte-guide":
         raise SystemExit("laboratory analyte guide contract is incomplete")
 elif contract == "update":
     if (
-        payload.get("version_code") != 14
-        or payload.get("version_name") != "1.3.4"
-        or payload.get("sha256") != "59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1"
+        payload.get("version_code") != 15
+        or payload.get("version_name") != "1.4.0"
+        or payload.get("sha256") != "4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995"
         or payload.get("download_url") != "/amigo/api/v1/app-update/apk"
-        or not isinstance(payload.get("size_bytes"), int)
-        or payload.get("size_bytes") <= 0
+        or payload.get("size_bytes") != 3504370
     ):
         raise SystemExit("Android update metadata contract is incomplete")
 else:
@@ -783,6 +894,7 @@ check_authenticated_json_api "api/v1/profile" profile
 check_authenticated_json_api "api/v1/overview" overview
 check_authenticated_json_api "api/v1/series/activity?range=30d" activity
 check_authenticated_json_api "api/v1/series/recovery?range=30d" recovery
+check_authenticated_json_api "api/v1/data-quality?range=30d" data-quality
 check_authenticated_json_api "api/v1/ai-analysis" ai
 check_authenticated_json_api "api/v1/labs/documents" documents
 check_authenticated_json_api "api/v1/studies/documents" documents
@@ -790,7 +902,32 @@ check_authenticated_json_api "api/v1/labs/summary" lab-summary
 check_authenticated_json_api "api/v1/labs/analytes" analytes
 check_authenticated_json_api "api/v1/labs/analytes/leukocytes/history" analyte-guide
 check_authenticated_json_api "api/v1/assistant/messages" assistant
+check_authenticated_json_api "api/v1/tasks?state=open" tasks
 check_authenticated_json_api "api/v1/app-update" update
+
+amigo_compose exec -T web python -c '
+from datetime import datetime, timedelta
+from app.config import get_settings
+from app.data_quality import data_quality
+from app.db import SessionLocal
+from app.health_analytics import _records
+from app.mi_fitness_models import MiFitnessRecord
+settings = get_settings()
+start = datetime.now(settings.tz).date() - timedelta(days=89)
+with SessionLocal() as db:
+    rows = _records(db, frozenset({"steps"}), settings.tz, start)
+    if any(not isinstance(row, MiFitnessRecord) for row in rows):
+        raise SystemExit("published step selector contains a non-Xiaomi row")
+    quality = data_quality(db, settings.tz, "90d")
+    steps = [item for item in quality["metrics"] if item["key"] == "steps"]
+    if len(steps) != 1 or steps[0]["source_policy"] != "xiaomi_finalized_only":
+        raise SystemExit("step source policy is not Xiaomi-finalized-only")
+    if steps[0]["coverage"]["health_connect"] != 0:
+        raise SystemExit("Health Connect steps escaped rollback history")
+    if any(day["source"] not in (None, "mi_fitness") for day in steps[0]["days"]):
+        raise SystemExit("step quality day exposes a non-Xiaomi source")
+'
+amigo_log "PASS dashboard/CSV/Telegram/AI shared selector publishes only active finalized Xiaomi Cloud steps"
 
 curl --config "${AUTH_CURL_CONFIG}" \
     --dump-header "${APK_HEADERS}" \
@@ -808,7 +945,7 @@ curl --config "${AUTH_CURL_CONFIG}" \
     "${AMIGO_PUBLIC_URL}api/v1/export/weight.csv"
 [[ -s "${CSV_BODY}" ]] || amigo_die "authenticated CSV export is empty"
 require_header '^content-type:[[:space:]]*text/csv' "${CSV_HEADERS}"
-amigo_log "PASS authenticated dashboard, lab/study, analyte guide, updater, assistant, AI-v4, and CSV contracts"
+amigo_log "PASS authenticated dashboard, data quality, tasks, lab/study, analyte guide, updater, stable AI evidence, and CSV contracts"
 
 install -o root -g root -m 0600 /dev/null "${UNSUPPORTED_FILE}"
 CSRF_REJECTION_STATUS="$(
@@ -845,6 +982,224 @@ LAB_CREATE_ROUTE_STATUS="$(
 )"
 [[ "${LAB_CREATE_ROUTE_STATUS}" == "404" ]] \
     || amigo_die "manual laboratory result allowlist returned ${LAB_CREATE_ROUTE_STATUS}, expected safe 404"
+
+for csrf_case in \
+    'api/v1/labs/compare|{"document_ids":["00000000-0000-0000-0000-000000000000","11111111-1111-1111-1111-111111111111"]}' \
+    'api/v1/tasks|{"title":"verification","next_due_at":"2099-01-01T09:00:00+03:00"}' \
+    'api/v1/reports/doctor|{"period":"30d","sections":["summary"]}'; do
+    csrf_path=${csrf_case%%|*}
+    csrf_payload=${csrf_case#*|}
+    csrf_status="$(
+        curl --config "${ORIGIN_NO_CSRF_CURL_CONFIG}" \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --data "${csrf_payload}" \
+            --output "${UPLOAD_BODY}" \
+            --write-out '%{http_code}' \
+            "${AMIGO_PUBLIC_URL}${csrf_path}"
+    )"
+    [[ "${csrf_status}" == "403" ]] \
+        || amigo_die "authenticated mutation without CSRF returned ${csrf_status}: ${csrf_path}"
+done
+
+LAB_COMPARE_ROUTE_STATUS="$(
+    curl --config "${AUTH_CURL_CONFIG}" \
+        --request POST \
+        --header 'Content-Type: application/json' \
+        --data '{"document_ids":["00000000-0000-0000-0000-000000000000","11111111-1111-1111-1111-111111111111"]}' \
+        --output "${UPLOAD_BODY}" \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}api/v1/labs/compare"
+)"
+[[ "${LAB_COMPARE_ROUTE_STATUS}" == "404" ]] \
+    || amigo_die "laboratory comparison allowlist returned ${LAB_COMPARE_ROUTE_STATUS}, expected safe 404"
+
+TASK_CREATE_VALIDATION_STATUS="$(
+    curl --config "${AUTH_CURL_CONFIG}" \
+        --request POST \
+        --header 'Content-Type: application/json' \
+        --data '{"title":"","next_due_at":"2099-01-01T09:00:00+03:00"}' \
+        --output "${UPLOAD_BODY}" \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}api/v1/tasks"
+)"
+[[ "${TASK_CREATE_VALIDATION_STATUS}" == "422" ]] \
+    || amigo_die "task validation route returned ${TASK_CREATE_VALIDATION_STATUS}, expected safe 422"
+TASK_PATCH_ROUTE_STATUS="$(
+    curl --config "${AUTH_CURL_CONFIG}" \
+        --request PATCH \
+        --header 'Content-Type: application/json' \
+        --data '{"title":"verification"}' \
+        --output "${UPLOAD_BODY}" \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}api/v1/tasks/00000000-0000-0000-0000-000000000000"
+)"
+[[ "${TASK_PATCH_ROUTE_STATUS}" == "404" ]] \
+    || amigo_die "task PATCH allowlist returned ${TASK_PATCH_ROUTE_STATUS}, expected safe 404"
+for task_action in complete cancel; do
+    task_action_status="$(
+        curl --config "${AUTH_CURL_CONFIG}" \
+            --request POST \
+            --output "${UPLOAD_BODY}" \
+            --write-out '%{http_code}' \
+            "${AMIGO_PUBLIC_URL}api/v1/tasks/00000000-0000-0000-0000-000000000000/${task_action}"
+    )"
+    [[ "${task_action_status}" == "404" ]] \
+        || amigo_die "task ${task_action} allowlist returned ${task_action_status}, expected safe 404"
+done
+
+REPORT_CREATE_STATUS="$(
+    curl --config "${AUTH_CURL_CONFIG}" \
+        --max-time 60 \
+        --request POST \
+        --header 'Content-Type: application/json' \
+        --data '{"period":"30d","sections":["summary","weight","pressure","activity","recovery","labs","studies","ai"]}' \
+        --dump-header "${REPORT_HEADERS}" \
+        --output "${REPORT_BODY}" \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}api/v1/reports/doctor"
+)"
+[[ "${REPORT_CREATE_STATUS}" == "201" ]] \
+    || amigo_die "doctor report creation returned ${REPORT_CREATE_STATUS}, expected 201"
+require_header '^content-type:[[:space:]]*application/json' "${REPORT_HEADERS}"
+require_header '^cache-control:.*no-store' "${REPORT_HEADERS}"
+DOCTOR_REPORT_ID="$(python3 - "${REPORT_BODY}" <<'PY'
+from pathlib import Path
+import json
+import re
+import sys
+
+report_id = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")).get("id")
+if not isinstance(report_id, str) or not re.fullmatch(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    report_id,
+):
+    raise SystemExit("doctor report ID is not a canonical lowercase UUID")
+print(report_id)
+PY
+)"
+python3 - "${REPORT_BODY}" "${DOCTOR_REPORT_ID}" <<'PY'
+from datetime import datetime, timezone
+from pathlib import Path
+import json
+import sys
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+report_id = sys.argv[2]
+if payload.get("id") != report_id:
+    raise SystemExit("doctor report response ID changed during verification")
+if payload.get("download_url") != f"/amigo/api/v1/reports/doctor/{report_id}.pdf":
+    raise SystemExit("doctor report download URL is not exact")
+if not isinstance(payload.get("page_count"), int) or not 1 <= payload["page_count"] <= 40:
+    raise SystemExit("doctor report page bound is invalid")
+if not isinstance(payload.get("size_bytes"), int) or not 0 < payload["size_bytes"] <= 10 * 1024 * 1024:
+    raise SystemExit("doctor report byte bound is invalid")
+created = datetime.fromisoformat(str(payload.get("created_at")).replace("Z", "+00:00"))
+expires = datetime.fromisoformat(str(payload.get("expires_at")).replace("Z", "+00:00"))
+ttl = (expires.astimezone(timezone.utc) - created.astimezone(timezone.utc)).total_seconds()
+if not 23.9 * 3600 <= ttl <= 24.1 * 3600:
+    raise SystemExit("doctor report retention is not 24 hours")
+preview = payload.get("preview")
+if not isinstance(preview, dict) or not isinstance(preview.get("sections"), dict):
+    raise SystemExit("doctor report snapshot is incomplete")
+blocked_fragments = (
+    "filename", "ocr", "original", "device_id", "account_", "provider_payload",
+    "raw_payload", "cookie", "token", "authorization", "chat", "message",
+)
+def walk(value):
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            lowered = str(key).lower()
+            if any(fragment in lowered for fragment in blocked_fragments):
+                raise SystemExit(f"doctor report contains forbidden field: {key}")
+            walk(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            walk(nested)
+walk(preview)
+sections = preview["sections"]
+if any(
+    item.get("verification_status") not in {"verified", "corrected"}
+    for item in sections.get("labs", [])
+    if isinstance(item, dict)
+):
+    raise SystemExit("doctor report contains an unverified laboratory result")
+for row in (sections.get("recovery") or {}).get("daily", []):
+    if not isinstance(row, dict):
+        raise SystemExit("doctor report recovery row is invalid")
+    if "sleep_hours" in row:
+        raise SystemExit("doctor report snapshot changed the internal sleep unit")
+    if row.get("sleep_minutes") is not None and not isinstance(row["sleep_minutes"], (int, float)):
+        raise SystemExit("doctor report snapshot lost sleep minutes")
+PY
+
+curl --config "${AUTH_CURL_CONFIG}" \
+    --dump-header "${API_HEADERS}" \
+    --output "${API_BODY}" \
+    "${AMIGO_PUBLIC_URL}api/v1/reports/doctor/${DOCTOR_REPORT_ID}"
+require_header '^content-type:[[:space:]]*application/json' "${API_HEADERS}"
+require_header '^cache-control:.*no-store' "${API_HEADERS}"
+cmp --silent "${REPORT_BODY}" "${API_BODY}" \
+    || amigo_die "doctor report GET differs from its immutable creation snapshot"
+
+curl --config "${AUTH_CURL_CONFIG}" \
+    --max-time 60 \
+    --dump-header "${REPORT_PDF_HEADERS}" \
+    --output "${REPORT_PDF_BODY}" \
+    "${AMIGO_PUBLIC_URL}api/v1/reports/doctor/${DOCTOR_REPORT_ID}.pdf"
+require_header '^content-type:[[:space:]]*application/pdf' "${REPORT_PDF_HEADERS}"
+require_header '^content-disposition:.*amigo-doctor-report\.pdf' "${REPORT_PDF_HEADERS}"
+require_header '^cache-control:.*no-store' "${REPORT_PDF_HEADERS}"
+python3 - "${REPORT_BODY}" "${REPORT_PDF_BODY}" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+metadata = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+size = Path(sys.argv[2]).stat().st_size
+if size != metadata["size_bytes"] or not 0 < size <= 10 * 1024 * 1024:
+    raise SystemExit("downloaded doctor PDF size differs from its immutable snapshot")
+PY
+amigo_compose run --rm --no-deps \
+    --volume "${VERIFICATION_DIR}:/verification:ro" \
+    web python -c '
+from pathlib import Path
+import fitz
+import json
+payload = json.loads(Path("/verification/doctor-report.json").read_text(encoding="utf-8"))
+with fitz.open("/verification/doctor-report.pdf") as document:
+    if not 1 <= document.page_count <= 40:
+        raise SystemExit("doctor PDF page bound is invalid")
+    text = "\n".join(page.get_text() for page in document)
+if "только Xiaomi Cloud" not in text or "Продолжительность сна" not in text:
+    raise SystemExit("doctor PDF lacks its explicit activity/recovery units and source labels")
+sleep_present = any(
+    isinstance(row, dict) and isinstance(row.get("sleep_minutes"), (int, float))
+    for row in payload["preview"]["sections"]["recovery"]["daily"]
+)
+if sleep_present and "часы" not in text:
+    raise SystemExit("doctor PDF sleep scale is not displayed in hours")
+'
+
+REPORT_DELETE_STATUS="$(
+    curl --config "${AUTH_CURL_CONFIG}" \
+        --request DELETE \
+        --output /dev/null \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}api/v1/reports/doctor/${DOCTOR_REPORT_ID}"
+)"
+[[ "${REPORT_DELETE_STATUS}" == "204" ]] \
+    || amigo_die "doctor report cleanup returned ${REPORT_DELETE_STATUS}, expected 204"
+REPORT_GONE_STATUS="$(
+    curl --config "${AUTH_CURL_CONFIG}" \
+        --output /dev/null \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}api/v1/reports/doctor/${DOCTOR_REPORT_ID}"
+)"
+[[ "${REPORT_GONE_STATUS}" == "404" ]] \
+    || amigo_die "deleted doctor report returned ${REPORT_GONE_STATUS}, expected 404"
+DOCTOR_REPORT_ID=""
+amigo_log "PASS new mutation CSRF/routes and temporary privacy-bounded doctor PDF with sleep displayed in hours"
 
 curl --config "${AUTH_CURL_CONFIG}" \
     --output "${API_BODY}" \

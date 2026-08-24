@@ -13,7 +13,9 @@ from .auth import auth_router, profile_router, require_session
 from .assistant_api import router as assistant_router
 from .health_api import public_router as health_public_router
 from .labs_api import router as labs_router
+from .reports_api import router as reports_router
 from .studies_api import router as studies_router
+from .tasks_api import router as tasks_router
 from .update_api import router as update_router
 from .config import get_settings
 from .db import SessionLocal
@@ -32,6 +34,8 @@ app.include_router(router, dependencies=[Depends(require_session)])
 app.include_router(health_public_router, dependencies=[Depends(require_session)])
 app.include_router(labs_router, dependencies=[Depends(require_session)])
 app.include_router(studies_router, dependencies=[Depends(require_session)])
+app.include_router(tasks_router, dependencies=[Depends(require_session)])
+app.include_router(reports_router, dependencies=[Depends(require_session)])
 app.include_router(update_router, dependencies=[Depends(require_session)])
 app.include_router(assistant_router, dependencies=[Depends(require_session)])
 

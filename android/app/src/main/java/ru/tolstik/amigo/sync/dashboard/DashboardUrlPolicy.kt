@@ -16,8 +16,12 @@ object DashboardUrlPolicy {
         "/amigo/composition",
         "/amigo/activity",
         "/amigo/recovery",
+        "/amigo/data-quality",
+        "/amigo/tasks",
         "/amigo/labs",
         "/amigo/labs/upload",
+        "/amigo/labs/compare",
+        "/amigo/reports/doctor",
         "/amigo/studies",
         "/amigo/assistant",
         "/amigo/profile",
@@ -42,6 +46,10 @@ object DashboardUrlPolicy {
         "^/amigo/api/v1/studies/documents/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-" +
             "[0-9a-f]{4}-[0-9a-f]{12}/download$",
     )
+    private val doctorReportDownloadPath = Regex(
+        "^/amigo/api/v1/reports/doctor/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-" +
+            "[0-9a-f]{4}-[0-9a-f]{12}\\.pdf$",
+    )
     private val allowedRanges = setOf("30d", "90d", "1y", "program", "all")
 
     fun normalizeAppLink(rawUrl: String?): String? {
@@ -59,11 +67,13 @@ object DashboardUrlPolicy {
             isDashboardPath(parsed.encodedPath)
     }
 
-    fun isAllowedDownload(rawUrl: String?): Boolean {
+    fun isAllowedDownload(rawUrl: String?, method: String = "GET"): Boolean {
+        if (method != "GET") return false
         val parsed = rawUrl?.toHttpUrlOrNull() ?: return false
         if (!isCanonicalOrigin(parsed) || parsed.fragment != null) return false
         if (labDownloadPath.matches(parsed.encodedPath)) return parsed.encodedQuery == null
         if (studyDownloadPath.matches(parsed.encodedPath)) return parsed.encodedQuery == null
+        if (doctorReportDownloadPath.matches(parsed.encodedPath)) return parsed.encodedQuery == null
         if (!exportPath.matches(parsed.encodedPath)) return false
         if (parsed.queryParameterNames.any { it != "range" }) return false
         val ranges = parsed.queryParameterValues("range")

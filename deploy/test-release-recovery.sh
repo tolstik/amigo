@@ -166,13 +166,23 @@ grep --quiet --fixed-strings 'cmp --silent "${LEGACY_IMPORT_CANDIDATE}"' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy rewrites unchanged legacy rollback exports"
 grep --quiet --fixed-strings \
-    'https://github.com/tolstik/amigo/releases/download/v5.1.5/Amigo-1.3.4.apk' \
+    'https://github.com/tolstik/amigo/releases/download/v5.2.0/Amigo-1.4.0.apk' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not fetch the published signed Android update"
 grep --quiet --fixed-strings \
-    '59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1' \
+    '4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not pin the signed Android update hash"
+for android_release_pin in \
+    'AMIGO_ANDROID_APK_VERSION_CODE: "15"' \
+    'AMIGO_ANDROID_APK_VERSION_NAME: "1.4.0"'; do
+    grep --quiet --fixed-strings "${android_release_pin}" \
+        "${PROJECT_ROOT}/compose.yaml" \
+        || amigo_die "Compose does not pin the Android 1.4.0 metadata contract"
+done
+grep --quiet --fixed-strings 'EXPECTED_ANDROID_APK_SIZE_BYTES=3504370' \
+    "${SCRIPT_DIR}/verify-production.sh" \
+    || amigo_die "production verification does not pin the signed Android update size"
 grep --quiet --fixed-strings \
     'needs: [backend, frontend, frontend-e2e, android, release-gates]' \
     "${PROJECT_ROOT}/.github/workflows/ci.yml" \
@@ -277,7 +287,11 @@ for explicit_dynamic_proxy in \
     'api/v1/studies/documents/$amigo_study_view_document_id/view' \
     'api/v1/studies/documents/$amigo_study_document_id' \
     'api/v1/assistant/messages/$amigo_chat_retry_id/retry' \
-    'api/v1/assistant/messages/$amigo_chat_events_id/events'; do
+    'api/v1/assistant/messages/$amigo_chat_events_id/events' \
+    'api/v1/tasks/$amigo_task_action_id/$amigo_task_action' \
+    'api/v1/tasks/$amigo_task_id' \
+    'api/v1/reports/doctor/$amigo_doctor_pdf_id.pdf' \
+    'api/v1/reports/doctor/$amigo_doctor_report_id'; do
     grep --quiet --fixed-strings "${explicit_dynamic_proxy}" \
         "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
         || amigo_die "managed route lacks explicit dynamic upstream URI: ${explicit_dynamic_proxy}"
@@ -306,9 +320,22 @@ for queue_route in \
     'location = /amigo/api/v1/labs/uploads {' \
     'location = /amigo/api/v1/labs/events {' \
     'location = /amigo/api/v1/studies/uploads {' \
-    'location = /amigo/api/v1/studies/events {'; do
+    'location = /amigo/api/v1/studies/events {' \
+    'location = /amigo/api/v1/data-quality {' \
+    'location = /amigo/api/v1/labs/compare {' \
+    'location = /amigo/api/v1/tasks {' \
+    'location = /amigo/api/v1/reports/doctor {'; do
     grep --quiet --fixed-strings "${queue_route}" "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
         || amigo_die "managed route is missing: ${queue_route}"
+done
+for canonical_uuid_capture in \
+    'amigo_task_action_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
+    'amigo_task_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
+    'amigo_doctor_pdf_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
+    'amigo_doctor_report_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'; do
+    grep --quiet --fixed-strings "${canonical_uuid_capture}" \
+        "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
+        || amigo_die "new dynamic route lacks a canonical lowercase UUID capture"
 done
 [[ "$(grep --count --fixed-strings 'proxy_pass_header X-Accel-Buffering;' \
     "${SCRIPT_DIR}/nginx/amigo.locations.conf")" -eq 3 ]] \
@@ -339,6 +366,17 @@ grep --quiet --fixed-strings '"${SSE_ORIGIN_HEADERS}"' \
     || amigo_die "assistant plus shared queue verification must require origin no-buffer headers"
 grep --quiet --fixed-strings 'lab-parser' "${SCRIPT_DIR}/rollback.sh" \
     || amigo_die "legacy disaster fallback does not stop the isolated laboratory parser"
+for verification_contract in \
+    '"api/v1/data-quality?range=30d" data-quality' \
+    '"api/v1/tasks?state=open" tasks' \
+    'DOCTOR_REPORT_ID' \
+    'xiaomi_finalized_only' \
+    'sleep_minutes' \
+    'evidence_ids'; do
+    grep --quiet --fixed-strings "${verification_contract}" \
+        "${SCRIPT_DIR}/verify-production.sh" \
+        || amigo_die "production verification is missing v5.2 contract: ${verification_contract}"
+done
 # Literal variable syntax is the unsafe source pattern being rejected.
 # shellcheck disable=SC2016
 if grep --quiet --fixed-strings \

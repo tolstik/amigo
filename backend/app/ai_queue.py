@@ -19,6 +19,7 @@ from .ai_contracts import (
     validate_analysis_evidence,
 )
 from .ai_models import AiAnalysisJob, AiAnalysisResult
+from .evidence import snapshot_evidence_descriptors
 
 
 AnalysisTrigger = Literal["measurement", "activity", "scheduled", "manual"]
@@ -343,12 +344,14 @@ def fail_analysis_job(
 @dataclass(frozen=True)
 class LatestAnalysis:
     status: Literal["ready", "stale", "pending", "unavailable"]
+    result_id: int | None
     analysis: AiAnalysis | None
     snapshot_hash: str | None
     generated_at: datetime | None
     source_through: datetime | None
     model: str | None
     prompt_version: str | None
+    snapshot: AnalysisSnapshot | None
 
 
 def latest_analysis(db: Session, *, now: datetime | None = None) -> LatestAnalysis:
@@ -374,12 +377,14 @@ def latest_analysis(db: Session, *, now: datetime | None = None) -> LatestAnalys
     if result is None:
         return LatestAnalysis(
             status="pending" if pending is not None else "unavailable",
+            result_id=None,
             analysis=None,
             snapshot_hash=None,
             generated_at=None,
             source_through=None,
             model=None,
             prompt_version=None,
+            snapshot=None,
         )
     if result.fresh_until is None:
         status: Literal["ready", "stale"] = "ready"
@@ -388,36 +393,53 @@ def latest_analysis(db: Session, *, now: datetime | None = None) -> LatestAnalys
     else:
         return LatestAnalysis(
             status="unavailable",
+            result_id=None,
             analysis=None,
             snapshot_hash=None,
             generated_at=None,
             source_through=None,
             model=None,
             prompt_version=None,
+            snapshot=None,
         )
+    job = db.get(AiAnalysisJob, result.job_id)
     try:
         analysis = AiAnalysis.model_validate(result.analysis)
-    except ValueError:
+        snapshot = AnalysisSnapshot.model_validate(job.snapshot if job is not None else None)
+        if (
+            job is None
+            or job.snapshot_hash != result.snapshot_hash
+            or job.model != result.model
+            or job.prompt_version != result.prompt_version
+            or snapshot_hash(snapshot) != result.snapshot_hash
+        ):
+            raise ValueError("analysis snapshot mismatch")
+        validate_analysis_evidence(analysis, snapshot)
+    except (TypeError, ValueError):
         # A stricter output contract may make a cached result from an older
         # prompt version invalid. Fail closed instead of breaking public GETs
         # or exposing text that no longer passes the active safety boundary.
         return LatestAnalysis(
             status="pending" if pending is not None else "unavailable",
+            result_id=None,
             analysis=None,
             snapshot_hash=None,
             generated_at=None,
             source_through=None,
             model=None,
             prompt_version=None,
+            snapshot=None,
         )
     return LatestAnalysis(
         status=status,
+        result_id=result.id,
         analysis=analysis,
         snapshot_hash=result.snapshot_hash,
         generated_at=_aware(result.generated_at),
         source_through=_aware(result.source_through),
         model=result.model,
         prompt_version=result.prompt_version,
+        snapshot=snapshot,
     )
 
 
@@ -429,8 +451,21 @@ def public_analysis_payload(db: Session, *, now: datetime | None = None) -> dict
     """
 
     state = latest_analysis(db, now=now)
+    cited_keys = (
+        [
+            key
+            for item in [
+                *state.analysis.observations,
+                *state.analysis.recommendations,
+            ]
+            for key in item.evidence_keys
+        ]
+        if state.analysis
+        else []
+    )
     return {
         "status": state.status,
+        "analysis_id": state.result_id,
         "ai_generated": True,
         "generated_at": state.generated_at.isoformat().replace("+00:00", "Z")
         if state.generated_at
@@ -442,4 +477,9 @@ def public_analysis_payload(db: Session, *, now: datetime | None = None) -> dict
         "prompt_version": state.prompt_version,
         "snapshot_hash": state.snapshot_hash,
         "analysis": state.analysis.model_dump(mode="json") if state.analysis else None,
+        "evidence": snapshot_evidence_descriptors(
+            state.snapshot, cited_keys, db=db
+        )
+        if state.snapshot
+        else {},
     }

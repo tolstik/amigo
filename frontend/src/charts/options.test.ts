@@ -131,4 +131,28 @@ describe("daily charts", () => {
       expect((option.xAxis as any).data).toEqual(["2026-08-20"]);
     }
   });
+
+  it("plots sleep in hours and formats tooltips as hours and minutes", () => {
+    const recovery: RecoveryPoint = {
+      measuredAt: "2026-08-20",
+      sleepMinutes: 461,
+      deepSleepMinutes: 98,
+      remSleepMinutes: 110,
+      awakeMinutes: null,
+      restingHeartRateBpm: null,
+      averageHeartRateBpm: null,
+      minimumHeartRateBpm: null,
+      maximumHeartRateBpm: null,
+      hrvRmssdMs: null,
+      spo2Pct: null,
+      vo2Max: null,
+    };
+    const option = sleepChartOption([recovery]);
+    const series = option.series as any[];
+    expect((option.yAxis as any).name).toBe("часы");
+    expect(series[0].data[0][1]).toBeCloseTo(461 / 60);
+    expect(series[1].data[0][1]).toBeCloseTo(98 / 60);
+    const tooltip = (option.tooltip as any).formatter([{ axisValue: recovery.measuredAt, value: [recovery.measuredAt, 461 / 60], marker: "", seriesName: "Сон" }]);
+    expect(tooltip).toContain("7 ч 41 мин");
+  });
 });

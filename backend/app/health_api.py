@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .ai_snapshot import enqueue_current_analysis
 from .config import Settings, get_settings
+from .data_quality import DataQualityRange, data_quality
 from .db import get_db
 from .health_analytics import activity_series, recovery_series
 from .health_ingest import (
@@ -31,6 +32,7 @@ from .health_schemas import (
 
 logger = logging.getLogger("amigo.health_api")
 HealthRangeParam = Annotated[Literal["30d", "90d", "1y", "all"], Query()]
+DataQualityRangeParam = Annotated[DataQualityRange, Query()]
 public_router = APIRouter(prefix="/api/v1", tags=["health-analytics"])
 ingest_router = APIRouter(prefix="/amigo-ingest/v1", tags=["health-connect-ingest"])
 
@@ -55,6 +57,15 @@ def get_recovery_series(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     return recovery_series(db, settings.tz, range)
+
+
+@public_router.get("/data-quality")
+def get_data_quality(
+    range: DataQualityRangeParam = "30d",
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    return data_quality(db, settings.tz, range)
 
 
 @ingest_router.post(

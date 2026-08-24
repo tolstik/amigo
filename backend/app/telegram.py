@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from .analytics import plan_weight, pressure_sessions, trend_change
 from .ai_queue import public_analysis_payload
 from .config import Settings
+from .feature_models import HealthTask
 from .health_analytics import activity_series, recovery_series
 from .lab_models import LabResult
 from .models import JobRun, Measurement, MeasurementGroup, Outbox, utcnow
@@ -361,6 +362,36 @@ class TelegramNotifier:
             )
         return self._pack_messages("<b>🧪 Новые лабораторные результаты</b>", lines)
 
+    def _task_reminder_text(self, event: Outbox, now: datetime) -> str | None:
+        task_id = event.payload.get("task_id")
+        occurrence_raw = event.payload.get("occurrence_at")
+        if not isinstance(task_id, str) or not isinstance(occurrence_raw, str):
+            raise TelegramError("task reminder payload is invalid")
+        try:
+            occurrence = datetime.fromisoformat(occurrence_raw.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise TelegramError("task reminder occurrence is invalid") from exc
+        task = self.db.get(HealthTask, task_id)
+        if (
+            task is None
+            or task.status != "active"
+            or not task.telegram_enabled
+            or task.next_due_at is None
+        ):
+            return None
+        due = task.next_due_at
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        if due.astimezone(timezone.utc) != occurrence.astimezone(timezone.utc):
+            return None
+        local_due = due.astimezone(self.settings.tz)
+        return (
+            f"<b>⏰ Напоминание Amigo</b>\n"
+            f"{escape(task.title)}\n"
+            f"Срок: {local_due:%d.%m.%Y %H:%M} (МСК)\n"
+            f'<a href="{escape(self.settings.public_url)}tasks">Открыть задачи</a>'
+        )
+
     def deliver(self, event: Outbox, now: datetime | None = None) -> DeliveryResult:
         current = now or datetime.now(timezone.utc)
         if event.event_type == "mi_fitness.auth_required":
@@ -402,6 +433,11 @@ class TelegramNotifier:
                 *self._ai_recommendation_messages(),
             ]:
                 self.client.send_message(message)
+            return DeliveryResult()
+        if event.event_type == "task.reminder":
+            text = self._task_reminder_text(event, current)
+            if text is not None:
+                self.client.send_message(text)
             return DeliveryResult()
         raise TelegramError(f"unsupported outbox event {event.event_type}")
 

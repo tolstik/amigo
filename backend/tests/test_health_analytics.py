@@ -10,6 +10,7 @@ from app.health_analytics import (
     recovery_series,
 )
 from app.health_models import HealthConnectDevice, HealthConnectRecord
+from app.mi_fitness_models import MiFitnessCoverage, MiFitnessRecord, MiFitnessSource
 
 
 def add_device(db, data_as_of):
@@ -50,18 +51,47 @@ def test_activity_matched_weekday_28_day_baseline(db):
     first = date(2026, 7, 13)  # Monday
     now = datetime(2026, 8, 19, 12, tzinfo=timezone.utc)
     device = add_device(db, now)
+    fingerprint = "a" * 64
+    snapshot_id = "final-steps-history"
+    db.add(
+        MiFitnessSource(
+            device_id=device.id,
+            account_fingerprint=fingerprint,
+            enabled=True,
+            status="success",
+            activated_at=now,
+            data_as_of=now,
+        )
+    )
+    db.add(
+        MiFitnessCoverage(
+            device_id=device.id,
+            account_fingerprint=fingerprint,
+            snapshot_id=snapshot_id,
+            record_type="steps",
+            range_start=datetime(2026, 7, 13, tzinfo=timezone.utc),
+            range_end=datetime(2026, 8, 20, tzinfo=timezone.utc),
+            finalised_at=now,
+        )
+    )
     for offset in range(38):
         day = first + timedelta(days=offset)
         count = 1_000 + day.weekday() * 100
-        add_record(
-            db,
-            device,
-            f"steps-{day}",
-            "steps",
-            datetime(day.year, day.month, day.day, 9, tzinfo=timezone.utc),
-            count,
-            "count",
-            metrics={"count": count},
+        measured_at = datetime(day.year, day.month, day.day, 9, tzinfo=timezone.utc)
+        db.add(
+            MiFitnessRecord(
+                device_id=device.id,
+                external_record_id=f"steps-{day}",
+                snapshot_id=snapshot_id,
+                record_type="steps",
+                account_fingerprint=fingerprint,
+                start_time=measured_at,
+                end_time=measured_at + timedelta(minutes=1),
+                primary_value=Decimal(str(count)),
+                primary_unit="count",
+                metrics={"count": count},
+                is_deleted=False,
+            )
         )
     db.commit()
     payload = activity_series(db, tz, "30d", now)

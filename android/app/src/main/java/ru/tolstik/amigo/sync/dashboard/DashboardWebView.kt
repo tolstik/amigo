@@ -96,7 +96,7 @@ fun createDashboardWebView(
                 }
                 if (
                     DashboardUrlPolicy.isAllowedNavigation(url) ||
-                    DashboardUrlPolicy.isAllowedDownload(url)
+                    DashboardUrlPolicy.isAllowedDownload(url, request.method)
                 ) {
                     return false
                 }

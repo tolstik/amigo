@@ -757,6 +757,12 @@ private fun SyncScreen(
         item {
             SectionCard("1. Health Connect (резервный источник)") {
                 Text(healthStatusText(state.healthSdkStatus))
+                Text(
+                    "Шаги из Health Connect хранятся только как резервная история. " +
+                        "На дашборде отображаются только шаги, полученные напрямую из Xiaomi Cloud.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 state.permissions?.let { permissions ->
                     Text("Разрешения: ${permissions.granted.intersect(permissions.requested).size}/${permissions.requested.size}")
                     if (!permissions.hasMetricReadPermission) {

@@ -88,6 +88,22 @@ const labDocument = {
   completed_at: "2026-08-28T09:01:00Z",
   result_count: 1,
 };
+const secondLabDocument = {
+  ...labDocument,
+  id: "20000000-0000-0000-0000-000000000002",
+  filename: "анализы-сентябрь.pdf",
+  created_at: "2026-09-01T09:00:00Z",
+  completed_at: "2026-09-01T09:01:00Z",
+  verified: false,
+};
+const secondLabResult = {
+  ...labResult,
+  id: "10000000-0000-0000-0000-000000000004",
+  document_id: secondLabDocument.id,
+  value_numeric: 48,
+  observed_on: "2026-09-01",
+  verification_status: "unverified",
+};
 const studyDocument = {
   id: "40000000-0000-0000-0000-000000000001",
   filename: "mri-report.pdf",
@@ -110,7 +126,7 @@ const studyDocument = {
   extracted_text: "Описание исследования без идентификаторов.",
 };
 const assistantRecommendation = {
-  id: "lab-review",
+  id: "recommendation-1",
   title: "Сверить динамику",
   text: "Сопоставьте ферритин со следующим плановым анализом.",
   evidence_ids: ["lab.ferritin.latest"],
@@ -118,6 +134,7 @@ const assistantRecommendation = {
 
 test.beforeEach(async ({ page }) => {
   let assistantSent = false;
+  let taskItems: Array<Record<string, unknown>> = [];
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     const method = route.request().method();
@@ -125,11 +142,74 @@ test.beforeEach(async ({ page }) => {
     if (path.endsWith("/auth/login")) return route.fulfill({ json: session });
     if (path.endsWith("/auth/logout")) return route.fulfill({ status: 204 });
     if (path.endsWith("/profile")) return route.fulfill({ json: profile });
+    if (path.endsWith("/data-quality")) return route.fulfill({ json: {
+      range: new URL(route.request().url()).searchParams.get("range") ?? "30d",
+      from: "2026-08-31", to: "2026-09-01", timezone: "Europe/Moscow", generated_at: "2026-09-02T08:00:00Z",
+      sources: {
+        withings: { status: "healthy", last_success_at: "2026-09-02T07:55:00Z", data_as_of: "2026-09-02T07:55:00Z" },
+        mi_fitness: { status: "healthy", last_success_at: "2026-09-02T07:50:00Z", data_as_of: "2026-09-01T21:00:00Z" },
+        health_connect: { status: "delayed", last_success_at: "2026-09-01T08:00:00Z", data_as_of: "2026-09-01T07:00:00Z" },
+      },
+      metrics: [
+        { key: "weight", family: "weight", source_policy: "withings_only", status: "partial", days: [{ date: "2026-08-31", state: "available", source: "withings" }, { date: "2026-09-01", state: "missing", source: null }] },
+        { key: "steps", family: "activity", source_policy: "xiaomi_finalized_only", status: "partial", days: [{ date: "2026-08-31", state: "confirmed_empty", source: "mi_fitness" }, { date: "2026-09-01", state: "available", source: "mi_fitness" }] },
+      ],
+    } });
+    if (path.endsWith("/tasks") && method === "GET") {
+      const state = new URL(route.request().url()).searchParams.get("state") ?? "open";
+      const items = state === "open" ? taskItems.filter((item) => item.status === "active") : state === "completed" ? taskItems.filter((item) => item.status === "completed") : taskItems;
+      return route.fulfill({ json: { items, open_count: taskItems.filter((item) => item.status === "active").length } });
+    }
+    if (path.endsWith("/tasks") && method === "POST") {
+      const payload = route.request().postDataJSON();
+      expect(payload).toMatchObject({ source_analysis_id: 42, source_item_id: "recommendation-1", telegram_enabled: true });
+      const task = { id: "task-1", ...payload, status: "active", overdue: false, source: { kind: "ai_recommendation", title: "Сохранить ритм", text: "Поддерживайте текущую регулярность прогулок.", evidence_ids: ["activity.steps.week"], generated_at: "2026-09-02T07:55:00Z" }, created_at: "2026-09-02T08:00:00Z", updated_at: "2026-09-02T08:00:00Z", completed_at: null, cancelled_at: null };
+      taskItems = [task];
+      return route.fulfill({ status: 201, json: task });
+    }
+    if (path.endsWith("/tasks/task-1") && method === "PATCH") {
+      taskItems = [{ ...taskItems[0], ...route.request().postDataJSON(), updated_at: "2026-09-02T08:05:00Z" }];
+      return route.fulfill({ json: taskItems[0] });
+    }
+    if (path.endsWith("/tasks/task-1/complete") && method === "POST") {
+      taskItems = [{ ...taskItems[0], status: "completed", next_due_at: null, completed_at: "2026-09-02T08:10:00Z" }];
+      return route.fulfill({ json: taskItems[0] });
+    }
+    if (path.endsWith("/tasks/task-1/cancel") && method === "POST") {
+      taskItems = [{ ...taskItems[0], status: "cancelled", next_due_at: null, cancelled_at: "2026-09-02T08:10:00Z" }];
+      return route.fulfill({ json: taskItems[0] });
+    }
+    if (path.endsWith("/labs/compare") && method === "POST") {
+      expect(route.request().postDataJSON()).toEqual({ document_ids: [labDocument.id, secondLabDocument.id] });
+      return route.fulfill({ json: {
+        panels: [{ document_id: labDocument.id, observed_on: "2026-08-28", verified: true, result_count: 1 }, { document_id: secondLabDocument.id, observed_on: "2026-09-01", verified: false, result_count: 1 }],
+        rows: [{ analyte_id: "ferritin", analyte_name: "Ферритин", cells: [[labResult], [secondLabResult]], comparable: true, incompatibility: null, deltas: [{ from_document_id: labDocument.id, to_document_id: secondLabDocument.id, absolute: 6, percent: 14.29 }], missing: false, status_changed: false, value_changed: true }],
+      } });
+    }
+    if (path.endsWith("/reports/doctor") && method === "POST") {
+      const payload = route.request().postDataJSON();
+      expect(payload.period).toBe("90d");
+      expect(payload.sections).not.toContain("ai");
+      return route.fulfill({ status: 201, json: {
+        id: "report-1", options: payload, page_count: 3, size_bytes: 124000, created_at: "2026-09-02T08:00:00Z", expires_at: "2026-09-03T08:00:00Z", download_url: "/amigo/api/v1/reports/doctor/report-1.pdf",
+        preview: { meta: { created_at: "2026-09-02T08:00:00Z", period: "90d", from: "2026-06-06", to: "2026-09-02", timezone: "Europe/Moscow" }, sections: {
+          summary: { height_cm: 176, weight: { latest_kg: 125.5 }, pressure: { latest_systolic: 122, latest_diastolic: 78 } },
+          weight: weightSeries,
+          pressure: { points: [{ measured_at: "2026-08-18T18:00:00Z", systolic: 122, diastolic: 78, pulse: 64, pulse_pressure: 44, session_size: 2, period_of_day: "evening" }] },
+          activity: activitySeries,
+          recovery: recoverySeries,
+          labs: [{ analyte: "Ферритин", value: "42 нг/мл", observed_on: "2026-08-28", reference: "30–400 нг/мл", status: "within_reference", verification_status: "verified" }],
+          studies: [{ modality: "mri", observed_on: "2026-08-30", findings: ["Суставные поверхности без видимых изменений."], conclusion: "Значимых изменений не выявлено." }],
+        } },
+      } });
+    }
+    if (path.endsWith("/reports/doctor/report-1.pdf") && method === "GET") return route.fulfill({ status: 200, contentType: "application/pdf", headers: { "Content-Disposition": "attachment; filename=amigo-doctor-report.pdf" }, body: "%PDF-1.4 synthetic doctor report" });
+    if (path.endsWith("/reports/doctor/report-1") && method === "DELETE") return route.fulfill({ status: 204 });
     if (path.endsWith("/labs/summary")) return route.fulfill({ json: {
       items: [labResult],
       counts: { within_reference: 1, below_reference: 0, above_reference: 0, outside_reference: 0, indeterminate: 0 },
     } });
-    if (path.endsWith("/labs/documents") && method === "GET") return route.fulfill({ json: { items: [labDocument] } });
+    if (path.endsWith("/labs/documents") && method === "GET") return route.fulfill({ json: { items: [labDocument, secondLabDocument] } });
     if (path.endsWith("/labs/uploads") && method === "POST") return route.fulfill({ status: 202, json: { ...labDocument, status: "queued", verified: false } });
     if (path.endsWith("/studies/documents") && method === "GET") return route.fulfill({ json: { items: [studyDocument] } });
     if (path.endsWith(`/studies/documents/${studyDocument.id}`)) return route.fulfill({ json: studyDocument });
@@ -170,9 +250,11 @@ test.beforeEach(async ({ page }) => {
     if (path.endsWith("/assistant/messages") && method === "GET") return route.fulfill({ json: {
       items: assistantSent ? [
         { id: "30000000-0000-0000-0000-000000000001", role: "user", status: "complete", content: "Что с ферритином?", draft_segments: [], evidence_keys: [], error_code: null, created_at: "2026-09-02T08:00:00Z", updated_at: "2026-09-02T08:00:00Z" },
-        { id: "30000000-0000-0000-0000-000000000002", role: "assistant", status: "complete", content: "Ферритин находится в референсе бланка.", draft_segments: [], evidence_keys: ["lab.ferritin.latest"], error_code: null, created_at: "2026-09-02T08:00:01Z", updated_at: "2026-09-02T08:00:02Z" },
+        { id: "30000000-0000-0000-0000-000000000002", role: "assistant", status: "complete", content: "Ферритин находится в референсе бланка.", draft_segments: [], evidence_keys: ["lab.ferritin.latest"], evidence: { "lab.ferritin.latest": { kind: "laboratory_result", metric: "laboratory", label: "Ферритин", value_numeric: 42, unit: "нг/мл", observed_on: "2026-08-28", verification: "verified", target: { path: `/labs/documents/${labDocument.id}#result-${labResult.id}`, available: true } } }, error_code: null, created_at: "2026-09-02T08:00:01Z", updated_at: "2026-09-02T08:00:02Z" },
       ] : [],
+      analysis_id: 42,
       recommendations: [assistantRecommendation],
+      evidence: { "lab.ferritin.latest": { key: "lab.ferritin.latest", kind: "laboratory", metric: "laboratory", label: "Ферритин", value: 42, unit: "нг/мл", date: "2026-08-28", verification: "verified", target: { path: `/labs/documents/${labDocument.id}#result-${labResult.id}`, available: true } } },
     } });
     if (path.includes("/assistant/messages/") && path.endsWith("/events")) return route.fulfill({
       status: 200,
@@ -181,16 +263,18 @@ test.beforeEach(async ({ page }) => {
     });
     if (path.endsWith("/overview")) return route.fulfill({ json: overview });
     if (path.endsWith("/ai-analysis")) return route.fulfill({ json: {
+      analysis_id: 42,
       status: "fresh",
       headline: "Динамика остаётся управляемой",
       summary: "Активность выше личной базы, а последние ночи сна стали немного длиннее.",
-      insights: [{ id: "i1", title: "Больше движения", text: "Недельная активность выше вашей личной базы.", evidence_ids: ["activity.steps.week"] }],
-      recommendations: [{ id: "r1", title: "Сохранить ритм", text: "Поддерживайте текущую регулярность прогулок.", evidence_ids: ["activity.steps.week"] }],
+      insights: [{ id: "observation-1", title: "Больше движения", text: "Недельная активность выше вашей личной базы.", evidence_ids: ["activity.steps.week"] }],
+      recommendations: [{ id: "recommendation-1", title: "Сохранить ритм", text: "Поддерживайте текущую регулярность прогулок.", evidence_ids: ["activity.steps.week"] }],
       limitations: ["Текущая неделя ещё не завершена"],
       generated_at: "2026-09-02T07:55:00Z",
       data_as_of: "2026-09-02T07:50:00Z",
       model: "gpt-5.6-sol",
       prompt_version: "amigo-health-v4",
+      evidence: { "activity.steps.week": { key: "activity.steps.week", kind: "series", metric: "activity", label: "Активность Xiaomi Cloud", unit: "steps", range: { from: "2026-08-24", to: "2026-09-01" }, count: 7, target: { path: "/activity", available: true } } },
     } });
     if (path.endsWith("/insights")) return route.fulfill({ json: { items: overview.insights } });
     if (path.endsWith("/series/pressure")) {
@@ -401,8 +485,97 @@ test("edits privacy profile and renders the persistent assistant", async ({ page
   await page.getByRole("link", { name: "Ассистент", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Ассистент здоровья" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Актуальные рекомендации" })).toBeVisible();
+  const currentRecommendation = page.locator("article.insight--recommendation").filter({ hasText: "Сверить динамику" });
+  await currentRecommendation.getByRole("button", { name: "Ферритин" }).click();
+  await expect(page.getByRole("dialog", { name: "Ферритин" })).toContainText("зафиксировано в момент анализа");
+  await page.getByRole("button", { name: "Закрыть основание" }).click();
+  await currentRecommendation.getByRole("button", { name: "Создать задачу" }).click();
+  const taskDialog = page.getByRole("dialog", { name: "Создать задачу" });
+  await expect(taskDialog.getByLabel("Название")).toHaveValue("Сверить динамику");
+  await taskDialog.getByLabel("Дата и время").fill("2027-09-03T09:00");
+  await taskDialog.getByRole("button", { name: "Создать задачу" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Задача создана и доступна в разделе «Задачи»." })).toBeVisible();
   await page.getByPlaceholder("Задайте вопрос по вашим данным…").fill("Что с ферритином?");
   await page.getByRole("button", { name: "Отправить" }).click();
   await expect(page.getByText("Ферритин находится в референсе бланка.")).toBeVisible();
+  const assistantMessage = page.locator("article.chat-message--assistant").filter({ hasText: "Ферритин находится" });
+  await assistantMessage.getByRole("button", { name: "Ферритин" }).click();
+  await expect(page.getByRole("dialog", { name: "Ферритин" })).toContainText("зафиксировано в момент анализа");
+  await page.getByRole("button", { name: "Закрыть основание" }).click();
   await expect(page.getByText(/не предназначен для экстренной оценки/i)).toBeVisible();
+});
+
+test("opens immutable evidence and creates, edits and completes a task", async ({ page }) => {
+  await page.goto("./");
+  const recommendation = page.locator("article.insight--recommendation").filter({ hasText: "Сохранить ритм" });
+  await recommendation.getByRole("button", { name: "Активность Xiaomi Cloud" }).click();
+  const drawer = page.getByRole("dialog", { name: "Активность Xiaomi Cloud" });
+  await expect(drawer).toContainText("зафиксировано в момент анализа");
+  await expect(drawer.getByRole("link", { name: "Открыть исходные данные" })).toHaveAttribute("href", "/amigo/activity");
+  await drawer.getByRole("button", { name: "Закрыть основание" }).click();
+
+  await recommendation.getByRole("button", { name: "Создать задачу" }).click();
+  const createDialog = page.getByRole("dialog", { name: "Создать задачу" });
+  await expect(createDialog.getByLabel("Название")).toHaveValue("Сохранить ритм");
+  await createDialog.getByLabel("Дата и время").fill("2027-09-03T09:00");
+  await createDialog.getByRole("button", { name: "Создать задачу" }).click();
+
+  await page.getByRole("link", { name: "Задачи", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Сохранить ритм" })).toBeVisible();
+  await page.getByRole("button", { name: "Изменить" }).click();
+  const editDialog = page.getByRole("dialog", { name: "Изменить задачу" });
+  await editDialog.getByLabel("Название").fill("Ежедневная прогулка");
+  await editDialog.getByRole("button", { name: "Сохранить" }).click();
+  await expect(page.getByRole("heading", { name: "Ежедневная прогулка" })).toBeVisible();
+  await page.getByRole("button", { name: "Выполнено" }).click();
+  await expect(page.getByText("Открытых задач нет")).toBeVisible();
+  await page.getByRole("button", { name: "Выполненные" }).click();
+  await expect(page.getByRole("heading", { name: "Ежедневная прогулка" })).toBeVisible();
+});
+
+test("shows Xiaomi-only coverage without page overflow on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto("./data-quality");
+  await expect(page.getByRole("heading", { name: "Качество данных" })).toBeVisible();
+  await expect(page.getByLabel("Состояние источников").getByText("Xiaomi Cloud")).toBeVisible();
+  const steps = page.getByRole("row").filter({ hasText: "Шаги" });
+  await expect(steps).toContainText("Только Xiaomi Cloud");
+  await expect(page.getByText(/не подставляет шаги из Health Connect/i)).toBeVisible();
+  const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  expect(hasOverflow).toBe(false);
+});
+
+test("compares two laboratory panels in stable order", async ({ page }) => {
+  await page.goto("./labs/compare");
+  await page.getByLabel("Базовая панель").selectOption(labDocument.id);
+  await page.getByLabel("Сравниваемая панель").selectOption(secondLabDocument.id);
+  await page.getByRole("button", { name: "Сравнить", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Сопоставленные показатели" })).toBeVisible();
+  const ferritin = page.getByRole("row").filter({ hasText: "Ферритин" });
+  await expect(ferritin).toContainText("42,0 нг/мл");
+  await expect(ferritin).toContainText("48,0 нг/мл");
+  await expect(ferritin).toContainText("+6,0");
+});
+
+test("builds, downloads and explicitly deletes a doctor package on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("./reports/doctor");
+  await expect(page.getByRole("heading", { name: "Пакет для врача" })).toBeVisible();
+  await expect(page.getByLabel("AI-рекомендации")).not.toBeChecked();
+  await page.getByRole("button", { name: "Сформировать preview и PDF" }).click();
+  await expect(page.getByRole("heading", { name: "Preview пакета" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Шаги · Xiaomi Cloud" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Сон", exact: true })).toBeVisible();
+  await expect(page.getByText("Ось Y — часы; подсказки — часы и минуты")).toBeVisible();
+  const pdfLink = page.getByRole("link", { name: "Скачать PDF" });
+  await pdfLink.evaluate((element) => element.removeAttribute("download"));
+  const downloadPromise = page.waitForEvent("download");
+  await pdfLink.click();
+  expect((await downloadPromise).suggestedFilename()).toBe("amigo-doctor-report.pdf");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Удалить пакет" }).click();
+  await expect(page.getByRole("heading", { name: "Preview пакета" })).not.toBeVisible();
+  const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  expect(hasOverflow).toBe(false);
 });

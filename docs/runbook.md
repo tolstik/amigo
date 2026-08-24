@@ -41,6 +41,10 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
 - Prompt contract `amigo-health-v4` требует для каждой рекомендации конкретное
   действие, cadence или review period и ссылки на существующие evidence keys.
   На overview и в Telegram рекомендации идут раньше общих наблюдений.
+- UI разрешает каждую ссылку AI только из immutable snapshot конкретного
+  завершённого result/job. Значение, дата и диапазон citation не перечитываются
+  из текущих медицинских строк; актуальное состояние БД может изменить только
+  доступность authenticated deep link.
 - Assistant contract `amigo-health-chat-v2` получает полную структурированную
   историю здоровья, лабораторных результатов и исследований, но не originals,
   filenames, study titles или OCR pages. Он может разбирать evidence-backed
@@ -59,6 +63,12 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
   Signed Android ingest остаётся отдельным. Health Connect показывается только
   как агрегаты без device/pairing metadata, signatures, nonces, raw provider
   payload и raw heart-rate samples.
+- Authenticated `/api/v1/data-quality` агрегирует 30/90 завершённых дней без
+  device/account metadata и различает available, confirmed-empty и missing.
+  Tasks имеют once/daily/weekly/calendar-month recurrence и deduplicated
+  Telegram delivery; в Telegram уходят только title, due time и dashboard link.
+  Doctor-report snapshot/PDF живёт 24 часа, ограничен 40 страницами/10 МиБ и
+  исключает filenames, originals, OCR, chat, identity и raw provider data.
 - PostgreSQL `stored_files` — источник истины для оригиналов анализов и
   исследований. Для совместимости с предыдущим release лабораторные файлы
   временно dual-write сохраняются также в root-owned
@@ -70,12 +80,16 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
 - Очереди анализов и исследований обновляются через PostgreSQL
   `LISTEN/NOTIFY` и SSE. AI worker использует bounded notification wait с
   60-секундным fallback, healthchecks облегчены, minute heartbeat JobRun удалён.
-- Withings — единственный источник веса, состава тела и давления. Mi Fitness
-  передаёт только allowlisted activity/recovery records через Health Connect;
-  weight, pressure, location и exercise routes из Health Connect не принимаются.
-  Raw heart-rate samples не сохраняются; дневные агрегаты используются в
-  CSV/Telegram/AI, а почасовые min/avg/max — только для временной шкалы графика
-  пульса с часов.
+- Withings — единственный источник веса, состава тела и давления. Android
+  читает allowlisted activity/recovery records напрямую из Xiaomi Health Cloud;
+  Health Connect сохраняется как независимая rollback history. Шаги публикуются
+  только из active finalized Xiaomi coverage: Health Connect steps не попадают
+  в dashboard, CSV, Telegram, AI, correlations или doctor PDF. Weight,
+  pressure, location и exercise routes из обоих health-источников не
+  импортируются. Raw heart-rate samples не сохраняются; дневные агрегаты
+  используются в CSV/Telegram/AI, а почасовые min/avg/max — только для
+  временной шкалы графика пульса с часов. Сон остаётся в минутах в БД/API/CSV/AI,
+  но UI/PDF axis и tooltip отображают часы.
 - Одинаковая Withings group, повторно пришедшая из overlap-window, считается
   неизменной и не запускает AI повторно. Measurement-trigger создаётся только
   для новой или структурно изменившейся provider group.
@@ -189,11 +203,12 @@ backup. Теперь checkpoint сам создаёт локальный documen
    `ghcr.io/tolstik/amigo:GIT_SHA` доступен production или root Docker уже
    авторизован только для чтения package. OCI label
    `org.opencontainers.image.revision` должен совпадать с `GIT_SHA`.
-9. Для Android `1.3.4` (`versionCode 14`) использовать signed
-   [`Amigo-1.3.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.5/Amigo-1.3.4.apk)
+9. Для Android `1.4.0` (`versionCode 15`) использовать signed
+   [`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.0/Amigo-1.4.0.apk)
    из GitHub release
-   [`v5.1.5`](https://github.com/tolstik/amigo/releases/tag/v5.1.5) и сверить SHA-256
-   `59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1`.
+   [`v5.2.0`](https://github.com/tolstik/amigo/releases/tag/v5.2.0) и сверить SHA-256
+   `4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`
+   и размер `3 504 370` bytes.
    Signing certificate SHA-256 должен быть
    `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
    Keystore и его пароли не хранятся в Git или Markdown.
@@ -310,7 +325,7 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    MariaDB строку и импорт legacy-only весов из root-only TSV. Неизменившийся
    TSV не переписывается.
 6. Запуск `web` без workers, direct health на `127.0.0.1:18181` и атомарная
-   установка проверенного APK `1.3.4` в root-only Android directory.
+   установка проверенного APK `1.4.0` в root-only Android directory.
 7. Запуск изолированных `ai-gateway` и `lab-parser`; synthetic smoke через
    `ai-worker` последовательно проверяет live-контракты analysis, laboratory
    extraction, analyte guide и assistant turn, включая auth, sandbox, model,
@@ -330,7 +345,7 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    Тройной gateway smoke/retry не повторяется.
 9. Запуск `ingest`, затем атомарная установка nginx route. Общий prefix
    разрешает только `GET`/`HEAD`/`OPTIONS`; exact
-   auth/profile/labs/studies/assistant
+   auth/profile/data-quality/labs/studies/lab-compare/tasks/doctor-report/assistant
    mutation routes имеют отдельные rate/body limits, upload — 21 МиБ, SSE —
    отключённый buffering. Ingest имеет точные rate-limited routes и body limit
    1 МиБ. Сразу после nginx reload origin получает до
@@ -462,19 +477,47 @@ medication/dosage instructions и fixed calorie target.
 Официальный turn/event contract:
 [Codex app-server](https://learn.chatgpt.com/docs/app-server#turns).
 
+Сравнение лабораторных панелей принимает только 2–3 завершённых документа.
+Backend связывает строки исключительно по сохранённому `analyte_id`; delta
+рассчитывается только для единственного numeric результата в каждом документе
+при полном совпадении unit/specimen/method. Fuzzy matching и автоматическая
+конверсия единиц запрещены.
+
+Центр качества читает `/api/v1/data-quality?range=30d|90d` и показывает только
+агрегированное состояние источников/метрик. Для steps контракт всегда
+`xiaomi_finalized_only`, а `coverage.health_connect` обязан быть нулём.
+Health Connect step rows при этом не удаляются: они остаются rollback history.
+
+Задачи хранят immutable копию выбранной AI recommendation и её evidence IDs,
+если созданы из рекомендации. Recurrence — `once`, `daily`, `weekly` или
+calendar `monthly`; worker создаёт unique delivery на task/occurrence/channel.
+Telegram reminder не содержит note, health evidence или provider metadata —
+только title, Moscow due time и authenticated dashboard link.
+
+Doctor report создаётся authenticated POST, после чего exact GET/PDF доступны
+по canonical lowercase UUID и DELETE может удалить snapshot раньше срока.
+Snapshot immutable и автоматически очищается через 24 часа; PDF генерируется
+локально, не более 40 страниц/10 МиБ. Разрешены deterministic aggregates,
+verified/corrected laboratory rows, verified study findings/conclusion и
+опциональные validated AI recommendations/evidence IDs. Filenames, originals,
+OCR, chat, device/account identity и raw provider payload запрещены. Sleep
+внутри snapshot остаётся `sleep_minutes`, но PDF axis/label переводится в часы;
+steps в PDF явно обозначены как Xiaomi Cloud-only.
+
 ## Android APK, pairing и backfill
 
-1. Установить проверенный signed Android `1.3.4` (`versionCode 14`) —
-   [`Amigo-1.3.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.5/Amigo-1.3.4.apk)
-   из release [`v5.1.5`](https://github.com/tolstik/amigo/releases/tag/v5.1.5) —
-   или обновить `1.3.3`:
+1. Установить проверенный signed Android `1.4.0` (`versionCode 15`) —
+   [`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.0/Amigo-1.4.0.apk)
+   из release [`v5.2.0`](https://github.com/tolstik/amigo/releases/tag/v5.2.0) —
+   или обновить `1.3.4`:
 
    ```bash
    adb install -r <PATH_TO_SIGNED_APK>
    ```
 
-   SHA-256 asset `Amigo-1.3.4.apk`:
-   `59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1`.
+   SHA-256 asset `Amigo-1.4.0.apk`:
+   `4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`;
+   размер `3 504 370` bytes.
    Upgrade через `adb install -r` сохраняет pairing state, non-exportable
    Android Keystore key, выбранный Mi Fitness origin и resumable sync cursors.
    При подтверждении Xiaomi по email системная клавиатура должна открываться
@@ -530,8 +573,11 @@ Link на `https://amigo.tolstik.ru/amigo/labs` открывает прилож�
 route/origin блокируется. Upload выбирает до 25 PDF/JPG/PNG/HEIC/HEIF по 20 МиБ
 через Files/Photos. CSV и загруженный оригинал сохраняются через системный
 «Сохранить как»; приложение не следует redirect и не передаёт cookie вне
-allowlisted same-origin routes. После 30 секунд в фоне WebView автоматически
-reload показывает свежие данные. Камера и offline medical cache намеренно
+allowlisted same-origin routes. Doctor PDF разрешён только как exact
+same-origin GET
+`/amigo/api/v1/reports/doctor/<canonical-lowercase-UUID>.pdf` без query,
+fragment или redirect и ограничен 25 МиБ на клиенте. После 30 секунд в фоне
+WebView автоматически reload показывает свежие данные. Камера и offline medical cache намеренно
 отсутствуют; документы просматриваются защищённым web viewer.
 
 Кнопка «Сбросить сопряжение» сначала удаляет и немедленно создаёт новый
@@ -562,7 +608,7 @@ Android-Keystore AES-GCM storage; сервер и логи их не получ�
 Health Connect step record принимается до документированного значения
 `1 000 000` включительно. При отклонении сервер пишет только стабильный
 `detail.code`, без payload, headers, device ID, batch ID и validation details;
-Android `1.3.4` показывает только allowlisted code рядом с HTTP status и не
+Android `1.4.0` показывает только allowlisted code рядом с HTTP status и не
 отражает произвольное тело ответа. Для freshness watermark он предпочитает
 Health Connect `lastModifiedTime`, а ошибка одного record type не отменяет
 попытку синхронизации следующих типов, включая sleep. Сервер совместимости
@@ -574,7 +620,7 @@ signed source status и только затем читает cloud или заг
 восстанавливает прерванное первоначальное включение без очистки зашифрованной
 Xiaomi-сессии, pairing, ключа и cursors; allowlisted `mi_fitness_not_enabled`
 показывается явно, а не как общий `invalid_cloud_response`.
-В `1.3.4` `data_as_of` Xiaomi batch фиксирован persisted `range_end`, а `mi-v2`
+В `1.4.0` `data_as_of` Xiaomi batch фиксирован persisted `range_end`, а `mi-v2`
 batch ID связан с полным canonical normalized body. Cursor незавершённого
 snapshot хранит не более 20 000 SHA-256 record-ID hashes и исключает overlap
 следующих Xiaomi pages. `batch_id_conflict` или конфликт последовательности
@@ -626,24 +672,29 @@ sudo bash /srv/amigo/deploy/verify-production.sh
 - exact public `/.well-known/assetlinks.json`, package
   `ru.tolstik.amigo.sync` и release signing certificate, а также origin `405`
   и public `403`/`405` для POST;
-- explicit named-capture upstream URI для dynamic labs/studies/assistant routes без
+- explicit named-capture upstream URI для dynamic labs/studies/assistant/tasks/doctor-report routes без
   capture-unsafe generic rewrite;
 - explicit `429` для каждого managed rate-limit; upload допускает bounded burst
   из 25 запросов при сохранении лимита 30 запросов в минуту;
 - public login shell и method-correct `401` для
-  health JSON/CSV/labs/studies/updater/assistant
+  health JSON/CSV/data-quality/labs/lab-compare/studies/tasks/doctor-report/updater/assistant
   без session;
 - short-lived root-only verification session, authenticated overview/activity/
-  recovery/AI-v4/labs/studies/updater/assistant/CSV, exact Origin+CSRF,
+  recovery/data-quality/AI-v4/labs/studies/tasks/updater/assistant/CSV, exact Origin+CSRF,
   безопасное отклонение пустого upload и no-buffer assistant/lab/study SSE без
-  создания chat turn;
+  создания chat turn; temporary doctor snapshot/PDF проходит privacy, 24-hour,
+  40-page/10-MiB и hours-on-sleep-scale checks, затем удаляется;
+- active finalized Xiaomi-only selector для steps во всех shared analytics
+  consumers; data-quality не публикует Health Connect step coverage, но
+  rollback rows остаются в PostgreSQL; AI items разрешают каждый evidence ID в
+  descriptor из exact saved snapshot;
 - database-owned originals после проверенного backfill, отсутствие implausible
   laboratory dates после deterministic repair, подтверждённый прогресс
   ограниченного фонового backfill статей неизвестных analytes без terminal
   failure текущего контракта и analyte guide contract,
   root-only dual-write lab storage, web RW/ai-worker RO/parser no-mount и
   внутренний parser health;
-- root-only signed APK `1.3.4`, точный hash, read-only web mount,
+- root-only signed APK `1.4.0`, точные hash/size, read-only web mount,
   authenticated metadata и повторно скачанный APK с тем же hash;
 - все три точных signed ingest route: unsigned empty Health Connect/Xiaomi
   batch и Xiaomi status отклоняются до создания записи;

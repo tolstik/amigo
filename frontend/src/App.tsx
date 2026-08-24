@@ -22,6 +22,10 @@ import { DocumentViewerPage } from "./pages/DocumentViewerPage";
 import { StudiesPage } from "./pages/StudiesPage";
 import { StudyDocumentPage } from "./pages/StudyDocumentPage";
 import { GlobalLoadingPopup } from "./components/GlobalLoadingPopup";
+import { DataQualityPage } from "./pages/DataQualityPage";
+import { DoctorReportPage } from "./pages/DoctorReportPage";
+import { LabsComparePage } from "./pages/LabsComparePage";
+import { TasksPage } from "./pages/TasksPage";
 
 export type OverviewContext = ApiState<Overview>;
 
@@ -48,11 +52,14 @@ function PrivateApp({ session, onLogout }: { session: AuthSession; onLogout: () 
         <Route index element={<OverviewPage />} />
         <Route path="progress" element={<ProgressPage />} />
         <Route path="history" element={<HistoryPage />} />
+        <Route path="data-quality" element={<DataQualityPage />} />
+        <Route path="tasks" element={<TasksPage />} />
         <Route path="pressure" element={<PressurePage />} />
         <Route path="composition" element={<CompositionPage />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="recovery" element={<RecoveryPage />} />
         <Route path="labs" element={<LabsPage />} />
+        <Route path="labs/compare" element={<LabsComparePage />} />
         <Route path="labs/upload" element={<LabsUploadPage />} />
         <Route path="labs/documents/:id" element={<LabDocumentPage />} />
         <Route path="labs/documents/:id/view" element={<DocumentViewerPage kind="lab" />} />
@@ -61,6 +68,7 @@ function PrivateApp({ session, onLogout }: { session: AuthSession; onLogout: () 
         <Route path="studies/:id" element={<StudyDocumentPage />} />
         <Route path="studies/:id/view" element={<DocumentViewerPage kind="study" />} />
         <Route path="assistant" element={<AssistantPage />} />
+        <Route path="reports/doctor" element={<DoctorReportPage />} />
         <Route path="profile" element={<ProfilePage onLogout={onLogout} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

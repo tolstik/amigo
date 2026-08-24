@@ -41,9 +41,11 @@
   A retry from that state may snapshot only installed locations and HTTP files
   that exactly match the candidate's versioned maintenance snippet and HTTP
   configuration.
-- Managed regex routes for laboratory documents/results and assistant turns use
-  named captures with explicit upstream URIs; never reintroduce the generic
-  `rewrite ^/amigo/(.*)$` form because nginx can clobber its numeric capture.
+- Managed regex routes for laboratory documents/results, assistant turns,
+  tasks, and doctor reports use named captures with explicit upstream URIs.
+  New task/report captures accept canonical lowercase UUIDs; never reintroduce
+  the generic `rewrite ^/amigo/(.*)$` form because nginx can clobber its numeric
+  capture.
 - Assistant SSE sends `X-Accel-Buffering: no` through the origin nginx. The
   public nginx edge consumes that control header, so production verification
   checks it at the origin boundary and checks content type, cache policy, and
@@ -70,6 +72,10 @@
   started at or after the current worker container's `StartedAt` and finished
   with status `success`. The verification query may read only job name, status,
   and timestamps; never read or print `details`, provider payloads, or secrets.
+- Production verification must also enforce the Xiaomi-only published-step
+  selector, stable AI evidence descriptors, authentication/CSRF on all new
+  routes, and a temporary privacy-bounded doctor PDF whose sleep scale is in
+  hours. It must delete that report snapshot in the same successful run.
 - After every production deployment, update this file and the runbook checkpoint with the deployed Git SHA/image IDs, verification results, production URL, and latest rollback location before reporting completion.
 - `deploy/checkpoint.sh` must leave the root-owned production checkout clean by
   creating a local documentation-only commit and durable
@@ -95,6 +101,12 @@
   episode, counts only coverage finalized in that episode, and must not move
   while bounded provider pages upload. Never import cloud or
   Health Connect weight, blood pressure, GPS/location, or exercise routes.
+  Steps are an even stricter publication exception: only records selected from
+  active, finalized Xiaomi Cloud coverage may reach the dashboard, CSV,
+  Telegram, minimized AI, correlations, or doctor reports. Health Connect step
+  rows remain in PostgreSQL only as rollback history and never fill a missing
+  Xiaomi day. Sleep remains minutes in PostgreSQL/API/CSV/AI and immutable
+  report snapshots, while dashboard/PDF axes, values, and tooltips display hours.
   Dashboard, CSV, Telegram, and minimized AI
   snapshots use daily average/minimum/maximum watch heart rate, while the watch
   heart-rate chart may additionally use persisted hourly
@@ -122,8 +134,11 @@
   and never receives ingest pairing state. App Links cover only `/amigo` and
   `/amigo/...`; authenticated CSV and laboratory-original downloads use the
   system document picker and forward in-memory cookies only to exact allowlisted
-  same-origin GET routes, without redirects.
-- Android `1.3.4` (`versionCode 14`) accepts up to 25 dashboard uploads from the
+  same-origin GET routes, without redirects. Doctor-report PDF downloads are
+  additionally limited to exact authenticated same-origin GET
+  `/amigo/api/v1/reports/doctor/<canonical-lowercase-UUID>.pdf`, no
+  query/fragment/redirect, and 25 MiB on the client.
+- Android `1.4.0` (`versionCode 15`) accepts up to 25 dashboard uploads from the
   system picker, refreshes a stale foreground WebView, records allowlisted
   background-sync diagnostics, and schedules immediate, hourly, and bounded
   one-minute backfill continuation work. Its in-app updater may download only
@@ -168,6 +183,11 @@
   deterministic. Visible observations and recommendations are generated only
   from a validated AI result; never add template or rule-based narrative
   fallback text.
+- Public AI and new completed assistant evidence must resolve only from the
+  exact immutable snapshot captured for that result/turn. Later imports or
+  corrections must never rewrite a displayed value, date, range, or
+  verification state; current database state may only mark an authenticated
+  deep-link target available or unavailable.
 - The routine health-analysis boundary sends minimized, identifier-free derived
   facts and bounded daily aggregate series to the pinned Codex CLI using the
   fixed `gpt-5.6-sol` model. With explicit `amigo-ai-data-v1` consent, laboratory
@@ -238,6 +258,23 @@
   still has only three bounded attempts. The exact recovery command may requeue
   only intact terminal `timeout` documents that failed at extraction progress
   40, and must not revive unrelated terminal jobs.
+- The authenticated data-quality center covers 30 or 90 completed days and
+  exposes only aggregate source/metric states (`available`, `confirmed_empty`,
+  `missing`, or partial summary), never device/account identity or provider
+  payloads. Laboratory comparison accepts exactly two or three complete panels,
+  matches only persisted `analyte_id`, and calculates a delta only for compatible
+  singleton numeric values with identical unit, specimen, and method; never add
+  fuzzy matching or implicit conversion.
+- Health tasks use `once`, `daily`, `weekly`, or calendar-month recurrence.
+  A task created from AI freezes the selected recommendation and evidence IDs;
+  reminder delivery is unique per task/occurrence/channel. Telegram receives
+  only title, Moscow due time, and dashboard link, never task notes or evidence.
+- Doctor-report snapshots are immutable, authenticated, and retained for 24
+  hours unless deleted earlier. Locally rendered PDFs are capped at 40 pages
+  and 10 MiB and may include only selected deterministic aggregates,
+  verified/corrected labs, verified study findings/conclusions, and optional
+  validated AI recommendations/evidence IDs. Never include filenames,
+  originals, OCR, chat, device/account identity, or raw provider payloads.
 - Study-report uploads support the same bounded formats and queue for ultrasound,
   MRI, CT, X-ray, ECG, and other reports; DICOM is not supported. PostgreSQL
   stores the original plus structured findings/conclusion. Obvious identifier

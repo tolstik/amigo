@@ -586,30 +586,36 @@ def process_assistant_job(db: Session, settings: Settings, gateway: LabAssistant
     try:
         if user is None or assistant is None:
             raise WorkError("internal")
-        prompt, evidence = build_chat_context(db, settings, user.content)
+        context = build_chat_context(db, settings, user.content)
+        evidence = set(context.allowed_keys)
         request = GatewayChatRequest(
             model=AI_MODEL,
             contract_version="amigo-health-chat-v2",
             message_id=assistant.id,
             attempt=min(2, max(1, job.attempts)),
-            prompt=prompt,
-            allowed_evidence_keys=evidence,
+            prompt=context.prompt,
+            allowed_evidence_keys=list(context.allowed_keys),
         )
 
         def draft(segment: ChatSegment) -> None:
-            validate_chat_answer(ChatAnswer(segments=[segment]), set(evidence))
+            validate_chat_answer(ChatAnswer(segments=[segment]), evidence)
             assistant.draft_segments = [*(assistant.draft_segments or []), segment.model_dump(mode="json")]
             assistant.status = "streaming"
             db.commit()
 
         response = gateway.chat(request, draft)
-        validate_chat_answer(response.answer, set(evidence))
+        validate_chat_answer(response.answer, evidence)
         assistant.status = "validating"
         db.commit()
         assistant.content = "\n\n".join(segment.text for segment in response.answer.segments)
         assistant.evidence_keys = list(dict.fromkeys(
             key for segment in response.answer.segments for key in segment.evidence_keys
         ))
+        assistant.evidence_snapshot = {
+            key: context.catalog[key]
+            for key in assistant.evidence_keys
+            if key in context.catalog
+        }
         assistant.draft_segments = [segment.model_dump(mode="json") for segment in response.answer.segments]
         assistant.status, assistant.completed_at, assistant.error_code = "complete", now, None
         job.status, job.finished_at, job.lease_until, job.error_code = "success", now, None, None
@@ -632,10 +638,12 @@ def process_assistant_job(db: Session, settings: Settings, gateway: LabAssistant
             job.available_at = now + timedelta(seconds=10 * job.attempts)
             if assistant:
                 assistant.status, assistant.draft_segments, assistant.error_code = "queued", [], error.code
+                assistant.evidence_keys, assistant.evidence_snapshot = [], None
         else:
             job.status, job.finished_at = "failed", now
             if assistant:
                 assistant.status, assistant.draft_segments = "failed", []
                 assistant.error_code, assistant.completed_at = error.code, now
+                assistant.evidence_keys, assistant.evidence_snapshot = [], None
         db.commit()
     return True

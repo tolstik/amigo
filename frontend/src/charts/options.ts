@@ -55,6 +55,32 @@ function tooltipFormatter(params: any): string {
   return `<div class="chart-tooltip"><strong>${tooltipDate(dateValue)}</strong>${rows}</div>`;
 }
 
+function sleepHours(value: number | null): number | null {
+  return value === null ? null : value / 60;
+}
+
+function sleepDurationFromHours(value: number): string {
+  const totalMinutes = Math.max(0, Math.round(value * 60));
+  return `${Math.floor(totalMinutes / 60)} ч ${totalMinutes % 60} мин`;
+}
+
+function sleepTooltipFormatter(params: any): string {
+  const entries = Array.isArray(params) ? params : [params];
+  if (!entries.length) return "";
+  const dateValue = entries[0]?.axisValue ?? entries[0]?.value?.[0];
+  const rows = entries
+    .filter((entry: any) => {
+      const value = Array.isArray(entry.value) ? entry.value[1] : entry.value;
+      return typeof value === "number" && Number.isFinite(value);
+    })
+    .map((entry: any) => {
+      const value = Array.isArray(entry.value) ? entry.value[1] : entry.value;
+      return `<div class="chart-tooltip-row"><span>${entry.marker}${entry.seriesName}</span><b>${sleepDurationFromHours(Number(value))}</b></div>`;
+    })
+    .join("");
+  return `<div class="chart-tooltip"><strong>${tooltipDate(dateValue)}</strong>${rows}</div>`;
+}
+
 function timeLine(
   name: string,
   data: Array<[string, number | null]>,
@@ -339,24 +365,31 @@ export function sleepChartOption(points: RecoveryPoint[]): EChartsOption {
     tooltip: {
       trigger: "axis",
       confine: true,
-      formatter: tooltipFormatter,
+      formatter: sleepTooltipFormatter,
       backgroundColor: "rgba(22,31,25,.95)",
       borderWidth: 0,
       textStyle: { color: "#fff" },
     },
     xAxis: dailyCategoryAxis(points),
-    yAxis: { ...sharedAxis, type: "value", min: 0, name: "минуты", nameTextStyle: { color: colors.muted } },
+    yAxis: {
+      ...sharedAxis,
+      type: "value",
+      min: 0,
+      name: "часы",
+      nameTextStyle: { color: colors.muted },
+      axisLabel: { ...sharedAxis.axisLabel, formatter: (value: number) => formatNumber(value, 1) },
+    },
     dataZoom: [{ type: "inside", filterMode: "none" }],
     series: [
       {
         name: "Сон",
         type: "bar",
-        data: points.map((point) => [point.measuredAt, point.sleepMinutes]),
+        data: points.map((point) => [point.measuredAt, sleepHours(point.sleepMinutes)]),
         barMaxWidth: 18,
         itemStyle: { color: colors.violet, borderRadius: [4, 4, 1, 1] },
       },
-      timeLine("Глубокий сон", points.map((point) => [point.measuredAt, point.deepSleepMinutes]), colors.blue),
-      timeLine("REM", points.map((point) => [point.measuredAt, point.remSleepMinutes]), colors.green),
+      timeLine("Глубокий сон", points.map((point) => [point.measuredAt, sleepHours(point.deepSleepMinutes)]), colors.blue),
+      timeLine("REM", points.map((point) => [point.measuredAt, sleepHours(point.remSleepMinutes)]), colors.green),
     ],
   };
 }

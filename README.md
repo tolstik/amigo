@@ -143,7 +143,7 @@ a strict output schema; see the official
 
 ## Android app and Xiaomi/Health Connect companion
 
-Amigo `1.3.2` (`versionCode 12`, package `ru.tolstik.amigo.sync`) opens the full
+Amigo `1.3.3` (`versionCode 13`, package `ru.tolstik.amigo.sync`) opens the full
 authenticated dashboard in a top-level WebView. It uses the same local account
 and 90-day server session as a browser, while signed ingest remains independent.
 Only the fixed production origin and known SPA routes are accepted; there is no
@@ -170,6 +170,11 @@ heart-rate points to hourly min/average/max/count before upload; the server neve
 receives or persists those samples. Resting heart rate remains a distinct
 provider metric.
 
+Each Xiaomi Cloud run sends its signed source-status preflight before any cloud
+fetch or batch upload. If the first status report was interrupted, the next
+manual or background run repairs server-side enablement before sending data
+instead of surfacing a misleading `invalid_cloud_response`.
+
 Each installation creates a non-exportable P-256 key in Android Keystore.
 Registration requires explicit server-side pairing approval; every batch is
 ECDSA/SHA-256-signed, timestamped, nonce-protected, size-limited, replay-safe,
@@ -187,7 +192,7 @@ same-origin APK, verifies its declared size and SHA-256 plus package, higher
 version code, and installed signing certificate, then delegates to the Android
 system installer for explicit confirmation.
 
-Release 1.3.2 retains the `1.2.4` Health Connect behavior: modification timestamp as the batch
+Release 1.3.3 retains the `1.2.4` Health Connect behavior: modification timestamp as the batch
 freshness watermark, so Mi Fitness intervals whose rounded end is still ahead
 do not stall synchronization. A rejected record type no longer prevents later
 types such as sleep from being attempted in the same bounded run. It performs
@@ -207,10 +212,10 @@ Build, install, and phone setup are documented in
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.3.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.3/Amigo-1.3.2.apk)
-from release [`v5.1.3`](https://github.com/tolstik/amigo/releases/tag/v5.1.3).
+[`Amigo-1.3.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.4/Amigo-1.3.3.apk)
+from release [`v5.1.4`](https://github.com/tolstik/amigo/releases/tag/v5.1.4).
 Its SHA-256 is
-`430485651ecf0ea0943a03dbd6064936b07b098798817e92610cd8247e19af15`, and its
+`6f4156d6cf24df27b95b6cc53b26f83bd965c266da144e04f6feb3ccb884f156`, and its
 signing-certificate SHA-256 is
 `25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
 The previous `1.2.4` APK remains available from `v5.0.5`. Verify the checksum

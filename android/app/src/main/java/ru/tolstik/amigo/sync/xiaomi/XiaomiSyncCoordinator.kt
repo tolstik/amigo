@@ -27,7 +27,6 @@ internal class XiaomiSyncCoordinator(
         credentialsStore.saveSealed(sealed)
         val credentials = credentialsStore.load() ?: error("Сессия Xiaomi недоступна")
         preferences.enable(credentials.accountFingerprint, credentials.region)
-        report("pending", credentials)
         return sync(maxPages = 4)
     }
 
@@ -57,6 +56,10 @@ internal class XiaomiSyncCoordinator(
             throw XiaomiCloudException.AuthRequired()
         }
         try {
+            // A failed first status request must not leave local Xiaomi state enabled while
+            // the server still rejects every batch as mi_fitness_not_enabled. Reassert the
+            // bounded source status before any provider fetch or batch upload on every run.
+            report("pending", credentials)
             if (!preferences.regionDiscoveredFor(credentials.accountFingerprint)) {
                 credentials = discoverRegionWithOneRefresh(credentials)
             }
@@ -90,11 +93,7 @@ internal class XiaomiSyncCoordinator(
                 visited += 1
             }
             if (firstFailure != null) {
-                val code = when (firstFailure) {
-                    is XiaomiCloudException.RateLimited -> "rate_limited"
-                    is XiaomiCloudException.Network -> "network_error"
-                    else -> "invalid_cloud_response"
-                }
+                val code = xiaomiSyncErrorCode(firstFailure)
                 report(
                     if (firstFailure is XiaomiCloudException.RateLimited) "rate_limited" else "network_error",
                     credentials,
@@ -264,6 +263,19 @@ internal class XiaomiSyncCoordinator(
     ).also { response ->
         preferences.setServerState(response.status, response.active, errorCode)
     }
+}
+
+private val SAFE_SERVER_REJECTION =
+    Regex("^Amigo server returned HTTP [45]\\d\\d \\(([a-z][a-z0-9_]{0,63})\\)$")
+
+internal fun xiaomiSyncErrorCode(error: Exception): String = when (error) {
+    is XiaomiCloudException.RateLimited -> "rate_limited"
+    is XiaomiCloudException.Network -> "network_error"
+    else -> error.message
+        ?.let(SAFE_SERVER_REJECTION::matchEntire)
+        ?.groupValues
+        ?.get(1)
+        ?: "invalid_cloud_response"
 }
 
 internal data class XiaomiRegionProbe(

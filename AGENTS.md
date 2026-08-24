@@ -120,7 +120,7 @@
   `/amigo/...`; authenticated CSV and laboratory-original downloads use the
   system document picker and forward in-memory cookies only to exact allowlisted
   same-origin GET routes, without redirects.
-- Android `1.3.2` (`versionCode 12`) accepts up to 25 dashboard uploads from the
+- Android `1.3.3` (`versionCode 13`) accepts up to 25 dashboard uploads from the
   system picker, refreshes a stale foreground WebView, records allowlisted
   background-sync diagnostics, and schedules immediate, hourly, and bounded
   one-minute backfill continuation work. Its in-app updater may download only
@@ -144,10 +144,13 @@
   or cancelling the flow clears that state. Only Android-Keystore AES-GCM
   ciphertext crosses back to the main process. Xiaomi credentials, cookies, tokens, account identifiers, and raw
   provider payloads never reach Amigo's server or logs. Cloud synchronization
-  uses bounded regional discovery and passToken refresh, uploads only normalized
-  allowlisted records, aggregates ordinary heart rate by hour on the phone, and
-  keeps 3-day hourly plus 30-day weekly reconciliation after the descending
-  30-day backfill reaches `2000-01-01`.
+  uses bounded regional discovery and passToken refresh. Every cloud run first
+  reasserts the signed server-side source status before fetching or uploading,
+  so a missed initial status request cannot leave all batches rejected as
+  `mi_fitness_not_enabled`. It uploads only normalized allowlisted records,
+  aggregates ordinary heart rate by hour on the phone, and keeps 3-day hourly
+  plus 30-day weekly reconciliation after the descending 30-day backfill
+  reaches `2000-01-01`.
 - Deterministic blood-pressure, heart, SpO2, and VO2 displays remain descriptive
   and never add severity colors or app-side diagnoses. Validated AI may use those
   metrics only for evidence-bound measurement/logging advice or discussion of a

@@ -7,17 +7,17 @@ Connect as rollback history, and sends only normalized signed/idempotent batches
 to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
-Current signed release `1.3.2` (`versionCode 12`) for project release
-[`v5.1.3`](https://github.com/tolstik/amigo/releases/tag/v5.1.3):
-[`Amigo-1.3.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.3/Amigo-1.3.2.apk),
+Current signed release `1.3.3` (`versionCode 13`) for project release
+[`v5.1.4`](https://github.com/tolstik/amigo/releases/tag/v5.1.4):
+[`Amigo-1.3.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.4/Amigo-1.3.3.apk),
 SHA-256
-`430485651ecf0ea0943a03dbd6064936b07b098798817e92610cd8247e19af15`.
+`6f4156d6cf24df27b95b6cc53b26f83bd965c266da144e04f6feb3ccb884f156`.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
-The previous published release is `1.2.4`:
-[`Amigo-1.2.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.5/Amigo-1.2.4.apk),
-SHA-256 `ebf6c4eef3f77578263a65be610360b0bf06630a08a395741b65562c07b3cdaa`.
+The previous published release is `1.3.2`:
+[`Amigo-1.3.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.3/Amigo-1.3.2.apk),
+SHA-256 `430485651ecf0ea0943a03dbd6064936b07b098798817e92610cd8247e19af15`.
 
 ## Dashboard tab
 
@@ -165,7 +165,12 @@ for that record type. Pairing, the non-exportable key, selected origin, and all
 other type tokens/cursors remain unchanged. It retains the earlier worker,
 run-ID, DNS, and empty-cursor behavior.
 
-Xiaomi Cloud snapshots use the same signed headers and limits. The phone parses
+Xiaomi Cloud snapshots use the same signed headers and limits. Every Xiaomi
+sync first reasserts the signed server source status before any cloud fetch or
+batch upload. This repairs an interrupted initial enablement without clearing
+the encrypted credentials, pairing state, or cursors. A safe allowlisted server
+rejection such as `mi_fitness_not_enabled` remains visible instead of being
+reported as a generic cloud-response error. The phone parses
 only steps/distance, active calories, exercise summaries, sleep, hourly
 min/average/max/count heart rate, dedicated resting heart rate, overnight HRV,
 SpO2, and VO2 max. Raw heart-rate samples and provider JSON never leave the

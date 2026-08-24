@@ -120,7 +120,7 @@
   `/amigo/...`; authenticated CSV and laboratory-original downloads use the
   system document picker and forward in-memory cookies only to exact allowlisted
   same-origin GET routes, without redirects.
-- Android `1.3.1` (`versionCode 11`) accepts up to 25 dashboard uploads from the
+- Android `1.3.2` (`versionCode 12`) accepts up to 25 dashboard uploads from the
   system picker, refreshes a stale foreground WebView, records allowlisted
   background-sync diagnostics, and schedules immediate, hourly, and bounded
   one-minute backfill continuation work. Its in-app updater may download only
@@ -139,8 +139,10 @@
   fresh changes token; pairing, the device key, the selected origin, and every
   unrelated record-type cursor remain intact. Direct Xiaomi login runs in a
   separate WebView process with an isolated data directory and an exact HTTPS
-  allowlist; only Android-Keystore AES-GCM ciphertext crosses back to the main
-  process. Xiaomi credentials, cookies, tokens, account identifiers, and raw
+  allowlist. The Xiaomi login activity accepts IME input and preserves its
+  transient browser state when backgrounded for email verification; completing
+  or cancelling the flow clears that state. Only Android-Keystore AES-GCM
+  ciphertext crosses back to the main process. Xiaomi credentials, cookies, tokens, account identifiers, and raw
   provider payloads never reach Amigo's server or logs. Cloud synchronization
   uses bounded regional discovery and passToken refresh, uploads only normalized
   allowlisted records, aggregates ordinary heart rate by hour on the phone, and

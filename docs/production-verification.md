@@ -78,11 +78,11 @@
 - [ ] До первого Withings API request legacy collector переведён в единственный
       disabled-marker; после incremental sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.
-- [ ] Android `1.3.1` (`versionCode 11`) получен как
-      [`Amigo-1.3.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.2/Amigo-1.3.1.apk)
-      из release [`v5.1.2`](https://github.com/tolstik/amigo/releases/tag/v5.1.2);
+- [ ] Android `1.3.2` (`versionCode 12`) получен как
+      [`Amigo-1.3.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.3/Amigo-1.3.2.apk)
+      из release [`v5.1.3`](https://github.com/tolstik/amigo/releases/tag/v5.1.3);
       его SHA-256 равен
-      `7f58c0c658e9b28b8f1ba777a6010cf3c64939c722a5f310e57eeb894c827074`, а
+      `430485651ecf0ea0943a03dbd6064936b07b098798817e92610cd8247e19af15`, а
       signing certificate SHA-256 равен
       `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
       Signing keystore и пароли не попали в checkout или документы.
@@ -132,7 +132,7 @@
       terminal failed rows. Остаток исторической очереди может обрабатываться
       асинхронно пачками не более пяти.
 - [ ] `/srv/amigo/data/android/amigo-sync.apk` — root:root regular file `0600`
-      с точным hash `1.3.1`; `web` видит `/android` только read-only.
+      с точным hash `1.3.2`; `web` видит `/android` только read-only.
 - [ ] Listener `18181` — только `127.0.0.1:18181` для `web`; listener `18182` —
       только `127.0.0.1:18182` для `ingest`. `ai-gateway:8090` и
       `lab-parser:8085` не опубликованы в Docker и не слушают host.
@@ -297,11 +297,14 @@
       bounded medical/measurement рекомендацию. В AI output отсутствуют диагноз,
       лечение, назначение или изменение лекарства/дозировки и фиксированная цель
       по калориям.
-- [ ] Signed APK `1.3.1` установлен через `adb install -r`; прежние pairing
+- [ ] Signed APK `1.3.2` установлен через `adb install -r`; прежние pairing
       state, non-exportable Keystore key, выбранный Mi Fitness origin и cursors
       сохранены. Amigo имеет только read-only Health Connect permissions;
       location и exercise routes не запрошены.
-- [ ] После первого запуска `1.3.1` сохранён одноразовый reconcile обычного
+- [ ] На Xiaomi email-verification поле кода получает системную клавиатуру;
+      переход в почтовое приложение и возврат сохраняют текущую форму и
+      изолированную auth-сессию, а отмена входа очищает временное состояние.
+- [ ] После первого запуска `1.3.2` сохранён одноразовый reconcile обычного
       `heart_rate` из `1.2.4`: он получает свежий
       changes token и полный reconcile; snapshot/token/cursor остальных типов
       не сброшены. Сервер принял новый heart-rate snapshot либо подтвердил
@@ -374,8 +377,8 @@
       services, SHA-256 установленных Compose/nginx/Codex, результаты
       verification, exact previous-release recovery command и отдельную
       `rollback.sh --to-legacy` disaster command без секретов.
-- [ ] Release `v5.1.2` указывает на deployed feature commit; asset
-      `Amigo-1.3.1.apk` скачивается, повторно даёт ожидаемые APK SHA-256 и
+- [ ] Release `v5.1.3` указывает на deployed feature commit; asset
+      `Amigo-1.3.2.apk` скачивается, повторно даёт ожидаемые APK SHA-256 и
       signing certificate, а verified App Link association остаётся доступна.
 - [ ] Изменения `AGENTS.md`, runbook и `production-checkpoint.md` перенесены в
       канонический Git и закоммичены.

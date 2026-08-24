@@ -3,7 +3,9 @@ package ru.tolstik.amigo.sync.xiaomi
 import android.app.Activity
 import android.net.Uri
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
@@ -33,7 +35,21 @@ class XiaomiLoginActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         title = "Вход в Xiaomi"
         val root = FrameLayout(this)
-        webView = WebView(this)
+        webView = WebView(this).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+            setOnTouchListener { view, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> view.requestFocus()
+                    MotionEvent.ACTION_UP -> view.post {
+                        getSystemService(InputMethodManager::class.java)
+                            ?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+                    }
+                }
+                false
+            }
+        }
         progress = ProgressBar(this).apply { isIndeterminate = true }
         message = TextView(this).apply {
             textSize = 16f
@@ -68,9 +84,14 @@ class XiaomiLoginActivity : ComponentActivity() {
         val cookies = CookieManager.getInstance()
         cookies.setAcceptCookie(true)
         cookies.setAcceptThirdPartyCookies(webView, false)
-        cookies.removeAllCookies {
-            cookies.flush()
-            webView.loadUrl(XiaomiPassportClient.LOGIN_URL)
+        val restored = savedInstanceState?.let { webView.restoreState(it) } != null
+        if (restored) {
+            webView.requestFocus()
+        } else {
+            cookies.removeAllCookies {
+                cookies.flush()
+                webView.loadUrl(XiaomiPassportClient.LOGIN_URL)
+            }
         }
     }
 
@@ -188,14 +209,41 @@ class XiaomiLoginActivity : ComponentActivity() {
         message.text = text
     }
 
-    override fun onDestroy() {
-        CookieManager.getInstance().removeAllCookies(null)
+    override fun onResume() {
+        super.onResume()
+        webView.onResume()
+        webView.post {
+            if (webView.visibility == View.VISIBLE) {
+                webView.requestFocus()
+                if (webView.hasFocus()) {
+                    getSystemService(InputMethodManager::class.java)
+                        ?.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+                }
+            }
+        }
+    }
+
+    override fun onPause() {
         CookieManager.getInstance().flush()
-        WebStorage.getInstance().deleteAllData()
+        webView.onPause()
+        super.onPause()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        webView.saveState(outState)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onDestroy() {
+        if (isFinishing && !completing) {
+            CookieManager.getInstance().removeAllCookies(null)
+            CookieManager.getInstance().flush()
+            WebStorage.getInstance().deleteAllData()
+            webView.clearFormData()
+            webView.clearHistory()
+            webView.clearCache(true)
+        }
         webView.stopLoading()
-        webView.clearFormData()
-        webView.clearHistory()
-        webView.clearCache(true)
         webView.destroy()
         super.onDestroy()
     }

@@ -68,7 +68,7 @@
             android:exported="false"
             android:process=":xiaomi_auth"
             android:excludeFromRecents="true"
-            android:noHistory="true" />
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".MainActivity"

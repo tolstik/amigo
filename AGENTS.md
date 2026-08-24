@@ -52,6 +52,10 @@
   the bounded event body over public HTTPS.
 - Every managed nginx rate limit returns explicit `429`; never rely on nginx's
   default `503`, because the shared origin error handler can remap it.
+- Doctor-report routes use the dedicated `amigo_report` zone at `60r/m`:
+  creation has `burst=5`, while metadata/PDF/delete access has `burst=10`.
+  Never merge them into generic read or mutation buckets because dashboard,
+  labs, tasks, and CSRF probes must not exhaust a report lifecycle.
 - A responding but unhealthy legacy origin may be bypassed only with takeover's
   explicit `--allow-unhealthy-legacy-origin` flag. In that mode failure reversal
   must never treat legacy as healthy, enable its Withings cron, or stop a

@@ -8,8 +8,8 @@ to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
 Current signed release `1.4.0` (`versionCode 15`) for project release
-[`v5.2.0`](https://github.com/tolstik/amigo/releases/tag/v5.2.0):
-[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.0/Amigo-1.4.0.apk),
+[`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1):
+[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk),
 SHA-256
 `4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`, size
 `3,504,370` bytes.

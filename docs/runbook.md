@@ -204,9 +204,9 @@ backup. Теперь checkpoint сам создаёт локальный documen
    авторизован только для чтения package. OCI label
    `org.opencontainers.image.revision` должен совпадать с `GIT_SHA`.
 9. Для Android `1.4.0` (`versionCode 15`) использовать signed
-   [`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.0/Amigo-1.4.0.apk)
+   [`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk)
    из GitHub release
-   [`v5.2.0`](https://github.com/tolstik/amigo/releases/tag/v5.2.0) и сверить SHA-256
+   [`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1) и сверить SHA-256
    `4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`
    и размер `3 504 370` bytes.
    Signing certificate SHA-256 должен быть
@@ -348,7 +348,10 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    auth/profile/data-quality/labs/studies/lab-compare/tasks/doctor-report/assistant
    mutation routes имеют отдельные rate/body limits, upload — 21 МиБ, SSE —
    отключённый buffering. Ingest имеет точные rate-limited routes и body limit
-   1 МиБ. Сразу после nginx reload origin получает до
+   1 МиБ. Doctor-report lifecycle использует dedicated `amigo_report` zone
+   `60r/m`: creation с `burst=5`, metadata/PDF/delete с `burst=10`, чтобы
+   dashboard/labs/tasks/CSRF probes не расходовали его budget.
+   Сразу после nginx reload origin получает до
    15 проверок с интервалом 2 секунды для стабилизации на exact HTTP 200;
    последующий полный verification этим не заменяется.
 10. Запуск `worker` и `ai-worker` и полный verification. Проверка ждёт, пока
@@ -507,8 +510,8 @@ steps в PDF явно обозначены как Xiaomi Cloud-only.
 ## Android APK, pairing и backfill
 
 1. Установить проверенный signed Android `1.4.0` (`versionCode 15`) —
-   [`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.0/Amigo-1.4.0.apk)
-   из release [`v5.2.0`](https://github.com/tolstik/amigo/releases/tag/v5.2.0) —
+   [`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk)
+   из release [`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1) —
    или обновить `1.3.4`:
 
    ```bash
@@ -675,7 +678,9 @@ sudo bash /srv/amigo/deploy/verify-production.sh
 - explicit named-capture upstream URI для dynamic labs/studies/assistant/tasks/doctor-report routes без
   capture-unsafe generic rewrite;
 - explicit `429` для каждого managed rate-limit; upload допускает bounded burst
-  из 25 запросов при сохранении лимита 30 запросов в минуту;
+  из 25 запросов при сохранении лимита 30 запросов в минуту, а doctor-report
+  lifecycle использует отдельную zone `60r/m` с creation `burst=5` и access
+  `burst=10`;
 - public login shell и method-correct `401` для
   health JSON/CSV/data-quality/labs/lab-compare/studies/tasks/doctor-report/updater/assistant
   без session;

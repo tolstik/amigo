@@ -166,7 +166,7 @@ grep --quiet --fixed-strings 'cmp --silent "${LEGACY_IMPORT_CANDIDATE}"' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy rewrites unchanged legacy rollback exports"
 grep --quiet --fixed-strings \
-    'https://github.com/tolstik/amigo/releases/download/v5.2.0/Amigo-1.4.0.apk' \
+    'https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not fetch the published signed Android update"
 grep --quiet --fixed-strings \
@@ -302,6 +302,26 @@ managed_rate_status_count="$(grep --count --fixed-strings 'limit_req_status 429;
     "${SCRIPT_DIR}/nginx/amigo.locations.conf")"
 [[ "${managed_rate_limit_count}" -eq "${managed_rate_status_count}" ]] \
     || amigo_die "every managed rate limit must return explicit HTTP 429"
+grep --quiet --fixed-strings \
+    'limit_req_zone $binary_remote_addr zone=amigo_report:10m rate=60r/m;' \
+    "${SCRIPT_DIR}/nginx/amigo.http.conf" \
+    || amigo_die "doctor report creation has no dedicated rate-limit zone"
+[[ "$(grep --count --fixed-strings 'limit_req zone=amigo_report burst=5 nodelay;' \
+    "${SCRIPT_DIR}/nginx/amigo.locations.conf")" -eq 1 ]] \
+    || amigo_die "doctor report creation must use its dedicated rate-limit zone exactly once"
+doctor_create_limit="$(awk '
+    /^location = \/amigo\/api\/v1\/reports\/doctor \{$/ { in_doctor_create = 1; next }
+    in_doctor_create && /limit_req zone=/ {
+        sub(/^[[:space:]]+/, "")
+        print
+        exit
+    }
+' "${SCRIPT_DIR}/nginx/amigo.locations.conf")"
+[[ "${doctor_create_limit}" == 'limit_req zone=amigo_report burst=5 nodelay;' ]] \
+    || amigo_die "exact doctor report creation route does not use the dedicated rate limit"
+[[ "$(grep --count --fixed-strings 'limit_req zone=amigo_report burst=10 nodelay;' \
+    "${SCRIPT_DIR}/nginx/amigo.locations.conf")" -eq 2 ]] \
+    || amigo_die "doctor report access routes must share the dedicated zone with burst 10"
 grep --quiet --fixed-strings 'limit_req zone=amigo_upload burst=25 nodelay;' \
     "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
     || amigo_die "upload burst does not cover one bounded 25-file UI batch"

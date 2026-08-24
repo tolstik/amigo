@@ -79,8 +79,8 @@
       disabled-marker; после incremental sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.
 - [ ] Android `1.4.0` (`versionCode 15`) получен как
-      [`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.0/Amigo-1.4.0.apk)
-      из release [`v5.2.0`](https://github.com/tolstik/amigo/releases/tag/v5.2.0);
+      [`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk)
+      из release [`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1);
       его SHA-256 равен
       `4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`, размер
       равен `3 504 370` bytes, а
@@ -141,12 +141,13 @@
       `/amigo/healthz`, `/amigo/internal/health`, `/amigo-ingest/healthz` и
       `/amigo-ai/healthz` и `/amigo-lab-parser/healthz` не возвращают 2xx.
 - [ ] В `my.conf` ровно два managed marker, snippets совпадают с release,
-      read/ingest rate-limit zones установлены, `nginx -t` успешен.
+      read/ingest/report rate-limit zones установлены, `nginx -t` успешен.
 - [ ] Dynamic labs/studies/assistant/tasks/doctor-report regex routes используют
       named captures и exact upstream URI; новые task/report captures принимают
       только canonical lowercase UUID, public method/path не искажается generic rewrite.
 - [ ] Каждый managed `limit_req` имеет explicit `limit_req_status 429`; upload
-      burst покрывает bounded verification/UI sequence без shared `503` handler.
+      burst покрывает bounded verification/UI sequence без shared `503` handler,
+      а doctor-report lifecycle изолирован от общих read/mutation buckets.
 - [ ] Origin с `Host: amigo.tolstik.ru` отвечает; exact `/amigo` возвращает
       `308`, `/amigo/` — `200`.
 - [ ] Public `https://amigo.tolstik.ru/amigo` возвращает относительный
@@ -434,7 +435,7 @@
       services, SHA-256 установленных Compose/nginx/Codex, результаты
       verification, exact previous-release recovery command и отдельную
       `rollback.sh --to-legacy` disaster command без секретов.
-- [ ] Release `v5.2.0` указывает на deployed feature commit; asset
+- [ ] Release `v5.2.1` указывает на deployed fix-forward commit; asset
       `Amigo-1.4.0.apk` скачивается, повторно даёт ожидаемые APK SHA-256/size и
       signing certificate, а verified App Link association остаётся доступна.
 - [ ] Изменения `AGENTS.md`, runbook и `production-checkpoint.md` перенесены в

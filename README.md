@@ -263,8 +263,8 @@ Build, install, and phone setup are documented in
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.0/Amigo-1.4.0.apk)
-from release [`v5.2.0`](https://github.com/tolstik/amigo/releases/tag/v5.2.0).
+[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk)
+from release [`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1).
 Its SHA-256 is
 `4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`; its
 size is `3,504,370` bytes and its signing-certificate SHA-256 is

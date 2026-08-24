@@ -7,11 +7,11 @@ Connect as rollback history, and sends only normalized signed/idempotent batches
 to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
-Current signed release `1.3.0` (`versionCode 10`) for project release
-[`v5.1.1`](https://github.com/tolstik/amigo/releases/tag/v5.1.1):
-[`Amigo-1.3.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.1/Amigo-1.3.0.apk),
+Current signed release `1.3.1` (`versionCode 11`) for project release
+[`v5.1.2`](https://github.com/tolstik/amigo/releases/tag/v5.1.2):
+[`Amigo-1.3.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.2/Amigo-1.3.1.apk),
 SHA-256
-`b6500101f0b40be2952f0e8f8543acd1b2ccd8a31664bd7621d768033dac3e75`.
+`7f58c0c658e9b28b8f1ba777a6010cf3c64939c722a5f310e57eeb894c827074`.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
@@ -153,7 +153,7 @@ heart-rate record at 5,000 evenly sampled points while preserving the first and
 last point. Batch starts are separated by at least 1,100 ms to remain below the
 production 60 requests/minute limit. A failed upload leaves the cursor/token
 unchanged, so the same deterministic batch ID and body are retried. No raw
-health payload or private key is written to logs. Release 1.3.0 prefers a
+health payload or private key is written to logs. Release 1.3.1 prefers a
 record's Health Connect modification timestamp over a future interval end when
 forming the freshness watermark. It also continues later record types after an
 earlier type fails, then reports the first safe allowlisted rejection and keeps

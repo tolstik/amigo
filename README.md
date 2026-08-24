@@ -143,7 +143,7 @@ a strict output schema; see the official
 
 ## Android app and Xiaomi/Health Connect companion
 
-Amigo `1.3.0` (`versionCode 10`, package `ru.tolstik.amigo.sync`) opens the full
+Amigo `1.3.1` (`versionCode 11`, package `ru.tolstik.amigo.sync`) opens the full
 authenticated dashboard in a top-level WebView. It uses the same local account
 and 90-day server session as a browser, while signed ingest remains independent.
 Only the fixed production origin and known SPA routes are accepted; there is no
@@ -185,7 +185,7 @@ same-origin APK, verifies its declared size and SHA-256 plus package, higher
 version code, and installed signing certificate, then delegates to the Android
 system installer for explicit confirmation.
 
-Release 1.3.0 retains the `1.2.4` Health Connect behavior: modification timestamp as the batch
+Release 1.3.1 retains the `1.2.4` Health Connect behavior: modification timestamp as the batch
 freshness watermark, so Mi Fitness intervals whose rounded end is still ahead
 do not stall synchronization. A rejected record type no longer prevents later
 types such as sleep from being attempted in the same bounded run. It performs
@@ -205,10 +205,10 @@ Build, install, and phone setup are documented in
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.3.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.1/Amigo-1.3.0.apk)
-from release [`v5.1.1`](https://github.com/tolstik/amigo/releases/tag/v5.1.1).
+[`Amigo-1.3.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.2/Amigo-1.3.1.apk)
+from release [`v5.1.2`](https://github.com/tolstik/amigo/releases/tag/v5.1.2).
 Its SHA-256 is
-`b6500101f0b40be2952f0e8f8543acd1b2ccd8a31664bd7621d768033dac3e75`, and its
+`7f58c0c658e9b28b8f1ba777a6010cf3c64939c722a5f310e57eeb894c827074`, and its
 signing-certificate SHA-256 is
 `25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
 The previous `1.2.4` APK remains available from `v5.0.5`. Verify the checksum

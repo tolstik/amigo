@@ -7,17 +7,17 @@ Connect as rollback history, and sends only normalized signed/idempotent batches
 to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
-Current signed release `1.3.3` (`versionCode 13`) for project release
-[`v5.1.4`](https://github.com/tolstik/amigo/releases/tag/v5.1.4):
-[`Amigo-1.3.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.4/Amigo-1.3.3.apk),
+Current signed release `1.3.4` (`versionCode 14`) for project release
+[`v5.1.5`](https://github.com/tolstik/amigo/releases/tag/v5.1.5):
+[`Amigo-1.3.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.5/Amigo-1.3.4.apk),
 SHA-256
-`6f4156d6cf24df27b95b6cc53b26f83bd965c266da144e04f6feb3ccb884f156`.
+`59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1`.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
-The previous published release is `1.3.2`:
-[`Amigo-1.3.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.3/Amigo-1.3.2.apk),
-SHA-256 `430485651ecf0ea0943a03dbd6064936b07b098798817e92610cd8247e19af15`.
+The previous published release is `1.3.3`:
+[`Amigo-1.3.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.4/Amigo-1.3.3.apk),
+SHA-256 `6f4156d6cf24df27b95b6cc53b26f83bd965c266da144e04f6feb3ccb884f156`.
 
 ## Dashboard tab
 
@@ -170,7 +170,13 @@ sync first reasserts the signed server source status before any cloud fetch or
 batch upload. This repairs an interrupted initial enablement without clearing
 the encrypted credentials, pairing state, or cursors. A safe allowlisted server
 rejection such as `mi_fitness_not_enabled` remains visible instead of being
-reported as a generic cloud-response error. The phone parses
+reported as a generic cloud-response error. Xiaomi batch retries use the
+persisted range end as `data_as_of`, and `mi-v2` IDs bind the full canonical
+normalized content. While a snapshot is unfinished, its cursor persists at most
+20,000 SHA-256 record-ID hashes and filters overlap from later provider pages.
+A legacy batch/sequence conflict rotates only that metric's unfinished snapshot
+and retries it exactly once; credentials, pairing, completed history, and other
+metric cursors are unchanged. The phone parses
 only steps/distance, active calories, exercise summaries, sleep, hourly
 min/average/max/count heart rate, dedicated resting heart rate, overnight HRV,
 SpO2, and VO2 max. Raw heart-rate samples and provider JSON never leave the

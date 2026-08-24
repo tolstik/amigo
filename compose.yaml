@@ -42,8 +42,8 @@ x-application: &application
     AMIGO_LAB_PARSER_URL: http://lab-parser:8085
     AMIGO_LAB_PARSER_TIMEOUT_SECONDS: ${AMIGO_LAB_PARSER_TIMEOUT_SECONDS:-180}
     AMIGO_ANDROID_APK_PATH: /android/amigo-sync.apk
-    AMIGO_ANDROID_APK_VERSION_CODE: "13"
-    AMIGO_ANDROID_APK_VERSION_NAME: "1.3.3"
+    AMIGO_ANDROID_APK_VERSION_CODE: "14"
+    AMIGO_ANDROID_APK_VERSION_NAME: "1.3.4"
   secrets:
     - postgres_password
   volumes:

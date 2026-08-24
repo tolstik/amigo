@@ -189,11 +189,11 @@ backup. Теперь checkpoint сам создаёт локальный documen
    `ghcr.io/tolstik/amigo:GIT_SHA` доступен production или root Docker уже
    авторизован только для чтения package. OCI label
    `org.opencontainers.image.revision` должен совпадать с `GIT_SHA`.
-9. Для Android `1.3.3` (`versionCode 13`) использовать signed
-   [`Amigo-1.3.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.4/Amigo-1.3.3.apk)
+9. Для Android `1.3.4` (`versionCode 14`) использовать signed
+   [`Amigo-1.3.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.5/Amigo-1.3.4.apk)
    из GitHub release
-   [`v5.1.4`](https://github.com/tolstik/amigo/releases/tag/v5.1.4) и сверить SHA-256
-   `6f4156d6cf24df27b95b6cc53b26f83bd965c266da144e04f6feb3ccb884f156`.
+   [`v5.1.5`](https://github.com/tolstik/amigo/releases/tag/v5.1.5) и сверить SHA-256
+   `59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1`.
    Signing certificate SHA-256 должен быть
    `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
    Keystore и его пароли не хранятся в Git или Markdown.
@@ -310,7 +310,7 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    MariaDB строку и импорт legacy-only весов из root-only TSV. Неизменившийся
    TSV не переписывается.
 6. Запуск `web` без workers, direct health на `127.0.0.1:18181` и атомарная
-   установка проверенного APK `1.3.3` в root-only Android directory.
+   установка проверенного APK `1.3.4` в root-only Android directory.
 7. Запуск изолированных `ai-gateway` и `lab-parser`; synthetic smoke через
    `ai-worker` последовательно проверяет live-контракты analysis, laboratory
    extraction, analyte guide и assistant turn, включая auth, sandbox, model,
@@ -464,17 +464,17 @@ medication/dosage instructions и fixed calorie target.
 
 ## Android APK, pairing и backfill
 
-1. Установить проверенный signed Android `1.3.3` (`versionCode 13`) —
-   [`Amigo-1.3.3.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.4/Amigo-1.3.3.apk)
-   из release [`v5.1.4`](https://github.com/tolstik/amigo/releases/tag/v5.1.4) —
-   или обновить `1.3.2`:
+1. Установить проверенный signed Android `1.3.4` (`versionCode 14`) —
+   [`Amigo-1.3.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.5/Amigo-1.3.4.apk)
+   из release [`v5.1.5`](https://github.com/tolstik/amigo/releases/tag/v5.1.5) —
+   или обновить `1.3.3`:
 
    ```bash
    adb install -r <PATH_TO_SIGNED_APK>
    ```
 
-   SHA-256 asset `Amigo-1.3.3.apk`:
-   `6f4156d6cf24df27b95b6cc53b26f83bd965c266da144e04f6feb3ccb884f156`.
+   SHA-256 asset `Amigo-1.3.4.apk`:
+   `59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1`.
    Upgrade через `adb install -r` сохраняет pairing state, non-exportable
    Android Keystore key, выбранный Mi Fitness origin и resumable sync cursors.
    При подтверждении Xiaomi по email системная клавиатура должна открываться
@@ -562,18 +562,25 @@ Android-Keystore AES-GCM storage; сервер и логи их не получ�
 Health Connect step record принимается до документированного значения
 `1 000 000` включительно. При отклонении сервер пишет только стабильный
 `detail.code`, без payload, headers, device ID, batch ID и validation details;
-Android `1.3.3` показывает только allowlisted code рядом с HTTP status и не
+Android `1.3.4` показывает только allowlisted code рядом с HTTP status и не
 отражает произвольное тело ответа. Для freshness watermark он предпочитает
 Health Connect `lastModifiedTime`, а ошибка одного record type не отменяет
 попытку синхронизации следующих типов, включая sleep. Сервер совместимости
 принимает watermark не более чем на сутки вперед и сохраняет его не позднее
 момента приема, поэтому установленный `1.2.2` также не застревает на текущем
 интервале Mi Fitness до обновления приложения.
-Каждая Xiaomi-синхронизация в `1.3.3` сначала повторно подтверждает на сервере
+Каждая Xiaomi-синхронизация в `1.3.3` или новее сначала повторно подтверждает на сервере
 signed source status и только затем читает cloud или загружает batches. Это
 восстанавливает прерванное первоначальное включение без очистки зашифрованной
 Xiaomi-сессии, pairing, ключа и cursors; allowlisted `mi_fitness_not_enabled`
 показывается явно, а не как общий `invalid_cloud_response`.
+В `1.3.4` `data_as_of` Xiaomi batch фиксирован persisted `range_end`, а `mi-v2`
+batch ID связан с полным canonical normalized body. Cursor незавершённого
+snapshot хранит не более 20 000 SHA-256 record-ID hashes и исключает overlap
+следующих Xiaomi pages. `batch_id_conflict` или конфликт последовательности
+ровно один раз создаёт новый snapshot только для затронутой метрики и того же
+диапазона; Xiaomi-сессия, pairing, завершённая история и остальные cursors не
+сбрасываются. Повторный конфликт выходит в обычный bounded retry без цикла.
 После обновления до `1.3.2` или новее приложение сохраняет поведение `1.2.4`: один раз удаляет только changes token и
 snapshot state обычного `heart_rate`, затем выполняет его полный reconcile.
 Pairing, non-exportable key, выбранный origin и состояния всех остальных типов
@@ -636,7 +643,7 @@ sudo bash /srv/amigo/deploy/verify-production.sh
   failure текущего контракта и analyte guide contract,
   root-only dual-write lab storage, web RW/ai-worker RO/parser no-mount и
   внутренний parser health;
-- root-only signed APK `1.3.3`, точный hash, read-only web mount,
+- root-only signed APK `1.3.4`, точный hash, read-only web mount,
   authenticated metadata и повторно скачанный APK с тем же hash;
 - все три точных signed ingest route: unsigned empty Health Connect/Xiaomi
   batch и Xiaomi status отклоняются до создания записи;

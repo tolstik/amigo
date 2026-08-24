@@ -411,7 +411,7 @@ parser_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destinati
     || amigo_die "isolated parser unexpectedly mounts laboratory originals"
 amigo_log "PASS root-only laboratory originals and least-privilege mounts"
 
-readonly EXPECTED_ANDROID_APK_SHA256="6f4156d6cf24df27b95b6cc53b26f83bd965c266da144e04f6feb3ccb884f156"
+readonly EXPECTED_ANDROID_APK_SHA256="59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1"
 [[ -f "${AMIGO_ANDROID_APK}" && ! -L "${AMIGO_ANDROID_APK}" ]] \
     || amigo_die "signed Android update is missing or is a symlink"
 [[ "$(stat -c '%a' "${AMIGO_ANDROID_APK}")" == "600" ]] \
@@ -420,7 +420,7 @@ readonly EXPECTED_ANDROID_APK_SHA256="6f4156d6cf24df27b95b6cc53b26f83bd965c266da
     || amigo_die "signed Android update is not owned by root:root"
 [[ "$(sha256sum "${AMIGO_ANDROID_APK}" | awk '{ print $1 }')" \
     == "${EXPECTED_ANDROID_APK_SHA256}" ]] \
-    || amigo_die "installed Android update hash differs from signed 1.3.3"
+    || amigo_die "installed Android update hash differs from signed 1.3.4"
 web_android_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/android"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${web_container}")"
 [[ "${web_android_mount}" == "$(dirname -- "${AMIGO_ANDROID_APK}")|false" ]] \
     || amigo_die "web Android update mount is missing, writable, or sourced unexpectedly"
@@ -499,7 +499,7 @@ with SessionLocal() as db:
 done
 [[ ${ANALYTE_GUIDES_READY} -eq 1 ]] \
     || amigo_die "analyte guide backfill made no verified progress within three minutes"
-amigo_log "PASS database-owned originals, repaired laboratory dates, bounded analyte-guide backfill progress, and signed Android 1.3.3 artifact"
+amigo_log "PASS database-owned originals, repaired laboratory dates, bounded analyte-guide backfill progress, and signed Android 1.3.4 artifact"
 
 check_loopback_listener() {
     local port=$1
@@ -765,9 +765,9 @@ elif contract == "analyte-guide":
         raise SystemExit("laboratory analyte guide contract is incomplete")
 elif contract == "update":
     if (
-        payload.get("version_code") != 13
-        or payload.get("version_name") != "1.3.3"
-        or payload.get("sha256") != "6f4156d6cf24df27b95b6cc53b26f83bd965c266da144e04f6feb3ccb884f156"
+        payload.get("version_code") != 14
+        or payload.get("version_name") != "1.3.4"
+        or payload.get("sha256") != "59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1"
         or payload.get("download_url") != "/amigo/api/v1/app-update/apk"
         or not isinstance(payload.get("size_bytes"), int)
         or payload.get("size_bytes") <= 0

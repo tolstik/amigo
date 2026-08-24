@@ -146,7 +146,6 @@ class XiaomiParsersTest {
             firstPageIndex = 0,
             sourceFinalPage = true,
             sourceDataAsOf = end.minusSeconds(1),
-            now = end,
         )
         assertEquals(2, envelopes.size)
         assertTrue(envelopes.all { it.records.size <= 2_000 })
@@ -155,5 +154,72 @@ class XiaomiParsersTest {
         assertTrue(envelopes.all {
             ru.tolstik.amigo.sync.wire.CanonicalJson.encode(it.toJson()).size < 1_048_576
         })
+    }
+
+    @Test
+    fun batchIdentityBindsCanonicalContentAndUsesStableRangeEnd() {
+        fun record(count: Int) = ExportRecord(
+            recordId = "mi-steps-stable",
+            type = XiaomiMetric.STEPS.type,
+            startTime = start,
+            endTime = start.plusSeconds(60),
+            dataOrigin = "xiaomi_cloud",
+            values = kotlinx.serialization.json.buildJsonObject { put("count", count) },
+        )
+        fun plan(
+            item: ExportRecord,
+            finalPage: Boolean = true,
+            sourceDataAsOf: Instant = end.minusSeconds(1),
+        ) = XiaomiBatchPlanner.plan(
+            metric = XiaomiMetric.STEPS,
+            records = listOf(item),
+            rangeStart = start,
+            rangeEnd = end,
+            snapshotId = "snapshot-stable",
+            firstPageIndex = 0,
+            sourceFinalPage = finalPage,
+            sourceDataAsOf = sourceDataAsOf,
+        ).single()
+
+        val first = plan(record(10))
+        val replay = plan(record(10))
+        val changed = plan(record(11))
+        assertEquals(end, first.dataAsOf)
+        assertEquals(first.batchId, replay.batchId)
+        assertEquals(
+            ru.tolstik.amigo.sync.wire.CanonicalJson.encode(first.toJson()).toList(),
+            ru.tolstik.amigo.sync.wire.CanonicalJson.encode(replay.toJson()).toList(),
+        )
+        assertTrue(first.batchId.startsWith("mi-v2-"))
+        assertFalse(first.batchId == changed.batchId)
+        assertFalse(first.batchId == plan(record(10), finalPage = false).batchId)
+        assertFalse(
+            first.batchId == plan(record(10), sourceDataAsOf = end.minusSeconds(2)).batchId,
+        )
+        assertFalse("batch_id" in first.identityJson())
+    }
+
+    @Test
+    fun crossPageOverlapIsRemovedUsingOnlyDurableRecordHashes() {
+        fun record(id: String) = ExportRecord(
+            recordId = id,
+            type = XiaomiMetric.STEPS.type,
+            startTime = start,
+            endTime = start.plusSeconds(60),
+            dataOrigin = "xiaomi_cloud",
+            values = kotlinx.serialization.json.buildJsonObject { put("count", 1) },
+        )
+        val repeated = record("mi-steps-repeated")
+        val fresh = record("mi-steps-fresh")
+
+        assertEquals(
+            listOf(fresh),
+            unseenXiaomiRecords(
+                listOf(repeated, fresh),
+                setOf(xiaomiRecordHash(repeated.recordId)),
+            ),
+        )
+        assertEquals(64, xiaomiRecordHash(repeated.recordId).length)
+        assertFalse(xiaomiRecordHash(repeated.recordId).contains(repeated.recordId))
     }
 }

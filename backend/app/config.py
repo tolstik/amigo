@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     lab_parser_timeout_seconds: int = 180
     assistant_max_attempts: int = 2
     android_apk_path: Path = Path("/android/amigo-sync.apk")
-    android_apk_version_code: int = 13
-    android_apk_version_name: str = "1.3.3"
+    android_apk_version_code: int = 14
+    android_apk_version_name: str = "1.3.4"
 
     token_encryption_key: str | None = Field(default=None, repr=False)
     withings_client_id: str | None = None

@@ -3,6 +3,8 @@ package ru.tolstik.amigo.sync.xiaomi
 import android.content.Context
 import java.time.Instant
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -86,6 +88,12 @@ internal class XiaomiSyncPreferences(context: Context) {
                 nextKey = item.optional("next_key"),
                 pageIndex = item.required("page_index").toInt(),
                 sourceDataAsOf = item.optional("source_data_as_of")?.let(Instant::parse),
+                seenRecordHashes = (item["seen_record_hashes"] as? JsonArray)
+                    ?.map { it.jsonPrimitive.content }
+                    ?.onEach { require(it.matches(Regex("[0-9a-f]{64}"))) }
+                    ?.toSet()
+                    ?.also { require(it.size <= MAX_XIAOMI_SEEN_RECORD_HASHES) }
+                    .orEmpty(),
             )
         }.getOrNull()
     }
@@ -99,6 +107,12 @@ internal class XiaomiSyncPreferences(context: Context) {
                 put("range_end", cursor.rangeEnd.toString())
                 put("range_start", cursor.rangeStart.toString())
                 put("snapshot_id", cursor.snapshotId)
+                if (cursor.seenRecordHashes.isNotEmpty()) {
+                    put(
+                        "seen_record_hashes",
+                        JsonArray(cursor.seenRecordHashes.sorted().map(::JsonPrimitive)),
+                    )
+                }
                 cursor.sourceDataAsOf?.let { put("source_data_as_of", it.toString()) }
             }),
         ).apply()
@@ -167,6 +181,8 @@ internal class XiaomiSyncPreferences(context: Context) {
         private const val KEY_DISCOVERED_ACCOUNT = "region_discovered_account"
     }
 }
+
+internal const val MAX_XIAOMI_SEEN_RECORD_HASHES = 20_000
 
 internal fun earlierHistoryEnd(current: Instant?, completedStart: Instant): Instant =
     current?.let { minOf(it, completedStart) } ?: completedStart

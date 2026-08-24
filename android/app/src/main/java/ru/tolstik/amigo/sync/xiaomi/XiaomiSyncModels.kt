@@ -33,6 +33,10 @@ data class XiaomiBatchEnvelope(
         put("snapshot_id", snapshotId)
         sourceDataAsOf?.let { put("source_data_as_of", it.toString()) }
     }
+
+    internal fun identityJson(): JsonObject = JsonObject(
+        toJson().filterKeys { it != "batch_id" },
+    )
 }
 
 data class XiaomiStatusReport(
@@ -62,6 +66,7 @@ internal data class XiaomiCursor(
     val nextKey: String? = null,
     val pageIndex: Int = 0,
     val sourceDataAsOf: Instant? = null,
+    val seenRecordHashes: Set<String> = emptySet(),
 )
 
 data class XiaomiSyncSummary(

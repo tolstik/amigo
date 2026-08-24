@@ -71,7 +71,7 @@ internal class XiaomiSyncCoordinator(
             while (remaining > 0 && visited < XiaomiMetric.entries.size) {
                 val metric = XiaomiMetric.entries[index]
                 try {
-                    val result = syncOnePage(metric, credentials, refreshDays)
+                    val result = syncOnePageWithRecovery(metric, credentials, refreshDays)
                     uploaded += result
                     remaining -= 1
                 } catch (error: CancellationException) {
@@ -79,7 +79,7 @@ internal class XiaomiSyncCoordinator(
                 } catch (error: XiaomiCloudException.AuthRequired) {
                     credentials = refreshOnce(credentials)
                     try {
-                        uploaded += syncOnePage(metric, credentials, refreshDays)
+                        uploaded += syncOnePageWithRecovery(metric, credentials, refreshDays)
                         remaining -= 1
                     } catch (second: XiaomiCloudException.AuthRequired) {
                         report("auth_required", credentials, "auth_required")
@@ -129,6 +129,26 @@ internal class XiaomiSyncCoordinator(
         }
     }
 
+    private suspend fun syncOnePageWithRecovery(
+        metric: XiaomiMetric,
+        credentials: XiaomiCredentials,
+        refreshDays: Long,
+    ): Int = try {
+        syncOnePage(metric, credentials, refreshDays)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        if (!shouldRestartXiaomiSnapshot(error)) throw error
+        val cursor = preferences.cursor(metric) ?: throw error
+        preferences.setCursor(
+            metric,
+            restartXiaomiCursor(cursor, freshSnapshotId(metric)),
+        )
+        // Exactly one targeted retry. A second conflict is surfaced to the normal bounded
+        // worker retry path instead of creating an unbounded provider/server loop.
+        syncOnePage(metric, credentials, refreshDays)
+    }
+
     private suspend fun syncOnePage(
         metric: XiaomiMetric,
         credentials: XiaomiCredentials,
@@ -155,8 +175,15 @@ internal class XiaomiSyncCoordinator(
                 nextKey = cursor.nextKey,
             )
         }
-        val records = XiaomiParsers.records(metric, page.entries, cursor.rangeStart, cursor.rangeEnd)
+        val parsedRecords = XiaomiParsers.records(metric, page.entries, cursor.rangeStart, cursor.rangeEnd)
+        val records = unseenXiaomiRecords(parsedRecords, cursor.seenRecordHashes)
         val sourceDataAsOf = listOfNotNull(cursor.sourceDataAsOf, page.sourceDataAsOf).maxOrNull()
+        val nextSeenRecordHashes = if (page.nextKey == null) {
+            emptySet()
+        } else {
+            (cursor.seenRecordHashes + parsedRecords.map { xiaomiRecordHash(it.recordId) })
+                .also { require(it.size <= MAX_XIAOMI_SEEN_RECORD_HASHES) }
+        }
         val envelopes = XiaomiBatchPlanner.plan(
             metric = metric,
             records = records,
@@ -166,7 +193,6 @@ internal class XiaomiSyncCoordinator(
             firstPageIndex = cursor.pageIndex,
             sourceFinalPage = page.nextKey == null,
             sourceDataAsOf = sourceDataAsOf,
-            now = clock.instant(),
         )
         envelopes.forEach { ingest.uploadMiFitness(it) }
         if (page.nextKey == null) {
@@ -178,6 +204,7 @@ internal class XiaomiSyncCoordinator(
                     nextKey = page.nextKey,
                     pageIndex = cursor.pageIndex + envelopes.size,
                     sourceDataAsOf = sourceDataAsOf,
+                    seenRecordHashes = nextSeenRecordHashes,
                 ),
             )
         }
@@ -204,11 +231,14 @@ internal class XiaomiSyncCoordinator(
             }
         }
         return XiaomiCursor(
-            snapshotId = "mi-${metric.type.wireName}-${UUID.randomUUID()}",
+            snapshotId = freshSnapshotId(metric),
             rangeStart = rangeStart,
             rangeEnd = rangeEnd,
         ).also { preferences.setCursor(metric, it) }
     }
+
+    private fun freshSnapshotId(metric: XiaomiMetric) =
+        "mi-${metric.type.wireName}-${UUID.randomUUID()}"
 
     private suspend fun discoverRegionWithOneRefresh(
         credentials: XiaomiCredentials,
@@ -278,6 +308,37 @@ internal fun xiaomiSyncErrorCode(error: Exception): String = when (error) {
         ?: "invalid_cloud_response"
 }
 
+private val RESTARTABLE_XIAOMI_SNAPSHOT_CODES = setOf(
+    "batch_id_conflict",
+    "snapshot_already_finalised",
+    "snapshot_metadata_conflict",
+    "snapshot_page_out_of_order",
+    "snapshot_pages_incomplete",
+    "snapshot_record_repeated",
+)
+
+internal fun shouldRestartXiaomiSnapshot(error: Exception): Boolean =
+    xiaomiSyncErrorCode(error) in RESTARTABLE_XIAOMI_SNAPSHOT_CODES
+
+internal fun restartXiaomiCursor(cursor: XiaomiCursor, snapshotId: String) = cursor.copy(
+    snapshotId = snapshotId,
+    nextKey = null,
+    pageIndex = 0,
+    sourceDataAsOf = null,
+    seenRecordHashes = emptySet(),
+)
+
+internal fun xiaomiRecordHash(recordId: String): String = MessageDigest.getInstance("SHA-256")
+    .digest(recordId.toByteArray(Charsets.UTF_8))
+    .joinToString("") { "%02x".format(it) }
+
+internal fun unseenXiaomiRecords(
+    records: List<ExportRecord>,
+    seenRecordHashes: Set<String>,
+): List<ExportRecord> = records.filterNot { record ->
+    xiaomiRecordHash(record.recordId) in seenRecordHashes
+}
+
 internal data class XiaomiRegionProbe(
     val region: String,
     val reachable: Boolean,
@@ -314,12 +375,11 @@ internal object XiaomiBatchPlanner {
         firstPageIndex: Int,
         sourceFinalPage: Boolean,
         sourceDataAsOf: Instant?,
-        now: Instant,
     ): List<XiaomiBatchEnvelope> {
         val chunks = if (records.isEmpty()) listOf(emptyList()) else split(records) { chunk, index ->
             envelope(
                 metric, chunk, rangeStart, rangeEnd, snapshotId, firstPageIndex + index,
-                false, sourceDataAsOf, now,
+                false, sourceDataAsOf,
             )
         }
         return chunks.mapIndexed { index, chunk ->
@@ -332,7 +392,6 @@ internal object XiaomiBatchPlanner {
                 pageIndex = firstPageIndex + index,
                 finalPage = sourceFinalPage && index == chunks.lastIndex,
                 sourceDataAsOf = sourceDataAsOf,
-                now = now,
             )
         }
     }
@@ -372,20 +431,11 @@ internal object XiaomiBatchPlanner {
         pageIndex: Int,
         finalPage: Boolean,
         sourceDataAsOf: Instant?,
-        now: Instant,
     ): XiaomiBatchEnvelope {
-        val requestKey = listOf(
-            snapshotId,
-            pageIndex.toString(),
-            records.joinToString(",", transform = ExportRecord::recordId),
-        ).joinToString("|")
-        val batchId = "mi-" + MessageDigest.getInstance("SHA-256")
-            .digest(requestKey.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
-        return XiaomiBatchEnvelope(
-            batchId = batchId,
+        val unsigned = XiaomiBatchEnvelope(
+            batchId = "",
             recordType = metric.type,
-            dataAsOf = now,
+            dataAsOf = rangeEnd,
             sourceDataAsOf = sourceDataAsOf,
             rangeStart = rangeStart,
             rangeEnd = rangeEnd,
@@ -394,5 +444,9 @@ internal object XiaomiBatchPlanner {
             finalPage = finalPage,
             records = records,
         )
+        val batchId = "mi-v2-" + MessageDigest.getInstance("SHA-256")
+            .digest(CanonicalJson.encode(unsigned.identityJson()))
+            .joinToString("") { "%02x".format(it) }
+        return unsigned.copy(batchId = batchId)
     }
 }

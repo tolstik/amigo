@@ -51,6 +51,34 @@ class XiaomiCloudCryptoTest {
     }
 
     @Test
+    fun loginResourcesAllowCurrentXiaomiPassportCdnHostsOnly() {
+        assertTrue(
+            XiaomiPassportClient.isAllowedLoginResourceHost(
+                "cdn.web-global.fds.api.mi-img.com",
+            ),
+        )
+        assertTrue(
+            XiaomiPassportClient.isAllowedLoginResourceHost(
+                "font.sec.miui.com",
+            ),
+        )
+        assertTrue(
+            XiaomiPassportClient.isAllowedLoginResourceHost(
+                "ssl-cdn.static.browser.mi-img.com",
+            ),
+        )
+        assertTrue(
+            XiaomiPassportClient.isAllowedLoginResourceHost(
+                "mcfe--account-static-legacy.cnbj1.mi-fds.com",
+            ),
+        )
+        assertFalse(
+            XiaomiPassportClient.isAllowedLoginResourceHost("cdn.web-global.fds.api.evil.test"),
+        )
+        assertFalse(XiaomiPassportClient.isAllowedLoginResourceHost("example.com"))
+    }
+
+    @Test
     fun refreshAcceptsOnlyProvenPassTokenRotation() {
         val old = "old-pass-token"
         val proof = MessageDigest.getInstance("MD5")

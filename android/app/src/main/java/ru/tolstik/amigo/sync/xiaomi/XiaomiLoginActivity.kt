@@ -109,7 +109,9 @@ class XiaomiLoginActivity : ComponentActivity() {
                 request: WebResourceRequest,
             ): WebResourceResponse? {
                 val uri = request.url
-                if (uri.scheme == "https" && isAllowedResourceHost(uri.host)) return null
+                if (uri.scheme == "https" && XiaomiPassportClient.isAllowedLoginResourceHost(uri.host)) {
+                    return null
+                }
                 return WebResourceResponse(
                     "text/plain",
                     "UTF-8",
@@ -200,12 +202,5 @@ class XiaomiLoginActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_SEALED_SESSION = "sealed_xiaomi_session"
-
-        private fun isAllowedResourceHost(host: String?): Boolean {
-            val value = host?.lowercase() ?: return false
-            return value == "xiaomi.com" || value.endsWith(".xiaomi.com") ||
-                value == "mi.com" || value.endsWith(".mi.com") ||
-                value == "xiaomi.net" || value.endsWith(".xiaomi.net")
-        }
     }
 }

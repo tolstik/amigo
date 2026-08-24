@@ -234,6 +234,23 @@ internal class XiaomiPassportClient(baseHttp: OkHttpClient) {
             )
         }.getOrDefault(false)
 
+        /**
+         * The Passport shell is served by Xiaomi's account hosts, but its current
+         * web bundle is on these exact first-party CDN hosts. Keeping them separate
+         * from the navigation allowlist lets the login page load without allowing
+         * arbitrary external navigation or resources.
+         */
+        internal fun isAllowedLoginResourceHost(host: String?): Boolean {
+            val value = host?.lowercase() ?: return false
+            return value == "xiaomi.com" || value.endsWith(".xiaomi.com") ||
+                value == "mi.com" || value.endsWith(".mi.com") ||
+                value == "xiaomi.net" || value.endsWith(".xiaomi.net") ||
+                value == "cdn.web-global.fds.api.mi-img.com" ||
+                value == "font.sec.miui.com" ||
+                value == "ssl-cdn.static.browser.mi-img.com" ||
+                value == "mcfe--account-static-legacy.cnbj1.mi-fds.com"
+        }
+
         internal fun isStsCallback(url: String): Boolean = runCatching {
             val parsed = url.toHttpUrl()
             parsed.isHttps && parsed.host == STS_HOST && parsed.encodedPath.startsWith("/healthapp/")

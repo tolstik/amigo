@@ -131,6 +131,7 @@ def test_codex_runner_uses_fixed_safe_arguments_stdin_and_clean_environment(
     assert "DATABASE_URL" not in captured["kwargs"]["env"]
     assert "TELEGRAM_BOT_TOKEN" not in captured["kwargs"]["env"]
     assert captured["kwargs"]["start_new_session"] is True
+    assert captured["timeout"] == settings.analysis_timeout_seconds == 150
     for definition in ("AiObservation", "AiRecommendation"):
         assert captured["schema"]["$defs"][definition]["properties"]["evidence_keys"][
             "items"

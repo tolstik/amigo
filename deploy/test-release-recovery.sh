@@ -75,8 +75,20 @@ if grep --quiet --extended-regexp \
     'AMIGO_DEPLOY_LOCK_HELD=.*rollback\.sh' "${SCRIPT_DIR}/deploy.sh"; then
     amigo_die "deploy still invokes legacy disaster fallback automatically"
 fi
-grep --quiet --fixed-strings 'stop --timeout 120 ai-worker' "${SCRIPT_DIR}/deploy.sh" \
+grep --quiet --fixed-strings 'stop --timeout 180 ai-worker' "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not grant the existing AI worker its required stop timeout"
+grep --quiet --fixed-strings \
+    'AMIGO_AI_GATEWAY_TIMEOUT_SECONDS: "180"' \
+    "${PROJECT_ROOT}/compose.yaml" \
+    || amigo_die "AI worker client timeout is not pinned to the bounded analysis deadline"
+grep --quiet --fixed-strings \
+    'AMIGO_AI_CODEX_TIMEOUT_SECONDS: "75"' \
+    "${PROJECT_ROOT}/compose.yaml" \
+    || amigo_die "non-analysis Codex contracts lost their fixed deadline"
+grep --quiet --fixed-strings \
+    'AMIGO_AI_ANALYSIS_TIMEOUT_SECONDS: "150"' \
+    "${PROJECT_ROOT}/compose.yaml" \
+    || amigo_die "routine analysis does not have its separate bounded deadline"
 [[ "$(grep --count --fixed-strings \
     'python -m app.cli ai-retry-current --worker-stopped' "${SCRIPT_DIR}/deploy.sh")" -eq 1 ]] \
     || amigo_die "deploy must prepare exactly one current AI retry"
@@ -154,7 +166,7 @@ grep --quiet --fixed-strings 'cmp --silent "${LEGACY_IMPORT_CANDIDATE}"' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy rewrites unchanged legacy rollback exports"
 grep --quiet --fixed-strings \
-    'https://github.com/tolstik/amigo/releases/download/v5.1.0/Amigo-1.3.0.apk' \
+    'https://github.com/tolstik/amigo/releases/download/v5.1.1/Amigo-1.3.0.apk' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not fetch the published signed Android update"
 grep --quiet --fixed-strings \

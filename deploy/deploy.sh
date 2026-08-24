@@ -103,7 +103,7 @@ bash "${SCRIPT_DIR}/install-release-wrapper.sh"
 export AMIGO_IMAGE_TAG="${RELEASE_SHA}"
 CANDIDATE_IMAGE_SOURCE="ghcr.io/tolstik/amigo:${RELEASE_SHA}"
 readonly CANDIDATE_IMAGE_SOURCE
-readonly ANDROID_APK_URL="https://github.com/tolstik/amigo/releases/download/v5.1.0/Amigo-1.3.0.apk"
+readonly ANDROID_APK_URL="https://github.com/tolstik/amigo/releases/download/v5.1.1/Amigo-1.3.0.apk"
 readonly ANDROID_APK_SHA256="b6500101f0b40be2952f0e8f8543acd1b2ccd8a31664bd7621d768033dac3e75"
 amigo_log "candidate Git SHA: ${RELEASE_SHA}"
 amigo_log "automatic recovery target: ${PREVIOUS_RELEASE_SHA}"
@@ -235,7 +235,7 @@ if [[ -n "${existing_ai_worker_container}" ]] \
     EXISTING_AI_WORKER_WAS_RUNNING=1
     EXISTING_AI_WORKER_STOPPED=1
     amigo_log "stopping the existing AI worker before migration"
-    amigo_compose stop --timeout 120 ai-worker
+    amigo_compose stop --timeout 180 ai-worker
 fi
 existing_ingest_container=$(amigo_compose ps -q ingest)
 if [[ -n "${existing_ingest_container}" ]] \

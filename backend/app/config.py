@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     # queue worker.
     ai_enabled: bool = False
     ai_gateway_url: str = "http://ai-gateway:8090"
-    ai_gateway_timeout_seconds: int = 90
+    ai_gateway_timeout_seconds: int = 180
     ai_poll_seconds: int = 60
     ai_debounce_seconds: int = 300
     ai_activity_min_interval_seconds: int = 3600

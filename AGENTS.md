@@ -169,7 +169,9 @@
 - Deployment AI readiness permits only `ai-ready` exits `0` and `75`, prepares
   one explicit retry while the persistent worker is stopped, and runs at most
   four foreground queue attempts. It must never add an unbounded gateway or AI
-  retry loop.
+  retry loop. Routine health analysis has a separate 150-second Codex deadline
+  and 180-second worker client timeout; laboratory extraction, analyte guides,
+  and assistant turns retain the fixed 75-second Codex deadline.
 - The pre-cutover synthetic AI smoke must exercise the live analysis,
   laboratory-extraction, analyte-guide, and assistant-turn gateway contracts
   with bounded non-personal fixtures. Analysis, laboratory extraction, and

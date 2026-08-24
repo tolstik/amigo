@@ -248,11 +248,21 @@ grep --fixed-strings --line-regexp --quiet \
     'AMIGO_AI_GATEWAY_URL=http://ai-gateway:8090' <<<"${ai_worker_environment}" \
     || amigo_die "AI worker can send snapshots outside the isolated gateway"
 grep --fixed-strings --line-regexp --quiet \
+    'AMIGO_AI_GATEWAY_TIMEOUT_SECONDS=180' <<<"${ai_worker_environment}" \
+    || amigo_die "AI worker does not use the bounded routine-analysis timeout"
+grep --fixed-strings --line-regexp --quiet \
     'AMIGO_LAB_PARSER_URL=http://lab-parser:8085' <<<"${ai_worker_environment}" \
     || amigo_die "AI worker does not use the isolated laboratory parser"
 grep --fixed-strings --line-regexp --quiet \
     'AMIGO_USER_HEIGHT_CM=176' <<<"${ai_worker_environment}" \
     || amigo_die "AI worker does not use the configured 176 cm profile height"
+gateway_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${gateway_container}")"
+grep --fixed-strings --line-regexp --quiet \
+    'AMIGO_AI_CODEX_TIMEOUT_SECONDS=75' <<<"${gateway_environment}" \
+    || amigo_die "non-analysis Codex contracts do not retain their fixed deadline"
+grep --fixed-strings --line-regexp --quiet \
+    'AMIGO_AI_ANALYSIS_TIMEOUT_SECONDS=150' <<<"${gateway_environment}" \
+    || amigo_die "routine analysis does not use its separate bounded deadline"
 for isolated_container in "${gateway_container}" "${parser_container}"; do
     isolated_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${isolated_container}")"
     if grep --quiet --extended-regexp '^(DATABASE_URL|POSTGRES_PASSWORD_FILE|AMIGO_ENCRYPTION_KEY_FILE)=' \

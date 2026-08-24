@@ -93,6 +93,7 @@ class AiGatewaySettings(BaseSettings):
     codex_home: Path = Path("/run/amigo-ai-codex")
     codex_work_dir: Path = Path("/tmp/amigo-ai-work")
     codex_timeout_seconds: int = 75
+    analysis_timeout_seconds: int = 150
     codex_concurrency: int = 1
 
     @field_validator("gateway_port")
@@ -102,7 +103,11 @@ class AiGatewaySettings(BaseSettings):
             raise ValueError("invalid gateway port")
         return value
 
-    @field_validator("codex_timeout_seconds", "codex_concurrency")
+    @field_validator(
+        "codex_timeout_seconds",
+        "analysis_timeout_seconds",
+        "codex_concurrency",
+    )
     @classmethod
     def positive_value(cls, value: int) -> int:
         if value < 1:
@@ -779,7 +784,7 @@ class CodexRunner:
             try:
                 process.communicate(
                     build_analysis_prompt(request).encode("utf-8"),
-                    timeout=self.settings.codex_timeout_seconds,
+                    timeout=self.settings.analysis_timeout_seconds,
                 )
             except subprocess.TimeoutExpired as exc:
                 try:

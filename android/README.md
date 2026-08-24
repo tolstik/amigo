@@ -8,8 +8,8 @@ to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
 Current signed release `1.3.0` (`versionCode 10`) for project release
-[`v5.1.0`](https://github.com/tolstik/amigo/releases/tag/v5.1.0):
-[`Amigo-1.3.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.0/Amigo-1.3.0.apk),
+[`v5.1.1`](https://github.com/tolstik/amigo/releases/tag/v5.1.1):
+[`Amigo-1.3.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.1/Amigo-1.3.0.apk),
 SHA-256
 `b6500101f0b40be2952f0e8f8543acd1b2ccd8a31664bd7621d768033dac3e75`.
 The signing-certificate SHA-256 is

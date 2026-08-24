@@ -190,9 +190,9 @@ backup. Теперь checkpoint сам создаёт локальный documen
    авторизован только для чтения package. OCI label
    `org.opencontainers.image.revision` должен совпадать с `GIT_SHA`.
 9. Для Android `1.3.0` (`versionCode 10`) использовать signed
-   [`Amigo-1.3.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.0/Amigo-1.3.0.apk)
+   [`Amigo-1.3.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.1/Amigo-1.3.0.apk)
    из GitHub release
-   [`v5.1.0`](https://github.com/tolstik/amigo/releases/tag/v5.1.0) и сверить SHA-256
+   [`v5.1.1`](https://github.com/tolstik/amigo/releases/tag/v5.1.1) и сверить SHA-256
    `b6500101f0b40be2952f0e8f8543acd1b2ccd8a31664bd7621d768033dac3e75`.
    Signing certificate SHA-256 должен быть
    `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
@@ -300,7 +300,7 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
 3. Проверенный legacy/PostgreSQL snapshot с rollback image tags и предыдущим
    состоянием APK; после snapshot включается automatic recovery.
 4. Остановка уже работающих `worker`, `ai-worker`, `ingest` и `lab-parser` (`ai-worker`
-   получает до 120 секунд на штатное завершение), запуск `db`,
+   получает до 180 секунд на штатное завершение), запуск `db`,
    один idempotent bootstrap с migrations, затем `backfill-files`, который
    копирует и проверяет legacy laboratory originals в PostgreSQL. Если локальный аккаунт ещё не создан, deploy скрыто
    запрашивает пароль дважды и передаёт одну строку в root-only CLI через stdin.
@@ -319,6 +319,9 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    выполняются один раз. Только invalid/error assistant
    result получает ровно одну повторную попытку с `attempt=2`; второй ответ
    обязан полностью пройти schema, evidence и medical-safety validation.
+   Routine health analysis имеет отдельный bounded Codex deadline 150 секунд и
+   worker HTTP timeout 180 секунд; extraction, analyte-guide и assistant
+   сохраняют 75-секундный Codex deadline.
 8. При всё ещё остановленном persistent `ai-worker` один
    `ai-retry-current --worker-stopped` готовит exact current job. `ai-ready`
    принимает только `0` (готово) или `75` (ещё не готово); любой другой exit
@@ -462,8 +465,8 @@ medication/dosage instructions и fixed calorie target.
 ## Android APK, pairing и backfill
 
 1. Установить проверенный signed Android `1.3.0` (`versionCode 10`) —
-   [`Amigo-1.3.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.0/Amigo-1.3.0.apk)
-   из release [`v5.1.0`](https://github.com/tolstik/amigo/releases/tag/v5.1.0) —
+   [`Amigo-1.3.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.1/Amigo-1.3.0.apk)
+   из release [`v5.1.1`](https://github.com/tolstik/amigo/releases/tag/v5.1.1) —
    или обновить `1.2.4`:
 
    ```bash

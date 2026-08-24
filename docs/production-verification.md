@@ -55,11 +55,14 @@
 - [ ] При повторном релизе работающие `worker`, `ai-worker`, `ingest` и `lab-parser` будут
       остановлены до migrations/one-shot jobs и восстановлены при ранней
       ошибке; нет двух процессов, параллельно ротирующих Withings OAuth.
-- [ ] Existing `ai-worker` останавливается с timeout 120 секунд. После остановки
+- [ ] Existing `ai-worker` останавливается с timeout 180 секунд. После остановки
       ровно один `ai-retry-current --worker-stopped` предшествует AI attempts;
       `ai-ready` принимает только exit `0/75`, foreground worker запускается не
       более четырёх раз, а `ai-enqueue` выполняется только между failed attempts
       1–3. Отдельного gateway retry loop нет.
+- [ ] `ai-gateway` использует отдельный 150-секундный deadline только для
+      routine analysis; worker client ждёт не более 180 секунд, а laboratory,
+      analyte-guide и assistant сохраняют 75-секундный Codex deadline.
 - [ ] Если production до подготовки находился на legacy route/cron, сначала
       успешно выполнен `takeover-from-legacy.sh --resume-recorded-release`:
       current OAuth pair взята из live MariaDB через root-only handoff, записана
@@ -76,8 +79,8 @@
       disabled-marker; после incremental sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.
 - [ ] Android `1.3.0` (`versionCode 10`) получен как
-      [`Amigo-1.3.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.0/Amigo-1.3.0.apk)
-      из release [`v5.1.0`](https://github.com/tolstik/amigo/releases/tag/v5.1.0);
+      [`Amigo-1.3.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.1/Amigo-1.3.0.apk)
+      из release [`v5.1.1`](https://github.com/tolstik/amigo/releases/tag/v5.1.1);
       его SHA-256 равен
       `b6500101f0b40be2952f0e8f8543acd1b2ccd8a31664bd7621d768033dac3e75`, а
       signing certificate SHA-256 равен
@@ -371,7 +374,7 @@
       services, SHA-256 установленных Compose/nginx/Codex, результаты
       verification, exact previous-release recovery command и отдельную
       `rollback.sh --to-legacy` disaster command без секретов.
-- [ ] Release `v5.1.0` указывает на deployed feature commit; asset
+- [ ] Release `v5.1.1` указывает на deployed feature commit; asset
       `Amigo-1.3.0.apk` скачивается, повторно даёт ожидаемые APK SHA-256 и
       signing certificate, а verified App Link association остаётся доступна.
 - [ ] Изменения `AGENTS.md`, runbook и `production-checkpoint.md` перенесены в

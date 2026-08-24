@@ -363,6 +363,15 @@ class TelegramNotifier:
 
     def deliver(self, event: Outbox, now: datetime | None = None) -> DeliveryResult:
         current = now or datetime.now(timezone.utc)
+        if event.event_type == "mi_fitness.auth_required":
+            self.client.send_message(
+                "<b>⚠️ Mi Fitness: требуется повторный вход</b>\n"
+                "Xiaomi Cloud больше не принимает сохранённую сессию. "
+                "Откройте Amigo → Синхронизация и войдите в Xiaomi заново. "
+                "До восстановления входа Amigo сохраняет последние облачные данные "
+                "и не подменяет их данными Health Connect."
+            )
+            return DeliveryResult()
         if event.event_type == "measurement.weight":
             text, keys = self._weight_text(event, current)
             self.client.send_message(text)

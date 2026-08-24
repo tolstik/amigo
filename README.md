@@ -4,9 +4,9 @@ Personal, authenticated health dashboard for weight-program progress, activity,
 recovery, descriptive blood-pressure history, laboratory results, study reports,
 and a context-aware assistant. Withings remains
 the only source of weight, body composition, blood pressure, and the pulse
-recorded during a blood-pressure session. Xiaomi Smart Band 9 Pro data,
-including ordinary heart-rate samples, follows
-`Mi Fitness -> Health Connect -> Amigo Sync`.
+recorded during a blood-pressure session. Xiaomi Smart Band 9 Pro data is read
+directly from Xiaomi Health Cloud by the Android companion; Health Connect
+remains an independently signed rollback history.
 
 The weight program starts on 2026-08-15, while a separate view preserves the
 complete earlier weight history. Amigo also sends immediate measurement
@@ -20,16 +20,17 @@ The production Docker Compose stack has seven services:
   and React dashboard;
 - `worker` — Withings synchronization, outbox, Telegram, and scheduling;
 - `db` — PostgreSQL 17;
-- `ingest` — signed Health Connect registration, pairing status, and batch
-  ingestion;
+- `ingest` — signed Android registration, pairing status, Health Connect
+  rollback-history ingestion, and Xiaomi Cloud snapshot/status ingestion;
 - `ai-worker` — PostgreSQL-backed asynchronous analysis queue;
 - `ai-gateway` — isolated, single-concurrency Codex CLI process boundary;
 - `lab-parser` — non-root, database-free PDF/image text extraction and OCR.
 
 Only `web` and `ingest` are host-published, on loopback ports `18181` and
 `18182`. Origin nginx exposes the dashboard at
-`https://amigo.tolstik.ru/amigo/` and only the three exact signed-ingest
-routes under `/amigo-ingest/v1/`. The AI gateway and laboratory parser have no
+`https://amigo.tolstik.ru/amigo/` and only the bounded registration/status,
+Health Connect, and Xiaomi signed-ingest routes under `/amigo-ingest/v1/`. The
+AI gateway and laboratory parser have no
 host ports. The dashboard, JSON APIs, CSV, uploaded originals, APK update, and
 assistant require the single local account; Android signed ingest is independent.
 Health Connect appears there only as daily/weekly aggregates, without device or
@@ -140,9 +141,9 @@ retained as complete. The gateway uses ephemeral `codex app-server` turns with
 a strict output schema; see the official
 [`app-server` turns documentation](https://learn.chatgpt.com/docs/app-server#turns).
 
-## Android app and Health Connect companion
+## Android app and Xiaomi/Health Connect companion
 
-Amigo `1.2.4` (`versionCode 9`, package `ru.tolstik.amigo.sync`) opens the full
+Amigo `1.3.0` (`versionCode 10`, package `ru.tolstik.amigo.sync`) opens the full
 authenticated dashboard in a top-level WebView. It uses the same local account
 and 90-day server session as a browser, while signed ingest remains independent.
 Only the fixed production origin and known SPA routes are accepted; there is no
@@ -153,15 +154,19 @@ files, and authenticated CSV/original downloads use system “Save as” with an
 exact same-origin allowlist and no redirects. Returning to a WebView that has
 been backgrounded for 30 seconds refreshes it so current server data is shown.
 
-The native synchronization tab reads the history that Health Connect actually makes available for
-steps, distance, calories, active minutes, workouts, sleep, heart/resting heart
-rate, HRV, SpO2, and VO2 max. Availability varies by device and Mi Fitness.
-The app never requests weight, blood pressure, location, or exercise routes.
+The native synchronization tab reads steps, distance, active calories, workout
+summaries, sleep, heart/resting heart rate, HRV, SpO2, and VO2 max directly from
+Xiaomi Health Cloud. Xiaomi login is confined to an exact-host HTTPS WebView in
+a separate process; the password remains on Xiaomi's page, and the resulting
+session is stored only as Android-Keystore AES-GCM ciphertext. Credentials,
+cookies, account identifiers, provider payloads, weight, blood pressure,
+location, and exercise routes never reach the Amigo server. Health Connect can
+remain enabled for the same allowlisted types as rollback history.
 The recovery dashboard, CSV export, Telegram digests, and minimized AI snapshot
-use daily average/minimum/maximum watch heart rate. The watch-pulse chart also
-uses persisted hourly min/average/max aggregates; raw samples are discarded at
-ingest. Resting heart rate remains a separate metric and is shown only when
-Health Connect supplies its dedicated record type.
+use daily average/minimum/maximum watch heart rate. The phone reduces raw cloud
+heart-rate points to hourly min/average/max/count before upload; the server never
+receives or persists those samples. Resting heart rate remains a distinct
+provider metric.
 
 Each installation creates a non-exportable P-256 key in Android Keystore.
 Registration requires explicit server-side pairing approval; every batch is
@@ -180,27 +185,33 @@ same-origin APK, verifies its declared size and SHA-256 plus package, higher
 version code, and installed signing certificate, then delegates to the Android
 system installer for explicit confirmation.
 
-Release 1.2.4 uses Health Connect's modification timestamp as the batch
+Release 1.3.0 retains the `1.2.4` Health Connect behavior: modification timestamp as the batch
 freshness watermark, so Mi Fitness intervals whose rounded end is still ahead
 do not stall synchronization. A rejected record type no longer prevents later
 types such as sleep from being attempted in the same bounded run. It performs
 one heart-rate-only full reconciliation with a fresh changes token after the
 upgrade, while preserving pairing, the device key, the selected origin, and all
 other type cursors. The release keeps the earlier worker/run-ID, DNS, and
-empty-history fixes.
+empty-history fixes. Direct cloud activation requires finalized three-day
+coverage for all ten mapped types and heart rate newer than the retained Health
+Connect watermark. Partial snapshots are invisible; a final cloud snapshot,
+including a confirmed-empty one, atomically takes precedence only for the same
+metric and interval. Backfill descends in 30-day windows to `2000-01-01`, then
+uses three-day hourly and 30-day weekly reconciliation. Auth expiry stays
+visible and never silently switches the active source.
 
 Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.2.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.0.5/Amigo-1.2.4.apk)
-from release [`v5.0.5`](https://github.com/tolstik/amigo/releases/tag/v5.0.5).
+[`Amigo-1.3.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.0/Amigo-1.3.0.apk)
+from release [`v5.1.0`](https://github.com/tolstik/amigo/releases/tag/v5.1.0).
 Its SHA-256 is
-`ebf6c4eef3f77578263a65be610360b0bf06630a08a395741b65562c07b3cdaa`, and its
+`b6500101f0b40be2952f0e8f8543acd1b2ccd8a31664bd7621d768033dac3e75`, and its
 signing-certificate SHA-256 is
 `25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
-The previous `1.2.3` APK remains available from `v5.0.4`. Verify the checksum
+The previous `1.2.4` APK remains available from `v5.0.5`. Verify the checksum
 before installing an APK.
 
 ## Telegram schedule

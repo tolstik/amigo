@@ -11,6 +11,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .health_models import HealthConnectDevice, HealthConnectRecord
+from .mi_fitness_models import MiFitnessCoverage, MiFitnessRecord, MiFitnessSource
 from .models import Measurement, MeasurementGroup
 
 
@@ -50,7 +51,7 @@ def _records(
     record_types: frozenset[str],
     tz: ZoneInfo,
     start: date | None = None,
-) -> list[HealthConnectRecord]:
+) -> list[HealthConnectRecord | MiFitnessRecord]:
     query = (
         select(HealthConnectRecord)
         .join(
@@ -73,10 +74,103 @@ def _records(
                 HealthConnectRecord.end_time >= boundary,
             )
         )
-    return list(db.scalars(query))
+    health_connect = list(db.scalars(query))
+    sources = list(
+        db.scalars(
+            select(MiFitnessSource).where(
+                MiFitnessSource.enabled.is_(True),
+                MiFitnessSource.activated_at.is_not(None),
+                MiFitnessSource.account_fingerprint.is_not(None),
+            )
+        )
+    )
+    if not sources:
+        return health_connect
+
+    source_by_device = {source.device_id: source for source in sources}
+    coverage_query = select(MiFitnessCoverage).where(
+        MiFitnessCoverage.device_id.in_(source_by_device),
+        MiFitnessCoverage.record_type.in_(record_types),
+    )
+    cloud_query = select(MiFitnessRecord).where(
+        MiFitnessRecord.device_id.in_(source_by_device),
+        MiFitnessRecord.record_type.in_(record_types),
+        MiFitnessRecord.is_deleted.is_(False),
+    )
+    if start is not None:
+        boundary = _utc_start(start, tz)
+        coverage_query = coverage_query.where(MiFitnessCoverage.range_end >= boundary)
+        cloud_query = cloud_query.where(
+            or_(
+                MiFitnessRecord.start_time >= boundary,
+                MiFitnessRecord.end_time >= boundary,
+            )
+        )
+    coverages = [
+        row
+        for row in db.scalars(coverage_query)
+        if row.account_fingerprint == source_by_device[row.device_id].account_fingerprint
+    ]
+
+    def overlaps(
+        left_start: datetime,
+        left_end: datetime,
+        right_start: datetime,
+        right_end: datetime,
+    ) -> bool:
+        return _aware(left_start) < _aware(right_end) and _aware(left_end) >= _aware(right_start)
+
+    by_type: dict[str, list[MiFitnessCoverage]] = defaultdict(list)
+    for coverage in coverages:
+        by_type[coverage.record_type].append(coverage)
+
+    # A finalised cloud interval wins even when it is empty. This is the key
+    # rollback-safe precedence rule: Health Connect rows are retained unchanged.
+    health_connect = [
+        row
+        for row in health_connect
+        if not any(
+            overlaps(
+                row.start_time,
+                row.end_time or row.start_time,
+                coverage.range_start,
+                coverage.range_end,
+            )
+            for coverage in by_type[row.record_type]
+        )
+    ]
+
+    cloud: list[MiFitnessRecord] = []
+    for row in db.scalars(cloud_query):
+        if row.account_fingerprint != source_by_device[row.device_id].account_fingerprint:
+            continue
+        candidates = [
+            coverage
+            for coverage in by_type[row.record_type]
+            if overlaps(row.start_time, row.end_time, coverage.range_start, coverage.range_end)
+        ]
+        if not candidates:
+            continue
+        winner = max(candidates, key=lambda item: (_aware(item.finalised_at), item.id))
+        if winner.snapshot_id == row.snapshot_id:
+            cloud.append(row)
+    combined: list[HealthConnectRecord | MiFitnessRecord] = [*health_connect, *cloud]
+    combined.sort(key=lambda row: (_aware(row.start_time), row.id))
+    return combined
 
 
 def _latest_data_as_of(db: Session) -> datetime | None:
+    cloud_values = list(
+        db.scalars(
+            select(MiFitnessSource.data_as_of).where(
+                MiFitnessSource.enabled.is_(True),
+                MiFitnessSource.activated_at.is_not(None),
+                MiFitnessSource.data_as_of.is_not(None),
+            )
+        )
+    )
+    if cloud_values:
+        return max(_aware(value) for value in cloud_values)
     values = list(
         db.scalars(
             select(HealthConnectDevice.data_as_of).where(

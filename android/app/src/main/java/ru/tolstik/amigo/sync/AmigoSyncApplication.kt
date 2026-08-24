@@ -14,6 +14,10 @@ import ru.tolstik.amigo.sync.network.IngestApi
 import ru.tolstik.amigo.sync.sync.SyncCoordinator
 import ru.tolstik.amigo.sync.sync.SyncSummary
 import ru.tolstik.amigo.sync.worker.SyncScheduler
+import ru.tolstik.amigo.sync.xiaomi.XiaomiCredentialStore
+import ru.tolstik.amigo.sync.xiaomi.XiaomiSyncCoordinator
+import ru.tolstik.amigo.sync.xiaomi.XiaomiSyncPreferences
+import ru.tolstik.amigo.sync.xiaomi.XiaomiSyncSummary
 
 class AmigoSyncApplication : Application() {
     lateinit var container: AppContainer
@@ -21,6 +25,7 @@ class AmigoSyncApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        if (android.app.Application.getProcessName().endsWith(":xiaomi_auth")) return
         container = AppContainer(this)
         container.preferences.prepareHeartRateReconciliation()
         SyncScheduler.scheduleHourly(this)
@@ -38,6 +43,8 @@ class AppContainer(application: Application) {
         .callTimeout(Duration.ofSeconds(75))
         .build()
     val ingestApi = IngestApi(http, signer, preferences)
+    internal val xiaomiCredentials = XiaomiCredentialStore(application)
+    internal val xiaomiPreferences = XiaomiSyncPreferences(application)
     val healthGateway: HealthConnectGateway? =
         if (HealthConnectGateway.sdkStatus(application) == HealthConnectClient.SDK_AVAILABLE) {
             HealthConnectGateway.create(application, preferences::fallbackHistoryFloor)
@@ -50,6 +57,12 @@ class AppContainer(application: Application) {
     }
     private val pairingResetter = PairingResetter(signer, preferences::resetPairing)
     private val syncMutex = Mutex()
+    private val xiaomiCoordinator = XiaomiSyncCoordinator(
+        credentialsStore = xiaomiCredentials,
+        preferences = xiaomiPreferences,
+        ingest = ingestApi,
+        http = http,
+    )
 
     suspend fun sync(maxPagesPerType: Int): SyncSummary = syncMutex.withLock {
         val active = coordinator ?: error("Health Connect is unavailable")
@@ -58,6 +71,17 @@ class AppContainer(application: Application) {
 
     suspend fun resetPairing() = syncMutex.withLock {
         pairingResetter.reset()
+    }
+
+    suspend fun enableXiaomi(sealedSession: String): XiaomiSyncSummary = syncMutex.withLock {
+        xiaomiCoordinator.enableFromSealedSession(sealedSession)
+    }
+
+    suspend fun syncXiaomi(maxPages: Int, refreshDays: Long = 3): XiaomiSyncSummary =
+        syncMutex.withLock { xiaomiCoordinator.sync(maxPages, refreshDays) }
+
+    suspend fun disableXiaomi() = syncMutex.withLock {
+        xiaomiCoordinator.disable()
     }
 
     suspend fun resetSnapshotsAfterPermissionsChange() = syncMutex.withLock {

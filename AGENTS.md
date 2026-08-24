@@ -85,10 +85,14 @@
 - Plan: lose 4 kg per calendar month, interpolated between matching month-days, capped at 76.5 kg.
 - Pre-program weight data is visible in the all-history view but excluded from program KPIs and forecasts.
 - Withings is the only source of weight, body composition, blood pressure, and
-  pulse recorded during a blood-pressure session. Mi Fitness data, including
-  ordinary watch heart rate, arrives only through Health Connect and the signed
-  Android companion; never import Health Connect weight, blood pressure,
-  GPS/location, or exercise routes. Dashboard, CSV, Telegram, and minimized AI
+  pulse recorded during a blood-pressure session. Mi Fitness watch data arrives
+  through the Xiaomi Health Cloud client in the signed Android companion;
+  Health Connect remains an independently uploaded rollback history. A
+  completed Xiaomi snapshot, including a confirmed-empty interval, takes
+  precedence over Health Connect for the same metric and time only after the
+  direct source passes its three-day activation gate. Never import cloud or
+  Health Connect weight, blood pressure, GPS/location, or exercise routes.
+  Dashboard, CSV, Telegram, and minimized AI
   snapshots use daily average/minimum/maximum watch heart rate, while the watch
   heart-rate chart may additionally use persisted hourly
   minimum/average/maximum aggregates. Raw heart-rate samples are never
@@ -116,7 +120,7 @@
   `/amigo/...`; authenticated CSV and laboratory-original downloads use the
   system document picker and forward in-memory cookies only to exact allowlisted
   same-origin GET routes, without redirects.
-- Android `1.2.4` (`versionCode 9`) accepts up to 25 dashboard uploads from the
+- Android `1.3.0` (`versionCode 10`) accepts up to 25 dashboard uploads from the
   system picker, refreshes a stale foreground WebView, records allowlisted
   background-sync diagnostics, and schedules immediate, hourly, and bounded
   one-minute backfill continuation work. Its in-app updater may download only
@@ -133,7 +137,15 @@
   such as sleep from being attempted in the same bounded run. Upgrading from
   an earlier release performs one full heart-rate-only reconciliation with a
   fresh changes token; pairing, the device key, the selected origin, and every
-  unrelated record-type cursor remain intact.
+  unrelated record-type cursor remain intact. Direct Xiaomi login runs in a
+  separate WebView process with an isolated data directory and an exact HTTPS
+  allowlist; only Android-Keystore AES-GCM ciphertext crosses back to the main
+  process. Xiaomi credentials, cookies, tokens, account identifiers, and raw
+  provider payloads never reach Amigo's server or logs. Cloud synchronization
+  uses bounded regional discovery and passToken refresh, uploads only normalized
+  allowlisted records, aggregates ordinary heart rate by hour on the phone, and
+  keeps 3-day hourly plus 30-day weekly reconciliation after the descending
+  30-day backfill reaches `2000-01-01`.
 - Deterministic blood-pressure, heart, SpO2, and VO2 displays remain descriptive
   and never add severity colors or app-side diagnoses. Validated AI may use those
   metrics only for evidence-bound measurement/logging advice or discussion of a

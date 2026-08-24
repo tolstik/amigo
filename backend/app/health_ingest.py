@@ -145,12 +145,25 @@ def get_device_status(db: Session, device_id: str) -> DeviceStatusResponse:
     device = db.get(HealthConnectDevice, device_id)
     if device is None:
         raise HealthIngestError(404, "device_not_found")
+    # Imported lazily so an immediately previous runtime remains wholly unaware
+    # of the additive Xiaomi Cloud tables during rollback.
+    from .mi_fitness_models import MiFitnessSource
+
+    cloud = db.get(MiFitnessSource, device.id)
     return DeviceStatusResponse(
         device_id=device.id,
         status=device.status,
         last_sync_at=device.last_sync_at,
         data_as_of=device.data_as_of,
         last_error=device.last_error,
+        mi_fitness_enabled=cloud.enabled if cloud is not None else False,
+        mi_fitness_active=(
+            cloud.enabled and cloud.activated_at is not None if cloud is not None else False
+        ),
+        mi_fitness_status=cloud.status if cloud is not None else "disabled",
+        mi_fitness_last_success_at=cloud.last_success_at if cloud is not None else None,
+        mi_fitness_data_as_of=cloud.data_as_of if cloud is not None else None,
+        mi_fitness_last_error=cloud.last_error_code if cloud is not None else None,
     )
 
 
@@ -389,7 +402,32 @@ def _normalise_record(
         primary = duration
         unit = "s"
     elif record.type == "heart_rate":
-        if set(values) == {"samples"}:
+        if set(values) == {"average_bpm", "minimum_bpm", "maximum_bpm", "sample_count"}:
+            average = _number(values, ("average_bpm",), 20, 300, "heart_rate")
+            minimum = _number(values, ("minimum_bpm",), 20, 300, "heart_rate")
+            maximum = _number(values, ("maximum_bpm",), 20, 300, "heart_rate")
+            count = _number(values, ("sample_count",), 1, 100_000, "heart_rate_sample_count")
+            if int(count) != count or not minimum <= average <= maximum:
+                raise HealthIngestError(422, "invalid_heart_rate_aggregate")
+            primary = average
+            metrics = {
+                "average_bpm": round(average, 3),
+                "minimum_bpm": round(minimum, 3),
+                "maximum_bpm": round(maximum, 3),
+                "sample_count": int(count),
+                "hourly": [
+                    {
+                        "at": _iso_utc(record.start_time).replace(
+                            minute=0, second=0, microsecond=0
+                        ).isoformat().replace("+00:00", "Z"),
+                        "average_bpm": round(average, 3),
+                        "minimum_bpm": round(minimum, 3),
+                        "maximum_bpm": round(maximum, 3),
+                        "sample_count": int(count),
+                    }
+                ],
+            }
+        elif set(values) == {"samples"}:
             samples = values["samples"]
             if not isinstance(samples, list) or not samples or len(samples) > 5_000:
                 raise HealthIngestError(422, "invalid_heart_rate_samples")

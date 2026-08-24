@@ -4,6 +4,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 import app.health_api as health_api
 import app.api as public_api
@@ -43,6 +44,13 @@ def test_health_routers_are_mountable_and_public_payload_is_aggregate_only(db):
         missing_headers = client.post("/amigo-ingest/v1/health-connect/batches", content=b"{}")
         assert missing_headers.status_code == 400
         assert missing_headers.json()["detail"]["code"] == "missing_signature_header"
+        for path in (
+            "/amigo-ingest/v1/mi-fitness/batches",
+            "/amigo-ingest/v1/mi-fitness/status",
+        ):
+            missing_headers = client.post(path, content=b"{}")
+            assert missing_headers.status_code == 400
+            assert missing_headers.json()["detail"]["code"] == "missing_signature_header"
 
 
 def test_health_ingest_rejection_logs_only_detail_code(db, monkeypatch, caplog):
@@ -95,6 +103,72 @@ def test_health_ingest_rejection_logs_only_detail_code(db, monkeypatch, caplog):
         "nonce-private-identifier",
         "signature-private-value",
     ):
+        assert private_value not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("path", "target", "error_code", "message"),
+    (
+        (
+            "/amigo-ingest/v1/mi-fitness/batches",
+            "ingest_signed_mi_fitness_batch",
+            "invalid_cloud_record",
+            "Mi Fitness ingest rejected",
+        ),
+        (
+            "/amigo-ingest/v1/mi-fitness/status",
+            "report_signed_status",
+            "invalid_cloud_status",
+            "Mi Fitness status rejected",
+        ),
+    ),
+)
+def test_mi_fitness_rejection_routes_log_only_detail_code(
+    db, monkeypatch, caplog, path, target, error_code, message
+):
+    app = FastAPI()
+    app.include_router(ingest_router)
+
+    def override_db():
+        yield db
+
+    def reject_request(*_args, **_kwargs):
+        raise HealthIngestError(422, error_code)
+
+    app.dependency_overrides[get_db] = override_db
+    monkeypatch.setattr(health_api, target, reject_request)
+    sensitive_body = b'{"account_fingerprint":"private-account","records":[{"value":987654}]}'
+    private_values = (
+        sensitive_body.decode(),
+        "private-account",
+        "987654",
+        "device-private-identifier",
+        "batch-private-identifier",
+        "nonce-private-identifier",
+        "signature-private-value",
+    )
+    headers = {
+        "X-Amigo-Device-Id": private_values[3],
+        "X-Amigo-Timestamp": "1787155200",
+        "X-Amigo-Nonce": private_values[5],
+        "X-Amigo-Batch-Id": private_values[4],
+        "X-Amigo-Signature": private_values[6],
+    }
+
+    with caplog.at_level(logging.WARNING, logger="amigo.health_api"):
+        with TestClient(app) as client:
+            response = client.post(path, headers=headers, content=sensitive_body)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": {"code": error_code}}
+    matching = [
+        record
+        for record in caplog.records
+        if record.name == "amigo.health_api" and message in record.getMessage()
+    ]
+    assert len(matching) == 1
+    assert matching[0].args == (error_code,)
+    for private_value in private_values:
         assert private_value not in caplog.text
 
 

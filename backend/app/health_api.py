@@ -16,12 +16,16 @@ from .health_ingest import (
     ingest_signed_batch,
     register_device,
 )
+from .mi_fitness_ingest import ingest_signed_mi_fitness_batch, report_signed_status
 from .health_schemas import (
     BatchAcceptedResponse,
     DeviceRegistrationRequest,
     DeviceRegistrationResponse,
     DeviceStatusResponse,
     HealthBatchInput,
+    MiFitnessBatchAcceptedResponse,
+    MiFitnessBatchInput,
+    MiFitnessStatusResponse,
 )
 
 
@@ -126,3 +130,78 @@ async def post_health_connect_batch(
             db.rollback()
             logger.warning("AI enqueue after health batch failed: %s", type(exc).__name__)
     return response
+
+
+def _signed_headers(request: Request) -> dict[str, str]:
+    headers = request.headers
+    required = {
+        "device_id": headers.get("x-amigo-device-id"),
+        "timestamp": headers.get("x-amigo-timestamp"),
+        "nonce": headers.get("x-amigo-nonce"),
+        "batch_id": headers.get("x-amigo-batch-id"),
+        "signature": headers.get("x-amigo-signature"),
+    }
+    if any(value is None for value in required.values()):
+        raise HTTPException(status_code=400, detail={"code": "missing_signature_header"})
+    return required  # type: ignore[return-value]
+
+
+@ingest_router.post(
+    "/mi-fitness/batches",
+    response_model=MiFitnessBatchAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def post_mi_fitness_batch(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MiFitnessBatchAcceptedResponse:
+    required = _signed_headers(request)
+    raw_body = await request.body()
+    try:
+        response = ingest_signed_mi_fitness_batch(
+            db, raw_body=raw_body, **required
+        )
+    except HealthIngestError as exc:
+        logger.warning("Mi Fitness ingest rejected detail.code=%s", exc.code)
+        _raise_http(exc)
+    if response.coverage_published and response.changed_count > 0 and not response.idempotent:
+        try:
+            envelope = MiFitnessBatchInput.model_validate_json(raw_body)
+            enqueue_current_analysis(
+                db,
+                settings,
+                trigger=(
+                    "measurement"
+                    if envelope.record_type in {"sleep", "exercise"}
+                    else "activity"
+                ),
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.warning("AI enqueue after Mi Fitness batch failed: %s", type(exc).__name__)
+    return response
+
+
+@ingest_router.post(
+    "/mi-fitness/status",
+    response_model=MiFitnessStatusResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def post_mi_fitness_status(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> MiFitnessStatusResponse:
+    required = _signed_headers(request)
+    report_id = required.pop("batch_id")
+    raw_body = await request.body()
+    try:
+        return report_signed_status(
+            db,
+            report_id=report_id,
+            raw_body=raw_body,
+            **required,
+        )
+    except HealthIngestError as exc:
+        logger.warning("Mi Fitness status rejected detail.code=%s", exc.code)
+        _raise_http(exc)

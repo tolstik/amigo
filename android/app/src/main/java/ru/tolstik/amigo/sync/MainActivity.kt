@@ -85,6 +85,7 @@ import ru.tolstik.amigo.sync.dashboard.DashboardFilePolicy
 import ru.tolstik.amigo.sync.dashboard.DashboardUrlPolicy
 import ru.tolstik.amigo.sync.dashboard.DashboardWebViewCallbacks
 import ru.tolstik.amigo.sync.dashboard.createDashboardWebView
+import ru.tolstik.amigo.sync.xiaomi.XiaomiLoginActivity
 
 private enum class AppDestination { DASHBOARD, SYNC }
 
@@ -113,6 +114,8 @@ internal fun backgroundResultLabel(value: String?): String = when (value) {
     "background_permission_missing" -> "Нет фонового разрешения"
     "permission_revoked" -> "Разрешение отозвано"
     "server_unavailable" -> "Сервер временно недоступен"
+    "xiaomi_auth_required" -> "Требуется повторный вход в Xiaomi"
+    "xiaomi_rate_limited" -> "Xiaomi временно ограничил запросы"
     "cancelled" -> "Остановлено системой"
     "failed" -> "Ошибка"
     else -> "Неизвестный результат"
@@ -134,6 +137,18 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract(),
     ) { granted -> viewModel.onPermissionsResult(granted) }
+
+    private val xiaomiLoginLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+        val sealed = result.data?.getStringExtra(XiaomiLoginActivity.EXTRA_SEALED_SESSION)
+        if (sealed.isNullOrBlank()) {
+            Toast.makeText(this, "Xiaomi не вернул защищённую сессию", Toast.LENGTH_LONG).show()
+        } else {
+            viewModel.enableXiaomiCloud(sealed)
+        }
+    }
 
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -296,6 +311,10 @@ class MainActivity : ComponentActivity() {
                     onRegister = viewModel::registerDevice,
                     onCheckPairing = viewModel::checkPairing,
                     onResetPairing = viewModel::resetPairing,
+                    onXiaomiLogin = {
+                        xiaomiLoginLauncher.launch(Intent(this, XiaomiLoginActivity::class.java))
+                    },
+                    onXiaomiLogout = viewModel::disableXiaomiCloud,
                     onSync = viewModel::syncNow,
                     onCheckUpdate = ::checkForAppUpdate,
                 )
@@ -714,6 +733,8 @@ private fun SyncScreen(
     onRegister: () -> Unit,
     onCheckPairing: () -> Unit,
     onResetPairing: () -> Unit,
+    onXiaomiLogin: () -> Unit,
+    onXiaomiLogout: () -> Unit,
     onSync: () -> Unit,
     onCheckUpdate: () -> Unit,
 ) {
@@ -726,7 +747,7 @@ private fun SyncScreen(
             Spacer(Modifier.height(8.dp))
             Text("Синхронизация", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(
-                "Mi Fitness → Health Connect → Amigo",
+                "Mi Fitness → Xiaomi Cloud → Amigo",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -734,7 +755,7 @@ private fun SyncScreen(
             item { StatusCard("Сообщение", notice) }
         }
         item {
-            SectionCard("1. Health Connect") {
+            SectionCard("1. Health Connect (резервный источник)") {
                 Text(healthStatusText(state.healthSdkStatus))
                 state.permissions?.let { permissions ->
                     Text("Разрешения: ${permissions.granted.intersect(permissions.requested).size}/${permissions.requested.size}")
@@ -815,23 +836,9 @@ private fun SyncScreen(
                 )
                 val registration = local?.registration
                 if (registration == null) {
-                    val hasMetricReadPermission = state.permissions?.hasMetricReadPermission == true
-                    if (!hasMetricReadPermission) {
-                        Text(
-                            "Перед регистрацией разрешите чтение хотя бы одного показателя Health Connect.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else if (local?.selectedOrigin == null) {
-                        Text(
-                            "Перед регистрацией нажмите «Найти источники» и выберите Mi Fitness выше.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                     Button(
                         onClick = onRegister,
-                        enabled = !state.busy && local?.selectedOrigin != null && hasMetricReadPermission,
+                        enabled = !state.busy,
                     ) { Text("Зарегистрировать телефон") }
                 } else {
                     if (registration.pairingCode.isNotBlank()) {
@@ -846,7 +853,38 @@ private fun SyncScreen(
             }
         }
         item {
-            SectionCard("3. Синхронизация") {
+            val cloud = state.xiaomi
+            SectionCard("3. Xiaomi Cloud напрямую") {
+                Text("Пароль вводится только на странице Xiaomi и не передаётся Amigo.")
+                Text("Статус: ${xiaomiStatusLabel(cloud?.status)}")
+                Text("Регион: ${cloud?.region ?: "—"}")
+                Text("Основной источник: ${if (cloud?.active == true) "да" else "нет, идёт проверка"}")
+                Text("История: ${cloud?.completedTypes ?: 0}/10 типов")
+                Text("Последняя cloud-синхронизация: ${formatInstant(cloud?.lastSync)}")
+                Text("Cloud-данные актуальны на: ${formatInstant(cloud?.dataAsOf)}")
+                cloud?.lastErrorCode?.let {
+                    Text("Код ошибки: $it", color = MaterialTheme.colorScheme.error)
+                }
+                if (cloud?.enabled == true || cloud?.hasCredentials == true) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = onXiaomiLogin,
+                            enabled = !state.busy && local?.registration?.status == "approved",
+                        ) { Text("Войти заново") }
+                        OutlinedButton(onClick = onXiaomiLogout, enabled = !state.busy) {
+                            Text("Отключить")
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = onXiaomiLogin,
+                        enabled = !state.busy && local?.registration?.status == "approved",
+                    ) { Text("Войти в Xiaomi") }
+                }
+            }
+        }
+        item {
+            SectionCard("4. Синхронизация") {
                 Text("Фоновая проверка выполняется примерно раз в час.")
                 Text("История: ${local?.completedTypes ?: 0}/11 типов")
                 Text("Последняя отправка: ${formatInstant(local?.lastSync)}")
@@ -857,7 +895,8 @@ private fun SyncScreen(
                 local?.lastError?.let { Text("Ошибка: $it", color = MaterialTheme.colorScheme.error) }
                 Button(
                     onClick = onSync,
-                    enabled = !state.busy && local?.registration?.status == "approved" && local?.selectedOrigin != null,
+                    enabled = !state.busy && local?.registration?.status == "approved" &&
+                        (state.xiaomi?.enabled == true || local?.selectedOrigin != null),
                 ) { Text("Синхронизировать сейчас") }
                 if (state.busy) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -868,7 +907,7 @@ private fun SyncScreen(
             }
         }
         item {
-            SectionCard("4. Обновление приложения") {
+            SectionCard("5. Обновление приложения") {
                 Text("Текущая версия: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                 OutlinedButton(onClick = onCheckUpdate, enabled = !state.busy) { Text("Проверить обновление") }
             }
@@ -876,13 +915,24 @@ private fun SyncScreen(
         item {
             HorizontalDivider()
             Text(
-                "Приложение только читает выбранные показатели. Вес, давление, GPS и маршруты не запрашиваются.",
+                "Из Xiaomi Cloud импортируются только активность, сон, пульс, SpO₂ и VO₂ max. " +
+                    "Вес, состав тела, давление, GPS и маршруты не запрашиваются.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 24.dp),
             )
         }
     }
+}
+
+private fun xiaomiStatusLabel(value: String?): String = when (value) {
+    "pending" -> "проверяем данные"
+    "success" -> "работает"
+    "auth_required" -> "требуется повторный вход"
+    "rate_limited" -> "Xiaomi временно ограничил запросы"
+    "network_error" -> "сеть временно недоступна"
+    "disabled", null -> "не подключён"
+    else -> "неизвестен"
 }
 
 @Composable

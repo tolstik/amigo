@@ -25,6 +25,8 @@ import ru.tolstik.amigo.sync.sync.BatchEnvelope
 import ru.tolstik.amigo.sync.sync.BatchUploader
 import ru.tolstik.amigo.sync.sync.INGEST_BODY_LIMIT_BYTES
 import ru.tolstik.amigo.sync.wire.CanonicalJson
+import ru.tolstik.amigo.sync.xiaomi.XiaomiBatchEnvelope
+import ru.tolstik.amigo.sync.xiaomi.XiaomiStatusReport
 
 private val SAFE_SERVER_ERROR_CODE = Regex("[a-z][a-z0-9_]{0,63}")
 
@@ -41,6 +43,25 @@ data class DeviceStatusResponse(
     val lastSyncAt: String?,
     val dataAsOf: String?,
     val lastError: String?,
+    val miFitnessEnabled: Boolean,
+    val miFitnessActive: Boolean,
+    val miFitnessStatus: String,
+    val miFitnessLastSuccessAt: String?,
+    val miFitnessDataAsOf: String?,
+    val miFitnessLastError: String?,
+)
+
+data class XiaomiServerStatus(
+    val status: String,
+    val enabled: Boolean,
+    val active: Boolean,
+    val activationMissingTypes: List<String>,
+)
+
+data class XiaomiBatchResult(
+    val changedCount: Int,
+    val coveragePublished: Boolean,
+    val active: Boolean,
 )
 
 class IngestApi(
@@ -90,6 +111,12 @@ class IngestApi(
             lastSyncAt = payload.optionalString("last_sync_at"),
             dataAsOf = payload.optionalString("data_as_of"),
             lastError = payload.optionalString("last_error"),
+            miFitnessEnabled = payload.optionalBoolean("mi_fitness_enabled") ?: false,
+            miFitnessActive = payload.optionalBoolean("mi_fitness_active") ?: false,
+            miFitnessStatus = payload.optionalString("mi_fitness_status") ?: "disabled",
+            miFitnessLastSuccessAt = payload.optionalString("mi_fitness_last_success_at"),
+            miFitnessDataAsOf = payload.optionalString("mi_fitness_data_as_of"),
+            miFitnessLastError = payload.optionalString("mi_fitness_last_error"),
         )
     }
 
@@ -114,6 +141,64 @@ class IngestApi(
             .post(body.toRequestBody(jsonMediaType))
             .build()
         executeNoContent(request)
+    }
+
+    suspend fun uploadMiFitness(batch: XiaomiBatchEnvelope): XiaomiBatchResult {
+        val payload = signedJsonPost(
+            path = "/amigo-ingest/v1/mi-fitness/batches",
+            requestId = batch.batchId,
+            body = CanonicalJson.encode(batch.toJson()),
+        )
+        return XiaomiBatchResult(
+            changedCount = payload.optionalInt("changed_count") ?: 0,
+            coveragePublished = payload.optionalBoolean("coverage_published") ?: false,
+            active = payload.optionalBoolean("active") ?: false,
+        )
+    }
+
+    suspend fun reportMiFitnessStatus(report: XiaomiStatusReport): XiaomiServerStatus {
+        val payload = signedJsonPost(
+            path = "/amigo-ingest/v1/mi-fitness/status",
+            requestId = report.reportId,
+            body = CanonicalJson.encode(report.toJson()),
+        )
+        val missing = (payload["activation_missing_types"] as? kotlinx.serialization.json.JsonArray)
+            ?.mapNotNull { (it as? JsonPrimitive)?.content }
+            .orEmpty()
+        return XiaomiServerStatus(
+            status = payload.requiredString("status"),
+            enabled = payload.optionalBoolean("enabled") ?: false,
+            active = payload.optionalBoolean("active") ?: false,
+            activationMissingTypes = missing,
+        )
+    }
+
+    private suspend fun signedJsonPost(
+        path: String,
+        requestId: String,
+        body: ByteArray,
+    ): JsonObject {
+        val registration = preferences.registration()
+            ?: throw IllegalStateException("Device is not registered")
+        check(registration.status == "approved") { "Device pairing is not approved" }
+        require(body.size < INGEST_BODY_LIMIT_BYTES) { "Ingest batch body is too large" }
+        batchRequestThrottle.awaitPermit()
+        val timestamp = clock.instant().epochSecond
+        val nonce = nonceGenerator.next()
+        val signature = Base64.getEncoder().encodeToString(
+            signer.sign(SignatureInput.create(timestamp, nonce, requestId, body)),
+        )
+        return executeJson(
+            Request.Builder()
+                .url(endpoint(registration.serverUrl, path))
+                .header("X-Amigo-Device-Id", registration.deviceId)
+                .header("X-Amigo-Timestamp", timestamp.toString())
+                .header("X-Amigo-Nonce", nonce)
+                .header("X-Amigo-Batch-Id", requestId)
+                .header("X-Amigo-Signature", signature)
+                .post(body.toRequestBody(jsonMediaType))
+                .build(),
+        )
     }
 
     private suspend fun executeJson(request: Request): JsonObject = withContext(Dispatchers.IO) {
@@ -173,3 +258,9 @@ private fun JsonObject.requiredString(key: String): String =
 
 private fun JsonObject.optionalString(key: String): String? =
     (this[key] as? JsonPrimitive)?.takeUnless { it.isString.not() && it.content == "null" }?.content
+
+private fun JsonObject.optionalBoolean(key: String): Boolean? =
+    (this[key] as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
+
+private fun JsonObject.optionalInt(key: String): Int? =
+    (this[key] as? JsonPrimitive)?.content?.toIntOrNull()

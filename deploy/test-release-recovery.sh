@@ -154,11 +154,11 @@ grep --quiet --fixed-strings 'cmp --silent "${LEGACY_IMPORT_CANDIDATE}"' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy rewrites unchanged legacy rollback exports"
 grep --quiet --fixed-strings \
-    'https://github.com/tolstik/amigo/releases/download/v5.0.5/Amigo-1.2.4.apk' \
+    'https://github.com/tolstik/amigo/releases/download/v5.1.0/Amigo-1.3.0.apk' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not fetch the published signed Android update"
 grep --quiet --fixed-strings \
-    'ebf6c4eef3f77578263a65be610360b0bf06630a08a395741b65562c07b3cdaa' \
+    'b6500101f0b40be2952f0e8f8543acd1b2ccd8a31664bd7621d768033dac3e75' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not pin the signed Android update hash"
 grep --quiet --fixed-strings \
@@ -279,6 +279,17 @@ managed_rate_status_count="$(grep --count --fixed-strings 'limit_req_status 429;
 grep --quiet --fixed-strings 'limit_req zone=amigo_upload burst=25 nodelay;' \
     "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
     || amigo_die "upload burst does not cover one bounded 25-file UI batch"
+for ingest_route in \
+    'location = /amigo-ingest/v1/health-connect/batches {' \
+    'location = /amigo-ingest/v1/mi-fitness/batches {' \
+    'location = /amigo-ingest/v1/mi-fitness/status {'; do
+    grep --quiet --fixed-strings "${ingest_route}" \
+        "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
+        || amigo_die "normal managed ingest route is missing: ${ingest_route}"
+    grep --quiet --fixed-strings "${ingest_route}" \
+        "${SCRIPT_DIR}/nginx/amigo.maintenance.locations.conf" \
+        || amigo_die "maintenance managed ingest route is missing: ${ingest_route}"
+done
 for queue_route in \
     'location = /amigo/api/v1/labs/uploads {' \
     'location = /amigo/api/v1/labs/events {' \

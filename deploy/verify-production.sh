@@ -401,7 +401,7 @@ parser_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destinati
     || amigo_die "isolated parser unexpectedly mounts laboratory originals"
 amigo_log "PASS root-only laboratory originals and least-privilege mounts"
 
-readonly EXPECTED_ANDROID_APK_SHA256="ebf6c4eef3f77578263a65be610360b0bf06630a08a395741b65562c07b3cdaa"
+readonly EXPECTED_ANDROID_APK_SHA256="b6500101f0b40be2952f0e8f8543acd1b2ccd8a31664bd7621d768033dac3e75"
 [[ -f "${AMIGO_ANDROID_APK}" && ! -L "${AMIGO_ANDROID_APK}" ]] \
     || amigo_die "signed Android update is missing or is a symlink"
 [[ "$(stat -c '%a' "${AMIGO_ANDROID_APK}")" == "600" ]] \
@@ -410,7 +410,7 @@ readonly EXPECTED_ANDROID_APK_SHA256="ebf6c4eef3f77578263a65be610360b0bf06630a08
     || amigo_die "signed Android update is not owned by root:root"
 [[ "$(sha256sum "${AMIGO_ANDROID_APK}" | awk '{ print $1 }')" \
     == "${EXPECTED_ANDROID_APK_SHA256}" ]] \
-    || amigo_die "installed Android update hash differs from signed 1.2.4"
+    || amigo_die "installed Android update hash differs from signed 1.3.0"
 web_android_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/android"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${web_container}")"
 [[ "${web_android_mount}" == "$(dirname -- "${AMIGO_ANDROID_APK}")|false" ]] \
     || amigo_die "web Android update mount is missing, writable, or sourced unexpectedly"
@@ -489,7 +489,7 @@ with SessionLocal() as db:
 done
 [[ ${ANALYTE_GUIDES_READY} -eq 1 ]] \
     || amigo_die "analyte guide backfill made no verified progress within three minutes"
-amigo_log "PASS database-owned originals, repaired laboratory dates, bounded analyte-guide backfill progress, and signed Android 1.2.4 artifact"
+amigo_log "PASS database-owned originals, repaired laboratory dates, bounded analyte-guide backfill progress, and signed Android 1.3.0 artifact"
 
 check_loopback_listener() {
     local port=$1
@@ -755,9 +755,9 @@ elif contract == "analyte-guide":
         raise SystemExit("laboratory analyte guide contract is incomplete")
 elif contract == "update":
     if (
-        payload.get("version_code") != 9
-        or payload.get("version_name") != "1.2.4"
-        or payload.get("sha256") != "ebf6c4eef3f77578263a65be610360b0bf06630a08a395741b65562c07b3cdaa"
+        payload.get("version_code") != 10
+        or payload.get("version_name") != "1.3.0"
+        or payload.get("sha256") != "b6500101f0b40be2952f0e8f8543acd1b2ccd8a31664bd7621d768033dac3e75"
         or payload.get("download_url") != "/amigo/api/v1/app-update/apk"
         or not isinstance(payload.get("size_bytes"), int)
         or payload.get("size_bytes") <= 0
@@ -931,22 +931,26 @@ check_queue_sse "api/v1/studies/events"
     || amigo_die "unauthenticated study queue SSE route did not return 401"
 amigo_log "PASS assistant and queue SSE authentication/no-buffer contracts"
 
-INGEST_REJECTION_STATUS="$(
-    curl --disable --silent --show-error --max-time 20 \
-        --proto '=https' \
-        --tlsv1.2 \
-        --request POST \
-        --header 'Content-Type: application/json' \
-        --data '{}' \
-        --dump-header "${INGEST_HEADERS}" \
-        --output "${INGEST_BODY}" \
-        --write-out '%{http_code}' \
-        'https://amigo.tolstik.ru/amigo-ingest/v1/health-connect/batches'
-)"
-[[ "${INGEST_REJECTION_STATUS}" == "400" ]] \
-    || amigo_die "unsigned exact ingest route returned ${INGEST_REJECTION_STATUS}, expected 400"
-require_header '^cache-control:.*no-store' "${INGEST_HEADERS}"
-python3 - "${INGEST_BODY}" <<'PY'
+for ingest_path in \
+    health-connect/batches \
+    mi-fitness/batches \
+    mi-fitness/status; do
+    INGEST_REJECTION_STATUS="$(
+        curl --disable --silent --show-error --max-time 20 \
+            --proto '=https' \
+            --tlsv1.2 \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --data '{}' \
+            --dump-header "${INGEST_HEADERS}" \
+            --output "${INGEST_BODY}" \
+            --write-out '%{http_code}' \
+            "https://amigo.tolstik.ru/amigo-ingest/v1/${ingest_path}"
+    )"
+    [[ "${INGEST_REJECTION_STATUS}" == "400" ]] \
+        || amigo_die "unsigned exact ingest route ${ingest_path} returned ${INGEST_REJECTION_STATUS}, expected 400"
+    require_header '^cache-control:.*no-store' "${INGEST_HEADERS}"
+    python3 - "${INGEST_BODY}" <<'PY'
 from pathlib import Path
 import json
 import sys
@@ -954,7 +958,8 @@ payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 if payload != {"detail": {"code": "missing_signature_header"}}:
     raise SystemExit(1)
 PY
-amigo_log "PASS signed ingest stays independent and rejects unsigned empty input exactly"
+done
+amigo_log "PASS signed Health Connect and Xiaomi ingest stay independent and reject unsigned empty input exactly"
 
 for hidden_path in \
     healthz \

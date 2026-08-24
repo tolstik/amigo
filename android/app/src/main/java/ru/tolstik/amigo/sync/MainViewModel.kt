@@ -16,6 +16,8 @@ import ru.tolstik.amigo.sync.data.DeviceRegistration
 import ru.tolstik.amigo.sync.data.LocalStatus
 import ru.tolstik.amigo.sync.health.HealthPermissionStatus
 import ru.tolstik.amigo.sync.sync.userFacingSyncError
+import ru.tolstik.amigo.sync.worker.SyncScheduler
+import ru.tolstik.amigo.sync.xiaomi.XiaomiLocalStatus
 
 data class OriginItem(val packageName: String, val label: String)
 
@@ -23,6 +25,7 @@ data class MainUiState(
     val healthSdkStatus: Int,
     val permissions: HealthPermissionStatus? = null,
     val local: LocalStatus? = null,
+    val xiaomi: XiaomiLocalStatus? = null,
     val origins: List<OriginItem> = emptyList(),
     val busy: Boolean = false,
     val notice: String? = null,
@@ -96,11 +99,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun registerDevice() = launchBusy {
         val current = preferences.status()
-        require(current.selectedOrigin != null) { "Сначала выберите источник Mi Fitness" }
-        val enabledTypes = container.healthGateway?.enabledTypes().orEmpty()
-        check(enabledTypes.isNotEmpty()) {
-            "Сначала разрешите чтение хотя бы одного показателя Health Connect"
-        }
         val response = container.ingestApi.register(current.serverUrl, current.deviceLabel)
         preferences.saveRegistration(
             DeviceRegistration(
@@ -120,6 +118,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val current = preferences.registration() ?: error("Устройство ещё не зарегистрировано")
         val response = container.ingestApi.status(current.serverUrl, current.deviceId)
         preferences.updatePairingStatus(response.status, response.pairingCode)
+        container.xiaomiPreferences.setServerState(
+            response.miFitnessStatus,
+            response.miFitnessActive,
+            response.miFitnessLastError,
+        )
         showNotice(
             if (response.status == "approved") "Сопряжение подтверждено"
             else "Текущий статус: ${response.status}",
@@ -134,11 +137,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun syncNow() = launchBusy {
         val registration = preferences.registration()
         check(registration?.status == "approved") { "Сначала подтвердите сопряжение" }
-        val summary = container.sync(maxPagesPerType = 12)
+        val messages = mutableListOf<String>()
+        if (container.xiaomiPreferences.enabled()) {
+            val cloud = container.syncXiaomi(maxPages = 12)
+            if (cloud.needsContinuation) SyncScheduler.continueBackfill(getApplication())
+            messages += "Xiaomi Cloud: ${cloud.uploadedBatches} пакетов"
+        }
+        val health = container.healthGateway
+        if (health != null && preferences.selectedOrigin() != null && health.enabledTypes().isNotEmpty()) {
+            val summary = container.sync(maxPagesPerType = 12)
+            messages += "Health Connect: ${summary.uploadedBatches} пакетов"
+        }
+        check(messages.isNotEmpty()) { "Сначала подключите Xiaomi Cloud или Health Connect" }
+        showNotice(messages.joinToString("; "))
+    }
+
+    fun enableXiaomiCloud(sealedSession: String) = launchBusy {
+        val registration = preferences.registration()
+        check(registration?.status == "approved") { "Сначала подтвердите сопряжение" }
+        val summary = container.enableXiaomi(sealedSession)
+        if (summary.needsContinuation) SyncScheduler.continueBackfill(getApplication())
         showNotice(
-            "Отправлено пакетов: ${summary.uploadedBatches}; история: " +
-                "${summary.completedTypes}/${container.healthGateway?.enabledTypes()?.size ?: 0}",
+            if (summary.active) "Xiaomi Cloud подключён и стал основным источником"
+            else "Xiaomi Cloud подключён; проверяем свежесть и начальное покрытие",
         )
+    }
+
+    fun disableXiaomiCloud() = launchBusy {
+        container.disableXiaomi()
+        showNotice("Xiaomi Cloud отключён; Health Connect снова используется без cloud-приоритета")
     }
 
     private fun launchBusy(block: suspend () -> Unit) {
@@ -169,6 +196,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             healthSdkStatus = HealthConnectGatewayStatus.current(getApplication()),
             permissions = permissions,
             local = local,
+            xiaomi = container.xiaomiPreferences.status(container.xiaomiCredentials.hasCredentials()),
             origins = origins,
         )
     }

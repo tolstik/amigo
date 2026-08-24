@@ -64,6 +64,13 @@
         </activity-alias>
 
         <activity
+            android:name=".xiaomi.XiaomiLoginActivity"
+            android:exported="false"
+            android:process=":xiaomi_auth"
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"

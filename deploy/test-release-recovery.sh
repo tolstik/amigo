@@ -302,6 +302,8 @@ managed_rate_status_count="$(grep --count --fixed-strings 'limit_req_status 429;
     "${SCRIPT_DIR}/nginx/amigo.locations.conf")"
 [[ "${managed_rate_limit_count}" -eq "${managed_rate_status_count}" ]] \
     || amigo_die "every managed rate limit must return explicit HTTP 429"
+# Literal nginx variable syntax is the source pattern being required.
+# shellcheck disable=SC2016
 grep --quiet --fixed-strings \
     'limit_req_zone $binary_remote_addr zone=amigo_report:10m rate=60r/m;' \
     "${SCRIPT_DIR}/nginx/amigo.http.conf" \

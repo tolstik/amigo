@@ -17,6 +17,7 @@ import kotlinx.coroutines.CancellationException
 import ru.tolstik.amigo.sync.AmigoSyncApplication
 import ru.tolstik.amigo.sync.sync.userFacingSyncError
 import ru.tolstik.amigo.sync.xiaomi.XiaomiCloudException
+import ru.tolstik.amigo.sync.xiaomi.XiaomiSyncMode
 
 class SyncWorker(
     appContext: Context,
@@ -44,6 +45,13 @@ class SyncWorker(
                     val cloud = container.syncXiaomi(
                         maxPages = 4,
                         refreshDays = inputData.getLong(SyncScheduler.INPUT_XIAOMI_REFRESH_DAYS, 3),
+                        mode = if (
+                            inputData.getBoolean(SyncScheduler.INPUT_XIAOMI_BACKFILL_CONTINUATION, false)
+                        ) {
+                            XiaomiSyncMode.BACKFILL_CONTINUATION
+                        } else {
+                            XiaomiSyncMode.ROUTINE
+                        },
                     )
                     needsContinuation = cloud.needsContinuation
                 } catch (error: CancellationException) {
@@ -124,6 +132,11 @@ object SyncScheduler {
     private const val BACKFILL_WORK = "amigo-health-connect-backfill"
     private const val XIAOMI_WEEKLY_WORK = "amigo-xiaomi-cloud-weekly-reconcile"
     internal const val INPUT_XIAOMI_REFRESH_DAYS = "xiaomi_refresh_days"
+    internal const val INPUT_XIAOMI_BACKFILL_CONTINUATION =
+        "xiaomi_backfill_continuation"
+    internal val backfillInputData = androidx.work.workDataOf(
+        INPUT_XIAOMI_BACKFILL_CONTINUATION to true,
+    )
     internal val backfillPolicy = ExistingWorkPolicy.APPEND_OR_REPLACE
 
     private fun constraints() = Constraints.Builder()
@@ -170,6 +183,7 @@ object SyncScheduler {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(constraints())
             .setInitialDelay(Duration.ofMinutes(1))
+            .setInputData(backfillInputData)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             BACKFILL_WORK,

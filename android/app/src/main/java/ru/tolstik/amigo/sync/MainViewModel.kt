@@ -18,6 +18,7 @@ import ru.tolstik.amigo.sync.health.HealthPermissionStatus
 import ru.tolstik.amigo.sync.sync.userFacingSyncError
 import ru.tolstik.amigo.sync.worker.SyncScheduler
 import ru.tolstik.amigo.sync.xiaomi.XiaomiLocalStatus
+import ru.tolstik.amigo.sync.xiaomi.XiaomiSyncMode
 
 data class OriginItem(val packageName: String, val label: String)
 
@@ -139,7 +140,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         check(registration?.status == "approved") { "Сначала подтвердите сопряжение" }
         val messages = mutableListOf<String>()
         if (container.xiaomiPreferences.enabled()) {
-            val cloud = container.syncXiaomi(maxPages = 12)
+            val cloud = container.syncXiaomi(
+                maxPages = 12,
+                mode = XiaomiSyncMode.FORCE_REFRESH,
+            )
             if (cloud.needsContinuation) SyncScheduler.continueBackfill(getApplication())
             messages += "Xiaomi Cloud: ${cloud.uploadedBatches} пакетов"
         }

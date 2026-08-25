@@ -16,6 +16,7 @@ import ru.tolstik.amigo.sync.sync.SyncSummary
 import ru.tolstik.amigo.sync.worker.SyncScheduler
 import ru.tolstik.amigo.sync.xiaomi.XiaomiCredentialStore
 import ru.tolstik.amigo.sync.xiaomi.XiaomiSyncCoordinator
+import ru.tolstik.amigo.sync.xiaomi.XiaomiSyncMode
 import ru.tolstik.amigo.sync.xiaomi.XiaomiSyncPreferences
 import ru.tolstik.amigo.sync.xiaomi.XiaomiSyncSummary
 
@@ -77,8 +78,13 @@ class AppContainer(application: Application) {
         xiaomiCoordinator.enableFromSealedSession(sealedSession)
     }
 
-    suspend fun syncXiaomi(maxPages: Int, refreshDays: Long = 3): XiaomiSyncSummary =
-        syncMutex.withLock { xiaomiCoordinator.sync(maxPages, refreshDays) }
+    internal suspend fun syncXiaomi(
+        maxPages: Int,
+        refreshDays: Long = 3,
+        mode: XiaomiSyncMode = XiaomiSyncMode.ROUTINE,
+    ): XiaomiSyncSummary = syncMutex.withLock {
+        xiaomiCoordinator.sync(maxPages, refreshDays, mode)
+    }
 
     suspend fun disableXiaomi() = syncMutex.withLock {
         xiaomiCoordinator.disable()

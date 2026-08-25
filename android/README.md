@@ -7,18 +7,20 @@ Connect as rollback history, and sends only normalized signed/idempotent batches
 to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
-Current signed release `1.4.0` (`versionCode 15`) for project release
-[`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1):
-[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk),
+Current signed release `1.4.1` (`versionCode 16`) for project release
+[`v5.2.2`](https://github.com/tolstik/amigo/releases/tag/v5.2.2):
+[`Amigo-1.4.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.2/Amigo-1.4.1.apk),
 SHA-256
-`4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`, size
-`3,504,370` bytes.
+`fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5`, size
+`3,520,750` bytes.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
-The previous published release is `1.3.4`:
-[`Amigo-1.3.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.1.5/Amigo-1.3.4.apk),
-SHA-256 `59f2ed60986da849e7ddf45b93a03be63ecce1202a44e1085a6dc615606fa4c1`.
+The previous published release is `1.4.0` from
+[`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1):
+[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk),
+SHA-256 `4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`,
+size `3,504,370` bytes.
 
 ## Dashboard tab
 
@@ -123,12 +125,15 @@ The direct-cloud activation window is fixed by the first qualifying recent
 three-day snapshot in the current enablement episode. All ten allowlisted types
 must finalize coverage for that same window, even when bounded pagination takes
 longer than the normal freshness tolerance, and cloud heart rate must be newer
-than the retained Health Connect watermark. Backfill then descends in resumable
-30-day windows to `2000-01-01`; hourly refresh checks three days and a weekly job
-reconciles 30 days. If Xiaomi Cloud is not fresher, it remains pending instead
-of silently replacing Health Connect. The independent Health Connect backfill
-still skips provider-confirmed empty prefixes and uses its existing bounded
-snapshot/changes-token contract.
+than the retained Health Connect watermark. The hourly three-day refresh and
+weekly 30-day reconciliation use a dedicated resumable recent lane with one
+persisted target and width for all ten metrics. That lane runs while the exact
+historical cursor independently descends in 30-day windows to `2000-01-01`, so
+current steps do not wait for historical backfill and a recent continuation
+cannot reset historical progress. If Xiaomi Cloud is not fresher, it remains
+pending instead of silently replacing Health Connect. The independent Health
+Connect backfill still skips provider-confirmed empty prefixes and uses its
+existing bounded snapshot/changes-token contract.
 
 **Сбросить сопряжение** deletes and immediately replaces the non-exportable
 Android Keystore key before clearing local pairing and sync cursors. Use it only

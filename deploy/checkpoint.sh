@@ -155,4 +155,7 @@ git -C "${AMIGO_APP_DIR}" update-ref "${CHECKPOINT_REF}" "${CHECKPOINT_COMMIT}"
     || amigo_die "production checkout is dirty after checkpoint commit"
 
 amigo_log "DOCUMENTATION CHECKPOINT WRITTEN AND COMMITTED: ${CHECKPOINT_COMMIT}"
+amigo_log "BEGIN COPYABLE PRODUCTION CHECKPOINT"
+cat "${TEMP_DOCUMENT}"
+amigo_log "END COPYABLE PRODUCTION CHECKPOINT"
 amigo_log "copy the checkpoint facts into the canonical repository before reporting completion"

@@ -142,7 +142,7 @@
   additionally limited to exact authenticated same-origin GET
   `/amigo/api/v1/reports/doctor/<canonical-lowercase-UUID>.pdf`, no
   query/fragment/redirect, and 25 MiB on the client.
-- Android `1.4.0` (`versionCode 15`) accepts up to 25 dashboard uploads from the
+- Android `1.4.1` (`versionCode 16`) accepts up to 25 dashboard uploads from the
   system picker, refreshes a stale foreground WebView, records allowlisted
   background-sync diagnostics, and schedules immediate, hourly, and bounded
   one-minute backfill continuation work. Its in-app updater may download only
@@ -169,15 +169,20 @@
   uses bounded regional discovery and passToken refresh. Every cloud run first
   reasserts the signed server-side source status before fetching or uploading,
   so a missed initial status request cannot leave all batches rejected as
-  `mi_fitness_not_enabled`. Cloud batch identity binds the full canonical
+  `mi_fitness_not_enabled`. The three-day routine reconciliation and 30-day
+  weekly reconciliation run in a dedicated resumable lane while the historical
+  30-day backfill continues. One persisted target and width apply to all ten
+  metrics in a reconciliation round, including one-minute continuations, so
+  bounded pagination cannot move the activation window or let historical
+  backfill starve current data. Cloud batch identity binds the full canonical
   normalized body and its retry timestamp is fixed to the persisted range end.
   The cursor keeps only bounded SHA-256 record-ID hashes to remove Xiaomi's
   cross-page overlap. A legacy batch/sequence conflict restarts exactly the
   affected unfinished metric snapshot once, preserving credentials, pairing,
   completed history, and every unrelated cursor. It uploads only normalized
   allowlisted records, aggregates ordinary heart rate by hour on the phone, and
-  keeps 3-day hourly plus 30-day weekly reconciliation after the descending
-  30-day backfill reaches `2000-01-01`.
+  keeps those independent reconciliation rounds while the descending 30-day
+  backfill proceeds to `2000-01-01`.
 - Deterministic blood-pressure, heart, SpO2, and VO2 displays remain descriptive
   and never add severity colors or app-side diagnoses. Validated AI may use those
   metrics only for evidence-bound measurement/logging advice or discussion of a

@@ -16,14 +16,14 @@ def test_update_metadata_is_bound_to_the_actual_apk_bytes(tmp_path):
         Settings(
             database_url="sqlite+pysqlite:///:memory:",
             android_apk_path=apk,
-            android_apk_version_code=15,
-            android_apk_version_name="1.4.0",
+            android_apk_version_code=16,
+            android_apk_version_name="1.4.1",
         )
     )
 
     assert payload == {
-        "version_code": 15,
-        "version_name": "1.4.0",
+        "version_code": 16,
+        "version_name": "1.4.1",
         "size_bytes": len(content),
         "sha256": sha256(content).hexdigest(),
         "download_url": "/amigo/api/v1/app-update/apk",

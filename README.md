@@ -179,7 +179,7 @@ explicitly Xiaomi Cloud-only and its sleep chart is labelled in hours.
 
 ## Android app and Xiaomi/Health Connect companion
 
-Amigo `1.4.0` (`versionCode 15`, package `ru.tolstik.amigo.sync`) opens the full
+Amigo `1.4.1` (`versionCode 16`, package `ru.tolstik.amigo.sync`) opens the full
 authenticated dashboard in a top-level WebView. It uses the same local account
 and 90-day server session as a browser, while signed ingest remains independent.
 Only the fixed production origin and known SPA routes are accepted; there is no
@@ -240,37 +240,48 @@ same-origin APK, verifies its declared size and SHA-256 plus package, higher
 version code, and installed signing certificate, then delegates to the Android
 system installer for explicit confirmation.
 
-Release 1.4.0 retains the `1.2.4` Health Connect behavior: modification timestamp as the batch
-freshness watermark, so Mi Fitness intervals whose rounded end is still ahead
-do not stall synchronization. A rejected record type no longer prevents later
-types such as sleep from being attempted in the same bounded run. It performs
-one heart-rate-only full reconciliation with a fresh changes token after the
-upgrade, while preserving pairing, the device key, the selected origin, and all
-other type cursors. The release keeps the earlier worker/run-ID, DNS, and
-empty-history fixes. Direct cloud activation fixes its three-day window from
-the first qualifying recent coverage in the current enablement episode, so
-bounded pagination cannot make the gate recede while pages upload. It requires
-finalized coverage for all ten mapped types from that episode and heart rate
-newer than the retained Health Connect watermark. Partial snapshots are
-invisible; a final cloud snapshot, including a confirmed-empty one, atomically
-takes precedence only for the same metric and interval. Backfill descends in
-30-day windows to `2000-01-01`, then uses three-day hourly and 30-day weekly
-reconciliation. Auth expiry stays visible and never silently switches the
-active source.
+Release 1.4.1 retains the `1.4.0` and `1.2.4` Health Connect behavior:
+modification timestamp as the batch freshness watermark, so Mi Fitness
+intervals whose rounded end is still ahead do not stall synchronization. A
+rejected record type no longer prevents later types such as sleep from being
+attempted in the same bounded run. It performs one heart-rate-only full
+reconciliation with a fresh changes token after the upgrade, while preserving
+pairing, the device key, the selected origin, and all other type cursors. The
+release keeps the earlier worker/run-ID, DNS, and empty-history fixes. Direct
+cloud activation fixes its three-day window from the first qualifying recent
+coverage in the current enablement episode, so bounded pagination cannot make
+the gate recede while pages upload. It requires finalized coverage for all ten
+mapped types from that episode and heart rate newer than the retained Health
+Connect watermark. Partial snapshots are invisible; a final cloud snapshot,
+including a confirmed-empty one, atomically takes precedence only for the same
+metric and interval.
+
+The 1.4.1 Xiaomi planner keeps routine three-day and weekly 30-day
+reconciliation in a dedicated resumable recent lane while the historical
+30-day backfill descends independently to `2000-01-01`. One persisted target
+and width apply to all ten metrics in a recent round and its one-minute
+continuations. A recent page therefore cannot overwrite or advance the exact
+historical cursor, and current steps no longer wait for the full historical
+backfill. Auth expiry stays visible and never silently switches the active
+source.
 
 Build, install, and phone setup are documented in
 [android/README.md](android/README.md); production pairing and verification are
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk)
-from release [`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1).
+[`Amigo-1.4.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.2/Amigo-1.4.1.apk)
+from release [`v5.2.2`](https://github.com/tolstik/amigo/releases/tag/v5.2.2).
 Its SHA-256 is
-`4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`; its
-size is `3,504,370` bytes and its signing-certificate SHA-256 is
+`fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5`; its
+size is `3,520,750` bytes and its signing-certificate SHA-256 is
 `25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
-The previous `1.3.4` APK remains available from `v5.1.5`. Verify the checksum
-before installing an APK.
+The previous signed companion is
+[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk)
+from release [`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1),
+SHA-256
+`4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`.
+Verify the checksum before installing an APK.
 
 ## Telegram schedule
 

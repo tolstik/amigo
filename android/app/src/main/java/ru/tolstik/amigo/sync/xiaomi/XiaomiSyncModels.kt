@@ -69,6 +69,22 @@ internal data class XiaomiCursor(
     val seenRecordHashes: Set<String> = emptySet(),
 )
 
+internal enum class XiaomiSyncMode {
+    /** Start a recent reconciliation when the previous one is stale or too narrow. */
+    ROUTINE,
+
+    /** Finish required recent work, but otherwise spend the run on historical backfill. */
+    BACKFILL_CONTINUATION,
+
+    /** Reconcile the requested recent window even when the last routine run is still fresh. */
+    FORCE_REFRESH,
+}
+
+internal data class XiaomiRefreshRound(
+    val target: Instant,
+    val days: Long,
+)
+
 data class XiaomiSyncSummary(
     val uploadedBatches: Int,
     val completedTypes: Int,

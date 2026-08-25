@@ -92,6 +92,41 @@ jobs:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
       - run: ./gradlew test lint --stacktrace
 
+  prune-android-gradle-cache:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: amigo-android-gradle-cache-prune
+      cancel-in-progress: false
+    permissions:
+      actions: write
+    steps:
+      - name: Keep two recent main Android Gradle caches
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          obsolete_cache_ids_file="${RUNNER_TEMP}/amigo-gradle-cache-ids"
+          gh cache list \
+            --repo "${GH_REPO}" \
+            --ref "refs/heads/main" \
+            --key "setup-java-Linux-x64-gradle-" \
+            --limit 100 \
+            --sort last_accessed_at \
+            --order desc \
+            --json id,key \
+            --jq 'map(select(.key | test("^setup-java-Linux-x64-gradle-[0-9a-f]{64}$"))) | .[2:] | .[].id' \
+            >"${obsolete_cache_ids_file}"
+          mapfile -t obsolete_cache_ids <"${obsolete_cache_ids_file}"
+          for cache_id in "${obsolete_cache_ids[@]}"; do
+            [[ "${cache_id}" =~ ^[0-9]+$ ]]
+            gh cache delete "${cache_id}" --repo "${GH_REPO}"
+          done
+
   release-gates:
     runs-on: ubuntu-latest
     steps:

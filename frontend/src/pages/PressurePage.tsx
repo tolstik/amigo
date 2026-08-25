@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { api, csvUrl } from "../api/client";
 import type { PressurePoint, PressureStats } from "../api/types";
-import { pressureChartOption } from "../charts/options";
+import { pressureCategoryChartOption, pressureChartOption } from "../charts/options";
 import { ErrorState, EmptyState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
 import { PressureTable } from "../components/DataTables";
@@ -9,9 +9,11 @@ import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { PeriodSwitcher } from "../components/PeriodSwitcher";
+import { PressureCategoryGuide } from "../components/PressureCategoryGuide";
 import { useApi } from "../hooks/useApi";
 import { useChartPeriod } from "../hooks/useChartPeriod";
 import { formatDateTime, formatNumber } from "../lib/format";
+import { aggregateDailyPressureCategories } from "../lib/pressureCategories";
 
 function mean(values: number[]): number | null {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
@@ -67,13 +69,17 @@ export function PressurePage() {
   const stats30d = useMemo(() => series.data?.stats30d.sessions ? series.data.stats30d : computeStats(points, 30), [points, series.data?.stats30d]);
   const morning = useMemo(() => byPeriod(points, "morning"), [points]);
   const evening = useMemo(() => byPeriod(points, "evening"), [points]);
+  const dailyCategories = useMemo(
+    () => aggregateDailyPressureCategories(points, series.data?.meta.timezone || "Europe/Moscow"),
+    [points, series.data?.meta.timezone],
+  );
 
   return (
     <>
       <PageHeader
         eyebrow="Наблюдение"
         title="Статистика давления"
-        description="Систолическое, диастолическое и пульс собраны по сессиям. Здесь нет медицинских категорий — только ваши измерения и описательная статистика."
+        description="Систолическое, диастолическое и пульс собраны по сессиям. Линии показывают измерения, а отдельная дневная полоса — заданный визуальный ориентир, не медицинскую оценку."
         actions={<a className="button button--secondary" href={csvUrl("pressure", period)} download><Icon name="download" /> Скачать CSV</a>}
       />
 
@@ -88,14 +94,25 @@ export function PressurePage() {
       {series.loading && !series.data ? <LoadingState /> : series.error && !series.data ? (
         <ErrorState message={series.error.message} onRetry={series.reload} />
       ) : points.length ? (
-        <ChartCard
-          title="Динамика показателей"
-          subtitle={`${series.data?.meta.count ?? points.length} сессий · значения в мм рт. ст., пульс на правой шкале`}
-          option={pressureChartOption(points)}
-          ariaLabel="График систолического и диастолического давления и пульса"
-          height={460}
-          footer={<PressureTable points={points} />}
-        />
+        <>
+          <ChartCard
+            title="Динамика показателей"
+            subtitle={`${series.data?.meta.count ?? points.length} сессий · пунктиром отмечены границы повышенного и критически высокого давления, пульс на правой шкале`}
+            option={pressureChartOption(points)}
+            ariaLabel="График систолического и диастолического давления и пульса"
+            height={460}
+            footer={<PressureTable points={points} />}
+          />
+          <ChartCard
+            title="Дневной визуальный ориентир"
+            subtitle={`${dailyCategories.length} дней с сессиями · категория дня — наиболее требующая внимания среди сессий`}
+            option={pressureCategoryChartOption(dailyCategories)}
+            ariaLabel="Дневная полоса категорий давления: ниже ориентира, домашний ориентир, повышенное и критически высокое"
+            height={220}
+            aside={<span className="rules-badge"><Icon name="heart" /> Не диагноз</span>}
+            footer={<PressureCategoryGuide days={dailyCategories} />}
+          />
+        </>
       ) : <EmptyState title="Измерений давления пока нет" text="После импорта данных из облака здесь появится история по сессиям." />}
 
       {points.length > 0 && (

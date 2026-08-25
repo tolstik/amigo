@@ -114,9 +114,12 @@
   Dashboard, CSV, Telegram, and minimized AI
   snapshots use daily average/minimum/maximum watch heart rate, while the watch
   heart-rate chart may additionally use persisted hourly
-  minimum/average/maximum aggregates. Raw heart-rate samples are never
-  persisted. Resting heart rate remains a distinct metric and must never be
-  inferred from ordinary samples.
+  minimum/average/maximum aggregates. Its `1h`/`3h`/`6h`/`1d` view keeps true
+  interval bounds, weights the average by sample count, breaks missing
+  intervals, exposes visible zoom, and adapts automatically to a changed period
+  until the user chooses a grouping. Raw heart-rate samples are never persisted.
+  Resting heart rate remains a distinct metric and must never be inferred from
+  ordinary samples.
 - Identical Withings groups replayed by the overlap window are not updates and
   must not enqueue another AI analysis. Only newly created or structurally
   changed provider groups may trigger measurement-driven regeneration.
@@ -183,14 +186,28 @@
   allowlisted records, aggregates ordinary heart rate by hour on the phone, and
   keeps those independent reconciliation rounds while the descending 30-day
   backfill proceeds to `2000-01-01`.
-- Deterministic blood-pressure, heart, SpO2, and VO2 displays remain descriptive
-  and never add severity colors or app-side diagnoses. Validated AI may use those
-  metrics only for evidence-bound measurement/logging advice or discussion of a
-  persistent pattern with a clinician. It must never diagnose, prescribe
-  treatment, set medication/dosage, or prescribe a fixed calorie target.
+- Deterministic heart, SpO2, and VO2 displays remain descriptive and never add
+  severity colors or app-side diagnoses. The blood-pressure dashboard is the
+  only deterministic display exception: it may show an explicitly labelled
+  home-measurement visual reference with neutral below-range readings
+  (`<90` systolic or `<60` diastolic), green `90–134/60–84`, amber elevated
+  (`135–179` systolic or `85–119` diastolic), and red critically high
+  (`>=180` systolic or `>=120` diastolic). A day's category is the one requiring
+  the most attention among its sessions, ordered as home guide, below guide,
+  elevated, then critically high. These bands must stay a visual reference
+  rather than a diagnosis, must disclose their exact thresholds, and the main
+  pressure trend must label the elevated `135/85` and critical `180/120`
+  boundaries. The red state must advise a repeat measurement and urgent help
+  when symptoms are present.
+  Validated AI may use those metrics only for evidence-bound
+  measurement/logging advice or discussion of a persistent pattern with a
+  clinician. It must never diagnose, prescribe treatment, set
+  medication/dosage, or prescribe a fixed calorie target.
 - KPI, trends, plans, forecasts, outliers, baselines, and correlations are
-  deterministic. Visible observations and recommendations are generated only
-  from a validated AI result; never add template or rule-based narrative
+  deterministic. Correlation cards must define Pearson `r`, explain its sign and
+  magnitude, preserve the causality disclaimer, and remain readable without
+  horizontal clipping. Visible observations and recommendations are generated
+  only from a validated AI result; never add template or rule-based narrative
   fallback text.
 - Public AI and new completed assistant evidence must resolve only from the
   exact immutable snapshot captured for that result/turn. Later imports or

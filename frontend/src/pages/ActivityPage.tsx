@@ -3,6 +3,7 @@ import { api, csvUrl } from "../api/client";
 import { activityDailyChartOption, weeklyActivityChartOption } from "../charts/options";
 import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
+import { CorrelationPanel } from "../components/CorrelationPanel";
 import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
@@ -82,17 +83,11 @@ export function ActivityPage() {
               </tbody></table></div></details>
             }
           />}
-          {series.data?.correlations.length ? <section className="panel correlation-panel" aria-labelledby="activity-correlations">
-            <div className="panel__head"><div><span className="eyebrow">От 8 полных недель</span><h2 id="activity-correlations">Совместная динамика</h2></div></div>
-            <div className="correlation-grid">
-              {series.data.correlations.map((item) => <article key={`${item.metric}-${item.target}`}>
-                <strong>{metricLabels[item.metric] ?? item.metric} ↔ {metricLabels[item.target] ?? item.target}</strong>
-                <span>r = {formatNumber(item.coefficient, 2)}</span>
-                <small>{item.fullOverlappingWeeks} полных недель</small>
-              </article>)}
-            </div>
-            <p className="panel-note">{series.data.correlations[0].disclaimer}</p>
-          </section> : null}
+          {series.data?.correlations.length ? <CorrelationPanel
+            id="activity-correlations"
+            correlations={series.data.correlations}
+            metricLabels={metricLabels}
+          /> : null}
         </>
       ) : <EmptyState title="Данных активности пока нет" text="Подключите Xiaomi Cloud в Amigo Sync. Если прямых данных о шагах нет, Amigo не подставляет ноль или историю Health Connect." />}
     </>

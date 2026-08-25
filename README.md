@@ -45,6 +45,12 @@ is persisted and applied to both the interface and charts. An explicit 30-day,
 90-day, one-year, or all-time chart period is shared across chart pages and
 survives reloads.
 
+The watch heart-rate chart automatically groups hourly aggregates into a
+readable `1h`, `3h`, `6h`, or daily view, preserves true minimum/maximum bounds,
+uses a sample-count-weighted average, leaves visible gaps for missing data, and
+offers a slider plus wheel/pinch zoom. Correlation cards explain Pearson `r`,
+its direction and strength, and why it does not establish causality.
+
 `backend/` contains FastAPI services, deterministic analytics, integrations,
 and migrations. `frontend/` contains the React/TypeScript dashboard. `android/`
 contains the hybrid Amigo Android app: its default tab is the secured dashboard
@@ -297,9 +303,18 @@ Verify the checksum before installing an APK.
   bounded next step. Originals, filenames, OCR text, and assistant messages are
   never sent to Telegram.
 
-Blood pressure, heart, SpO2, and VO2 max charts remain descriptive and have no
-severity colors or app-side diagnosis. Validated AI can turn a repeated pattern
-into measurement/logging or clinician-discussion guidance, but never diagnosis,
+Heart, SpO2, and VO2 max charts remain descriptive and have no severity colors
+or app-side diagnosis. The blood-pressure dashboard has one bounded visual
+exception for home measurements: neutral below `90/60`, green within
+`90–134/60–84`, amber when systolic is `135–179` or diastolic is `85–119`, and
+red when systolic is at least `180` or diastolic is at least `120`. The daily
+view uses the category requiring the most attention among that day's sessions
+(home guide, below guide, elevated, critically high), discloses the exact
+thresholds, and remains a visual reference rather than a diagnosis. The main
+trend labels the `135/85` elevated and `180/120` critical boundaries. The red
+state asks the user to repeat the measurement and seek urgent help when symptoms
+are present. Validated AI can turn a repeated pattern into
+measurement/logging or clinician-discussion guidance, but never diagnosis,
 treatment, medication changes, or fixed calorie prescriptions.
 
 ## Weekly plan/fact analytics

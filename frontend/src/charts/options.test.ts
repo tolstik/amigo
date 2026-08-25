@@ -1,5 +1,6 @@
 import type { ActivityPoint, HeartRateHourlyPoint, RecoveryPoint, WeeklyWeightPoint } from "../api/types";
-import { activityDailyChartOption, heartRateChartOption, recoveryChartOption, sleepChartOption, weeklyChangeChartOption, weeklyWeightChartOption } from "./options";
+import type { DailyPressureCategory } from "../lib/pressureCategories";
+import { activityDailyChartOption, heartRateChartOption, pressureCategoryChartOption, pressureChartOption, recoveryChartOption, sleepChartOption, weeklyChangeChartOption, weeklyWeightChartOption } from "./options";
 import { chartOptionForTheme, chartPalettes } from "./theme";
 
 function week(index: number, overrides: Partial<WeeklyWeightPoint> = {}): WeeklyWeightPoint {
@@ -154,5 +155,61 @@ describe("daily charts", () => {
     expect(series[1].data[0][1]).toBeCloseTo(98 / 60);
     const tooltip = (option.tooltip as any).formatter([{ axisValue: recovery.measuredAt, value: [recovery.measuredAt, 461 / 60], marker: "", seriesName: "Сон" }]);
     expect(tooltip).toContain("7 ч 41 мин");
+  });
+});
+
+describe("daily pressure category strip", () => {
+  it("adds labelled elevated and critical boundaries to the pressure trend", () => {
+    const option = pressureChartOption([{
+      measuredAt: "2026-08-25T09:00:00+03:00",
+      systolic: 122,
+      diastolic: 78,
+      pulse: 64,
+      pulsePressure: 44,
+      sessionSize: 1,
+      periodOfDay: "morning",
+    }]);
+    const series = option.series as any[];
+
+    expect(series[0].markLine.data.map((line: any) => [line.name, line.yAxis])).toEqual([
+      ["Сист. 135", 135],
+      ["Сист. 180", 180],
+    ]);
+    expect(series[1].markLine.data.map((line: any) => [line.name, line.yAxis])).toEqual([
+      ["Диаст. 85", 85],
+      ["Диаст. 120", 120],
+    ]);
+  });
+
+  it("uses one categorical bar per measured day and explains the category needing most attention", () => {
+    const days: DailyPressureCategory[] = [{
+      date: "2026-08-24",
+      category: "home_guide",
+      sessions: 1,
+      minSystolic: 122,
+      maxSystolic: 122,
+      minDiastolic: 78,
+      maxDiastolic: 78,
+    }, {
+      date: "2026-08-25",
+      category: "critical_high",
+      sessions: 3,
+      minSystolic: 88,
+      maxSystolic: 181,
+      minDiastolic: 58,
+      maxDiastolic: 86,
+    }];
+    const option = pressureCategoryChartOption(days);
+    const series = option.series as any[];
+
+    expect((option.xAxis as any).type).toBe("category");
+    expect((option.xAxis as any).data).toEqual(["2026-08-24", "2026-08-25"]);
+    expect(series[0].type).toBe("bar");
+    expect(series[0].data.map((item: any) => item.itemStyle.color)).toEqual(["#2d9365", "#e9785d"]);
+    const tooltip = (option.tooltip as any).formatter({ dataIndex: 1 });
+    expect(tooltip).toContain("Критически высокое");
+    expect(tooltip).toContain("сист. ≥ 180 или диаст. ≥ 120");
+    expect(tooltip).toContain("88–181 / 58–86");
+    expect(tooltip).toContain("Сессий");
   });
 });

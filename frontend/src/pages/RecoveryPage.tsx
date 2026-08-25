@@ -1,12 +1,14 @@
 import { useCallback } from "react";
 import { api, csvUrl } from "../api/client";
-import { heartRateChartOption, recoveryChartOption, sleepChartOption } from "../charts/options";
+import { recoveryChartOption, sleepChartOption } from "../charts/options";
 import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
+import { CorrelationPanel } from "../components/CorrelationPanel";
 import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { PeriodSwitcher } from "../components/PeriodSwitcher";
+import { WatchHeartRateChart } from "../components/WatchHeartRateChart";
 import { useApi } from "../hooks/useApi";
 import { useChartPeriod } from "../hooks/useChartPeriod";
 import { formatDate, formatDateTime, formatNumber } from "../lib/format";
@@ -69,7 +71,7 @@ export function RecoveryPage() {
         <>
           <ChartCard title="Сон" subtitle="Общая продолжительность и доступные стадии" option={sleepChartOption(points)} ariaLabel="График продолжительности и стадий сна" height={390} />
           {hourlyHeartRate.length > 0 && (
-            <ChartCard title="Пульс с часов" subtitle="Почасовые среднее, минимум и максимум; исходные замеры часов не показываются и не сохраняются" option={heartRateChartOption(hourlyHeartRate)} ariaLabel="Почасовой график среднего, минимального и максимального пульса с часов" height={390} />
+            <WatchHeartRateChart points={hourlyHeartRate} />
           )}
           {(points.some((point) => point.restingHeartRateBpm !== null) || points.some((point) => point.hrvRmssdMs !== null)) && (
             <ChartCard title="Пульс покоя и HRV" subtitle="Два независимых показателя относительно собственной динамики" option={recoveryChartOption(points)} ariaLabel="График пульса покоя и вариабельности ритма" height={390} />
@@ -80,17 +82,11 @@ export function RecoveryPage() {
               {[...points].reverse().map((point) => <tr key={point.measuredAt}><td>{formatDate(point.measuredAt)}</td><td>{duration(point.sleepMinutes)}</td><td>{duration(point.deepSleepMinutes)}</td><td>{duration(point.remSleepMinutes)}</td><td>{formatNumber(point.averageHeartRateBpm, 0)}</td><td>{formatNumber(point.minimumHeartRateBpm, 0)}</td><td>{formatNumber(point.maximumHeartRateBpm, 0)}</td><td>{formatNumber(point.restingHeartRateBpm, 0)}</td><td>{formatNumber(point.hrvRmssdMs, 0)}</td><td>{point.spo2Pct == null ? "—" : `${formatNumber(point.spo2Pct)}%`}</td></tr>)}
             </tbody></table></div>
           </details>
-          {series.data?.correlations.length ? <section className="panel correlation-panel" aria-labelledby="recovery-correlations">
-            <div className="panel__head"><div><span className="eyebrow">От 8 полных недель</span><h2 id="recovery-correlations">Совместная динамика</h2></div></div>
-            <div className="correlation-grid">
-              {series.data.correlations.map((item) => <article key={`${item.metric}-${item.target}`}>
-                <strong>{metricLabels[item.metric] ?? item.metric} ↔ {metricLabels[item.target] ?? item.target}</strong>
-                <span>r = {formatNumber(item.coefficient, 2)}</span>
-                <small>{item.fullOverlappingWeeks} полных недель</small>
-              </article>)}
-            </div>
-            <p className="panel-note">{series.data.correlations[0].disclaimer}</p>
-          </section> : null}
+          {series.data?.correlations.length ? <CorrelationPanel
+            id="recovery-correlations"
+            correlations={series.data.correlations}
+            metricLabels={metricLabels}
+          /> : null}
         </>
       ) : <EmptyState title="Данных сна и восстановления пока нет" text="Показатели появятся после импорта доступной истории Mi Fitness из Health Connect." />}
 

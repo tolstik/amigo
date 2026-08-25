@@ -31,6 +31,10 @@ const activitySeries = {
   ],
   weekly: [{ start_date: "2026-08-31", end_date: "2026-09-06", actual_steps: 14552, baseline_steps: 13200, coverage_days: 2, is_partial: true }],
   summary: { steps: 6120, baseline_steps: 5900, distance_km: 4.4, active_minutes: 31, workouts_7d: 2, data_as_of: "2026-09-02T08:00:00Z" },
+  correlations: [
+    { metric: "steps", target: "weight_kg", coefficient: -0.2, full_overlapping_weeks: 20, disclaimer: "Корреляция не доказывает причинность." },
+    { metric: "active_minutes", target: "systolic_mm_hg", coefficient: -0.4, full_overlapping_weeks: 16, disclaimer: "Корреляция не доказывает причинность." },
+  ],
   meta: { range: "90d", count: 2 },
 };
 
@@ -40,8 +44,19 @@ const recoverySeries = {
     { date: "2026-09-01", sleep_minutes: 438, deep_sleep_minutes: 91, rem_sleep_minutes: 102, resting_heart_rate_bpm: 62, hrv_rmssd_ms: 43, spo2_pct: 97.1 },
     { date: "2026-09-02", sleep_minutes: 461, deep_sleep_minutes: 98, rem_sleep_minutes: 110, resting_heart_rate_bpm: 60, hrv_rmssd_ms: 46, spo2_pct: 97.4 },
   ],
+  heart_rate_hourly: [
+    { measured_at: "2026-08-31T21:00:00Z", average_bpm: 71, minimum_bpm: 58, maximum_bpm: 91, sample_count: 6 },
+    { measured_at: "2026-08-31T22:00:00Z", average_bpm: 68, minimum_bpm: 55, maximum_bpm: 88, sample_count: 12 },
+    { measured_at: "2026-08-31T23:00:00Z", average_bpm: 65, minimum_bpm: 52, maximum_bpm: 84, sample_count: 6 },
+    { measured_at: "2026-09-01T00:00:00Z", average_bpm: 64, minimum_bpm: 51, maximum_bpm: 82, sample_count: 6 },
+    { measured_at: "2026-09-02T09:00:00Z", average_bpm: 78, minimum_bpm: 62, maximum_bpm: 101, sample_count: 10 },
+    { measured_at: "2026-09-02T10:00:00Z", average_bpm: 82, minimum_bpm: 66, maximum_bpm: 107, sample_count: 14 },
+  ],
   summary: { sleep_minutes: 461, baseline_sleep_minutes: 445, resting_heart_rate_bpm: 60, baseline_resting_heart_rate_bpm: 62, hrv_rmssd_ms: 46, baseline_hrv_rmssd_ms: 42, spo2_pct: 97.4, data_as_of: "2026-09-02T08:00:00Z" },
   available_metrics: ["sleep", "resting_heart_rate", "hrv", "spo2"],
+  correlations: [
+    { metric: "resting_heart_rate_bpm", target: "weight_kg", coefficient: 0.3, full_overlapping_weeks: 8, disclaimer: "Корреляция не доказывает причинность." },
+  ],
   meta: { range: "90d", count: 2 },
 };
 
@@ -278,7 +293,10 @@ test.beforeEach(async ({ page }) => {
     } });
     if (path.endsWith("/insights")) return route.fulfill({ json: { items: overview.insights } });
     if (path.endsWith("/series/pressure")) {
-      return route.fulfill({ json: { points: [{ measured_at: "2026-08-18T18:00:00Z", systolic: 122, diastolic: 78, pulse: 64, pulse_pressure: 44, session_size: 2, period_of_day: "evening" }], meta: { range: "90d", count: 1 } } });
+      return route.fulfill({ json: { points: [
+        { measured_at: "2026-08-18T12:00:00Z", systolic: 181, diastolic: 80, pulse: 68, pulse_pressure: 101, session_size: 1, period_of_day: "other" },
+        { measured_at: "2026-08-18T18:00:00Z", systolic: 122, diastolic: 78, pulse: 64, pulse_pressure: 44, session_size: 2, period_of_day: "evening" },
+      ], meta: { range: "90d", count: 2 } } });
     }
     if (path.endsWith("/series/activity")) return route.fulfill({ json: activitySeries });
     if (path.endsWith("/series/recovery")) return route.fulfill({ json: recoverySeries });
@@ -294,6 +312,12 @@ test("renders the overview and navigates to pressure", async ({ page }) => {
   await page.getByRole("link", { name: "Давление", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Статистика давления" })).toBeVisible();
   await expect(page.getByText("122 / 78").first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Дневной визуальный ориентир" })).toBeVisible();
+  await expect(page.getByRole("img", { name: /Дневная полоса категорий давления/ })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Границы категорий давления" })).toContainText("сист. ≥ 180 или диаст. ≥ 120");
+  await expect(page.getByText(/Это визуальный ориентир, а не диагноз/)).toBeVisible();
+  await page.getByText("Показать дневные категории (1)").click();
+  await expect(page.getByRole("table", { name: "Дневные категории давления и диапазоны сессий" })).toContainText("Критически высокое");
 });
 
 test("renders weekly plan/fact charts and their accessible table", async ({ page }) => {
@@ -320,10 +344,17 @@ test("renders AI analysis, activity baseline and recovery", async ({ page }) => 
   await page.getByRole("link", { name: "Активность", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Активность", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Недели: факт и личная база" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Совместная динамика" })).toBeVisible();
+  await expect(page.getByText(/r — коэффициент линейной корреляции Пирсона от −1 до 1/)).toBeVisible();
+  await expect(page.getByText("Слабая обратная линейная связь.")).toBeVisible();
 
   await page.getByRole("link", { name: "Восстановление", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Восстановление", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Сон", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Пульс с часов" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "1 ч" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText(/Пропуски данных показаны разрывами/)).toBeVisible();
+  await expect(page.getByText("Слабая прямая линейная связь.")).toBeVisible();
   await expect(
     page.getByRole("article").filter({ hasText: "Последний сон" }).getByText("7 ч 41 мин", { exact: true }),
   ).toBeVisible();
@@ -374,6 +405,15 @@ test("keeps narrow mobile layouts usable and the active navigation item visible"
     expect(bounds).not.toBeNull();
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
+  }
+});
+
+test("keeps the new chart controls, pressure guide and correlation cards inside a narrow viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 780 });
+  for (const path of ["./activity", "./recovery", "./pressure"]) {
+    await page.goto(path);
+    const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(hasOverflow).toBe(false);
   }
 });
 

@@ -12,7 +12,10 @@ import type {
   WeightPoint,
   WeightProjectionPoint,
 } from "../api/types";
-import { formatDate, formatDelta, formatKg, formatNumber, formatShortDate } from "../lib/format";
+import { formatDate, formatDateTime, formatDelta, formatKg, formatNumber, formatShortDate } from "../lib/format";
+import { heartRateLineData, type HeartRateAggregationHours } from "./heartRate";
+import type { DailyPressureCategory, PressureCategory } from "../lib/pressureCategories";
+import { PRESSURE_CATEGORY_DEFINITIONS } from "../lib/pressureCategories";
 
 const colors = {
   green: "#2d9365",
@@ -79,6 +82,25 @@ function sleepTooltipFormatter(params: any): string {
     })
     .join("");
   return `<div class="chart-tooltip"><strong>${tooltipDate(dateValue)}</strong>${rows}</div>`;
+}
+
+function heartRateTooltipFormatter(params: any): string {
+  const entries = Array.isArray(params) ? params : [params];
+  if (!entries.length) return "";
+  const dateValue = entries[0]?.axisValue ?? entries[0]?.value?.[0];
+  const parsedDate = new Date(dateValue);
+  const title = Number.isNaN(parsedDate.getTime()) ? "" : formatDateTime(parsedDate.toISOString());
+  const rows = entries
+    .filter((entry: any) => {
+      const value = Array.isArray(entry.value) ? entry.value[1] : entry.value;
+      return typeof value === "number" && Number.isFinite(value);
+    })
+    .map((entry: any) => {
+      const value = Array.isArray(entry.value) ? entry.value[1] : entry.value;
+      return `<div class="chart-tooltip-row"><span>${entry.marker}${entry.seriesName}</span><b>${formatNumber(Number(value))} уд/мин</b></div>`;
+    })
+    .join("");
+  return `<div class="chart-tooltip"><strong>${title}</strong>${rows}</div>`;
 }
 
 function timeLine(
@@ -421,32 +443,73 @@ export function recoveryChartOption(points: RecoveryPoint[]): EChartsOption {
   };
 }
 
-export function heartRateChartOption(points: HeartRateHourlyPoint[]): EChartsOption {
+export function heartRateChartOption(
+  points: HeartRateHourlyPoint[],
+  aggregationHours: HeartRateAggregationHours = 1,
+): EChartsOption {
+  const ordered = [...points].sort((left, right) => Date.parse(left.measuredAt) - Date.parse(right.measuredAt));
+  const visibleStart = ordered.length > 160 ? ordered.at(-160)?.measuredAt : undefined;
+  const zoomRange = visibleStart
+    ? { startValue: visibleStart, endValue: ordered.at(-1)?.measuredAt }
+    : {};
   return {
     animationDuration: 500,
     color: [colors.blue, colors.coral, colors.violet],
-    grid: sharedGrid,
+    grid: { ...sharedGrid, bottom: 78 },
     legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
     tooltip: {
       trigger: "axis",
       confine: true,
-      formatter: tooltipFormatter,
+      formatter: heartRateTooltipFormatter,
       backgroundColor: "rgba(22,31,25,.95)",
       borderWidth: 0,
       textStyle: { color: "#fff" },
     },
-    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false } },
+    xAxis: {
+      ...sharedAxis,
+      type: "time",
+      splitLine: { show: false },
+      axisLabel: {
+        ...sharedAxis.axisLabel,
+        formatter: (value: number) => aggregationHours === 24
+          ? formatShortDate(new Date(value).toISOString())
+          : formatDateTime(new Date(value).toISOString()),
+      },
+    },
     yAxis: { ...sharedAxis, type: "value", scale: true, name: "уд/мин", nameTextStyle: { color: colors.muted } },
-    dataZoom: [{ type: "inside", filterMode: "none" }],
+    dataZoom: [
+      { type: "inside", xAxisIndex: 0, filterMode: "none", ...zoomRange },
+      {
+        type: "slider",
+        xAxisIndex: 0,
+        filterMode: "none",
+        height: 20,
+        bottom: 8,
+        showDataShadow: false,
+        showDetail: true,
+        brushSelect: false,
+        borderColor: colors.grid,
+        backgroundColor: "transparent",
+        fillerColor: "rgba(75,123,236,.12)",
+        handleStyle: { color: colors.blue, borderColor: colors.blue },
+        moveHandleStyle: { color: colors.blue, opacity: 0.65 },
+        textStyle: { color: colors.muted },
+        ...zoomRange,
+      },
+    ],
     series: [
-      timeLine("Минимум", points.map((point) => [point.measuredAt, point.minimumBpm]), colors.blue, {
-        lineStyle: { width: 1.5, type: "dashed", color: colors.blue },
+      timeLine("Минимум", heartRateLineData(ordered, (point) => point.minimumBpm, aggregationHours), colors.blue, {
+        smooth: false,
+        lineStyle: { width: 1.5, type: "dashed", color: colors.blue, opacity: 0.72 },
       }),
-      timeLine("Средний", points.map((point) => [point.measuredAt, point.averageBpm]), colors.coral, {
+      timeLine("Средний", heartRateLineData(ordered, (point) => point.averageBpm, aggregationHours), colors.coral, {
+        smooth: false,
         lineStyle: { width: 3, color: colors.coral },
+        z: 4,
       }),
-      timeLine("Максимум", points.map((point) => [point.measuredAt, point.maximumBpm]), colors.violet, {
-        lineStyle: { width: 1.5, type: "dashed", color: colors.violet },
+      timeLine("Максимум", heartRateLineData(ordered, (point) => point.maximumBpm, aggregationHours), colors.violet, {
+        smooth: false,
+        lineStyle: { width: 1.5, type: "dashed", color: colors.violet, opacity: 0.72 },
       }),
     ],
   };
@@ -601,6 +664,18 @@ export function weightChartOption(
 }
 
 export function pressureChartOption(points: PressurePoint[]): EChartsOption {
+  const elevatedGuideLine = (name: string, value: number) => ({
+    name,
+    yAxis: value,
+    lineStyle: { color: colors.amber, type: "dashed" as const, width: 1.2, opacity: 0.78 },
+    label: { formatter: name, position: "insideEndTop" as const, color: colors.muted, fontSize: 9 },
+  });
+  const criticalGuideLine = (name: string, value: number) => ({
+    name,
+    yAxis: value,
+    lineStyle: { color: colors.coral, type: "dashed" as const, width: 1.2, opacity: 0.82 },
+    label: { formatter: name, position: "insideEndTop" as const, color: colors.muted, fontSize: 9 },
+  });
   return {
     animationDuration: 500,
     color: [colors.coral, colors.blue, colors.amber],
@@ -614,10 +689,113 @@ export function pressureChartOption(points: PressurePoint[]): EChartsOption {
     ],
     dataZoom: [{ type: "inside", filterMode: "none" }],
     series: [
-      timeLine("Систолическое", points.map((point) => [point.measuredAt, point.systolic]), colors.coral),
-      timeLine("Диастолическое", points.map((point) => [point.measuredAt, point.diastolic]), colors.blue),
+      {
+        ...timeLine("Систолическое", points.map((point) => [point.measuredAt, point.systolic]), colors.coral),
+        markLine: {
+          silent: true,
+          symbol: "none",
+          data: [
+            elevatedGuideLine("Сист. 135", 135),
+            criticalGuideLine("Сист. 180", 180),
+          ],
+        },
+      },
+      {
+        ...timeLine("Диастолическое", points.map((point) => [point.measuredAt, point.diastolic]), colors.blue),
+        markLine: {
+          silent: true,
+          symbol: "none",
+          data: [
+            elevatedGuideLine("Диаст. 85", 85),
+            criticalGuideLine("Диаст. 120", 120),
+          ],
+        },
+      },
       { ...timeLine("Пульс", points.map((point) => [point.measuredAt, point.pulse]), colors.amber), yAxisIndex: 1, lineStyle: { width: 1.8, color: colors.amber, opacity: 0.76 } },
     ],
+  };
+}
+
+const pressureCategoryColors: Record<PressureCategory, string> = {
+  below_guide: colors.muted,
+  home_guide: colors.green,
+  elevated: colors.amber,
+  critical_high: colors.coral,
+};
+
+function pressureCategoryTooltip(days: DailyPressureCategory[]) {
+  return (params: any): string => {
+    const entry = Array.isArray(params) ? params[0] : params;
+    const day = days[Number(entry?.dataIndex)];
+    if (!day) return "";
+    const definition = PRESSURE_CATEGORY_DEFINITIONS[day.category];
+    const boundary = definition.boundary.replaceAll("<", "&lt;");
+    const systolic = day.minSystolic === day.maxSystolic
+      ? formatNumber(day.minSystolic, 0)
+      : `${formatNumber(day.minSystolic, 0)}–${formatNumber(day.maxSystolic, 0)}`;
+    const diastolic = day.minDiastolic === day.maxDiastolic
+      ? formatNumber(day.minDiastolic, 0)
+      : `${formatNumber(day.minDiastolic, 0)}–${formatNumber(day.maxDiastolic, 0)}`;
+    return `<div class="chart-tooltip"><strong>${formatDate(day.date)}</strong>` +
+      `<div class="chart-tooltip-row"><span>Категория дня</span><b>${definition.label}</b></div>` +
+      `<div class="chart-tooltip-row"><span>Границы</span><b>${boundary}</b></div>` +
+      `<div class="chart-tooltip-row"><span>Диапазон сессий</span><b>${systolic} / ${diastolic}</b></div>` +
+      `<div class="chart-tooltip-row"><span>Сессий</span><b>${day.sessions}</b></div></div>`;
+  };
+}
+
+export function pressureCategoryChartOption(days: DailyPressureCategory[]): EChartsOption {
+  const longHistory = days.length > 60;
+  return {
+    animationDuration: 350,
+    grid: {
+      left: 12,
+      right: 12,
+      top: 8,
+      bottom: longHistory ? 62 : 40,
+      containLabel: true,
+    },
+    tooltip: {
+      trigger: "item",
+      confine: true,
+      formatter: pressureCategoryTooltip(days),
+      backgroundColor: "rgba(22,31,25,.95)",
+      borderWidth: 0,
+      textStyle: { color: "#fff" },
+    },
+    xAxis: {
+      ...sharedAxis,
+      type: "category",
+      data: days.map((day) => day.date),
+      splitLine: { show: false },
+      axisLabel: {
+        ...sharedAxis.axisLabel,
+        formatter: (value: string) => formatShortDate(value),
+      },
+    },
+    yAxis: {
+      type: "value",
+      min: 0,
+      max: 1,
+      show: false,
+    },
+    dataZoom: longHistory ? [
+      { type: "inside", filterMode: "none", startValue: Math.max(0, days.length - 60), endValue: days.length - 1 },
+      { type: "slider", filterMode: "none", startValue: Math.max(0, days.length - 60), endValue: days.length - 1, height: 16, bottom: 5 },
+    ] : undefined,
+    series: [{
+      name: "Категория дня",
+      type: "bar",
+      data: days.map((day) => ({
+        name: day.date,
+        value: 1,
+        itemStyle: { color: pressureCategoryColors[day.category], borderRadius: 4 },
+      })),
+      barWidth: "88%",
+      barMaxWidth: 72,
+      barMinHeight: 24,
+      emphasis: { itemStyle: { opacity: 0.82 } },
+    }],
   };
 }
 

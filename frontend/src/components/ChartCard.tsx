@@ -1,7 +1,7 @@
 import type { EChartsOption } from "echarts";
 import * as echarts from "echarts/core";
 import { BarChart, LineChart, ScatterChart } from "echarts/charts";
-import { AriaComponent, DataZoomComponent, GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
+import { AriaComponent, DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import ReactEChartsCore from "echarts-for-react/lib/core";
 import { useMemo, type ReactNode } from "react";
@@ -17,6 +17,7 @@ echarts.use([
   DataZoomComponent,
   GridComponent,
   LegendComponent,
+  MarkLineComponent,
   TooltipComponent,
   CanvasRenderer,
 ]);

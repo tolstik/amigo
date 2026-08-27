@@ -374,6 +374,14 @@ def theil_sen_forecast(
 
 
 def trend_change(daily: Sequence[DailyPoint], days: int) -> float | None:
+    """Return the observed endpoint change inside the requested calendar window.
+
+    The window may contain fewer than ``days`` of measurements (we still need
+    enough span to make the value useful), but the result must remain the
+    actual difference between the first and last available daily medians.  It
+    is deliberately not extrapolated to a full window: doing so turns a short
+    observed change into a number that never occurred in the user's data.
+    """
     clean = [point for point in daily if not point.is_outlier]
     if len(clean) < 2:
         return None
@@ -382,8 +390,7 @@ def trend_change(daily: Sequence[DailyPoint], days: int) -> float | None:
     if len(sample) < 2 or (sample[-1].day - sample[0].day).days < max(3, days // 3):
         return None
     first, last = sample[0], sample[-1]
-    span = (last.day - first.day).days
-    return round((last.value - first.value) / span * days, 3)
+    return round(last.value - first.value, 3)
 
 
 def pressure_sessions(

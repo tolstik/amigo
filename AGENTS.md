@@ -204,11 +204,13 @@
   clinician. It must never diagnose, prescribe treatment, set
   medication/dosage, or prescribe a fixed calorie target.
 - KPI, trends, plans, forecasts, outliers, baselines, and correlations are
-  deterministic. Correlation cards must define Pearson `r`, explain its sign and
-  magnitude, preserve the causality disclaimer, and remain readable without
-  horizontal clipping. Visible observations and recommendations are generated
-  only from a validated AI result; never add template or rule-based narrative
-  fallback text.
+  deterministic. The 28-day and 42-day weight changes are the observed
+  endpoint differences inside their calendar windows; a shorter qualifying
+  measurement span is never extrapolated to the full window. Correlation cards
+  must define Pearson `r`, explain its sign and magnitude, preserve the
+  causality disclaimer, and remain readable without horizontal clipping.
+  Visible observations and recommendations are generated only from a validated
+  AI result; never add template or rule-based narrative fallback text.
 - Public AI and new completed assistant evidence must resolve only from the
   exact immutable snapshot captured for that result/turn. Later imports or
   corrections must never rewrite a displayed value, date, range, or

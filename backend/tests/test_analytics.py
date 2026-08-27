@@ -15,6 +15,7 @@ from app.analytics import (
     planned_target_date,
     pressure_sessions,
     pressure_statistics,
+    trend_change,
     theil_sen_forecast,
     weekly_weight_points,
 )
@@ -96,6 +97,18 @@ def test_weekly_weight_points_are_empty_before_program_start():
 
 def test_weekly_weight_points_mark_current_week_partial_even_on_sunday():
     assert weekly_weight_points([], as_of=date(2026, 8, 30))[-1]["is_partial"] is True
+
+
+def test_trend_change_does_not_extrapolate_short_observed_window():
+    start = date(2026, 8, 15)
+    daily = [
+        DailyPoint(start, 127.03, 1),
+        DailyPoint(start + timedelta(days=11), 125.33, 1),
+    ]
+
+    # There are only 11 elapsed days in the 28-day window.  The dashboard must
+    # show the observed -1.7 kg change, not a fabricated -4.327 kg projection.
+    assert trend_change(daily, 28) == pytest.approx(-1.7)
 
 
 def test_theil_sen_forecast_is_gated_and_projects_declining_trend():

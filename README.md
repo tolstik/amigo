@@ -334,6 +334,11 @@ outliers are excluded from fact averages but reported separately. Empty weeks
 remain present with null fact values, while the calendar plan remains
 continuous.
 
+The 28-day and 42-day summary changes use the actual difference between the
+first and last non-outlier daily medians inside the selected calendar window.
+When a qualifying span is shorter than the full window, Amigo reports only the
+observed change and never scales it into a hypothetical full-period result.
+
 Activity has a separate weekly fact-versus-personal-baseline chart. Its baseline
 uses corresponding weekdays from the previous 28 complete days.
 

@@ -11,7 +11,7 @@ from uuid import uuid4
 import fitz
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from .ai_queue import public_analysis_payload
@@ -130,6 +130,28 @@ def build_doctor_report_payload(
     if "recovery" in sections:
         payload["sections"]["recovery"] = recovery_series(db, settings.tz, request.period, now)
     if "labs" in sections:
+        effective_lab_date = or_(
+            and_(
+                LabResult.observed_on.is_not(None),
+                LabResult.observed_on >= start,
+                LabResult.observed_on <= local_today,
+            ),
+            and_(
+                LabResult.observed_on.is_(None),
+                LabReport.observed_on >= start,
+                LabReport.observed_on <= local_today,
+            ),
+        )
+        excluded_unverified = db.scalar(
+            select(func.count(LabResult.id))
+            .outerjoin(LabReport, LabResult.report_id == LabReport.id)
+            .where(
+                LabResult.deleted.is_(False),
+                ~LabResult.verification_status.in_(("verified", "corrected")),
+                effective_lab_date,
+            )
+        ) or 0
+        payload["meta"]["labs_excluded_unverified"] = int(excluded_unverified)
         rows = list(
             db.scalars(
                 select(LabResult)
@@ -137,18 +159,7 @@ def build_doctor_report_payload(
                 .where(
                     LabResult.deleted.is_(False),
                     LabResult.verification_status.in_(("verified", "corrected")),
-                    or_(
-                        and_(
-                            LabResult.observed_on.is_not(None),
-                            LabResult.observed_on >= start,
-                            LabResult.observed_on <= local_today,
-                        ),
-                        and_(
-                            LabResult.observed_on.is_(None),
-                            LabReport.observed_on >= start,
-                            LabReport.observed_on <= local_today,
-                        ),
-                    ),
+                    effective_lab_date,
                 )
                 .order_by(LabResult.observed_on, LabResult.analyte_name, LabResult.id)
             )
@@ -318,8 +329,129 @@ def _html_table(headers: list[str], rows: list[list[object]]) -> str:
     return f'<div class="table-wrap"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
-def render_doctor_report_html(payload: dict) -> bytes:
+def _echarts_runtime(static_dir: Path | None) -> str | None:
+    candidate = (static_dir or Path("/app/static")) / "echarts.min.js"
+    try:
+        runtime = candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    return runtime.replace("</script", "<\\/script") if runtime else None
+
+
+def _render_echarts_report_html(payload: dict, runtime: str) -> bytes:
+    meta = payload.get("meta") or {}
+    sections = payload.get("sections") or {}
+    lab_status_labels = {
+        "within_reference": "В референсе",
+        "below_reference": "Ниже референса",
+        "above_reference": "Выше референса",
+        "outside_reference": "Вне референса",
+        "indeterminate": "Без оценки",
+    }
+    modality_labels = {
+        "ultrasound": "УЗИ", "mri": "МРТ", "ct": "КТ", "xray": "Рентген",
+        "ecg": "ЭКГ", "other": "Исследование",
+    }
+    blocks: list[str] = []
+
+    def chart(chart_id: str, title: str, unit: str) -> None:
+        blocks.append(
+            f'<section class="report-card report-chart"><div class="report-card__head"><h2>{_html(title)}</h2>'
+            f'<span class="unit">{_html(unit)}</span></div><div class="echart" id="{_html(chart_id)}" role="img" aria-label="{_html(title)}"></div></section>'
+        )
+
+    if isinstance(sections.get("summary"), dict):
+        summary = sections["summary"]
+        weight = summary.get("weight") or {}
+        pressure = summary.get("pressure") or {}
+        blocks.append(
+            '<section class="report-card summary"><h2>Краткая сводка</h2><div class="summary-grid">'
+            f'<div><span>Рост</span><strong>{_html(summary.get("height_cm") or "—")} см</strong></div>'
+            f'<div><span>Последний вес</span><strong>{_html(weight.get("latest_kg") or "—")} кг</strong></div>'
+            f'<div><span>Последнее давление</span><strong>{_html(pressure.get("latest_systolic") or "—")} / {_html(pressure.get("latest_diastolic") or "—")}</strong></div>'
+            '</div></section>'
+        )
+    if isinstance(sections.get("weight"), dict):
+        chart("chart-weight", "Вес", "кг")
+    if isinstance(sections.get("circumference"), dict):
+        chart("chart-circumference", "Обхваты тела", "см")
+        rows = list(sections["circumference"].get("points") or [])
+        blocks.append('<section class="report-card"><h2>Дневные обхваты</h2>' + _html_table(
+            ["Дата", "Талия, см", "Бёдра, см"],
+            [[row.get("measured_on"), row.get("waist_cm"), row.get("hip_cm")] for row in rows],
+        ) + '</section>')
+    if isinstance(sections.get("pressure"), dict):
+        chart("chart-pressure", "Давление", "мм рт. ст.")
+    if isinstance(sections.get("activity"), dict):
+        chart("chart-activity", "Шаги · только Xiaomi Cloud", "шаги")
+    if isinstance(sections.get("recovery"), dict):
+        chart("chart-recovery", "Продолжительность сна", "часы")
+    labs = sections.get("labs")
+    if isinstance(labs, list):
+        blocks.append('<section class="report-card"><h2>Подтверждённые лабораторные результаты</h2>' + (
+            _html_table(
+                ["Дата", "Показатель", "Значение", "Референс", "Статус"],
+                [[item.get("observed_on"), item.get("analyte"), item.get("value"), item.get("reference"), lab_status_labels.get(str(item.get("status")), "Без оценки")] for item in labs if isinstance(item, dict)],
+            ) if labs else '<p class="muted">Нет результатов за выбранный период.</p>'
+        ) + '</section>')
+        if int(meta.get("labs_excluded_unverified") or 0) > 0:
+            blocks.append(
+                '<aside class="report-card report-warning"><strong>Внимание: '
+                f'{int(meta.get("labs_excluded_unverified") or 0)} лабораторных строк не включено</strong>'
+                '<p>Результаты не подтверждены пользователем и поэтому исключены из пакета.</p></aside>'
+            )
+    studies = sections.get("studies")
+    if isinstance(studies, list):
+        study_rows = []
+        for item in studies:
+            if not isinstance(item, dict):
+                continue
+            details = " ".join([*(str(value) for value in item.get("findings") or []), str(item.get("conclusion") or "")]).strip()
+            study_rows.append([item.get("observed_on"), modality_labels.get(str(item.get("modality")), "Исследование"), details])
+        blocks.append('<section class="report-card"><h2>Подтверждённые исследования</h2>' + (
+            _html_table(["Дата", "Тип", "Описание"], study_rows) if study_rows else '<p class="muted">Нет исследований за выбранный период.</p>'
+        ) + '</section>')
+    ai = sections.get("ai")
+    if isinstance(ai, list):
+        blocks.append('<section class="report-card"><h2>Валидированные AI-рекомендации</h2>' + (
+            "".join(f'<article class="recommendation"><strong>{_html(item.get("title"))}</strong><p>{_html(item.get("text"))}</p></article>' for item in ai if isinstance(item, dict))
+            if ai else '<p class="muted">Готовых рекомендаций нет.</p>'
+        ) + '</section>')
+
+    json_payload = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str).replace("</", "<\\/")
+    chart_script = f'''<script>{runtime}</script><script>
+(function() {{
+  const data = {json_payload};
+  const palette = {{ green: "#2d9365", greenDeep: "#1c6f4a", blue: "#4b7bec", violet: "#8068dd", coral: "#dd755e", muted: "#657168", grid: "rgba(128,145,134,.16)" }};
+  const charts = [];
+  const rows = (section, key) => Array.isArray(section?.[key]) ? section[key] : [];
+  const line = (name, values, color, extra) => Object.assign({{ name, type: "line", data: values, showSymbol: values.length < 40, connectNulls: false, smooth: .2, lineStyle: {{ width: 3, color }}, itemStyle: {{ color }} }}, extra || {{}});
+  const base = (unit) => ({{ animation: false, grid: {{ left: 58, right: 20, top: 42, bottom: 48, containLabel: true }}, tooltip: {{ trigger: "axis", confine: true }}, legend: {{ top: 8, left: 0 }}, xAxis: {{ type: "time", axisLabel: {{ color: palette.muted }}, axisLine: {{ lineStyle: {{ color: palette.grid }} }}, splitLine: {{ show: false }} }}, yAxis: {{ type: "value", scale: true, name: unit, nameTextStyle: {{ color: palette.muted }}, axisLabel: {{ color: palette.muted }}, splitLine: {{ lineStyle: {{ color: palette.grid }} }} }}, dataZoom: [{{ type: "inside", filterMode: "none" }}] }});
+  const render = (id, option) => {{ const node = document.getElementById(id); if (!node) return; const chart = echarts.init(node, null, {{ renderer: "svg" }}); chart.setOption(option); charts.push(chart); }};
+  const pointData = (items, dateKey, valueKey) => items.map(item => [item[dateKey], item[valueKey] == null ? null : Number(item[valueKey])]);
+  const weight = data.sections?.weight; if (weight) {{ const o = base("кг"); o.series = [line("Замеры", pointData(rows(weight, "points"), "measured_at", "weight_kg"), palette.green), line("Тренд 7 дней", pointData(rows(weight, "points"), "measured_at", "smoothed_7d_kg"), palette.greenDeep), line("План", pointData(rows(weight, "points"), "measured_at", "planned_kg"), palette.blue, {{ lineStyle: {{ width: 2, type: "dashed", color: palette.blue }} }})]; render("chart-weight", o); }}
+  const circumference = data.sections?.circumference; if (circumference) {{ const o = base("см"); o.series = [line("Талия", pointData(rows(circumference, "points"), "measured_on", "waist_cm"), palette.coral), line("Бёдра", pointData(rows(circumference, "points"), "measured_on", "hip_cm"), palette.violet)]; render("chart-circumference", o); }}
+  const pressure = data.sections?.pressure; if (pressure) {{ const o = base("мм рт. ст."); o.series = [line("Систолическое", pointData(rows(pressure, "points"), "measured_at", "systolic"), palette.coral), line("Диастолическое", pointData(rows(pressure, "points"), "measured_at", "diastolic"), palette.blue)]; render("chart-pressure", o); }}
+  const activity = data.sections?.activity; if (activity) {{ const o = base("шаги"); o.series = [{{ name: "Шаги", type: "bar", data: pointData(rows(activity, "daily"), "date", "steps"), itemStyle: {{ color: palette.green }}, barMaxWidth: 18 }}]; render("chart-activity", o); }}
+  const recovery = data.sections?.recovery; if (recovery) {{ const values = rows(recovery, "daily").map(item => [item.date, item.sleep_minutes == null ? null : Number(item.sleep_minutes) / 60]); const o = base("часы"); o.series = [{{ name: "Сон", type: "bar", data: values, itemStyle: {{ color: palette.violet }}, barMaxWidth: 18 }}]; render("chart-recovery", o); }}
+  window.addEventListener("beforeprint", () => charts.forEach(chart => chart.resize()));
+}})();
+</script>'''
+    document = f'''<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Amigo — пакет для врача</title><style>
+:root {{ color-scheme: light; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #18221c; background: #f4f6f1; }} * {{ box-sizing: border-box; }} body {{ margin: 0; background: #f4f6f1; color: #18221c; }} .report {{ width: min(100% - 32px, 1040px); margin: 0 auto; padding: 34px 0 48px; }} .report-header {{ padding: 28px 30px; border-radius: 20px; background: linear-gradient(130deg,#1c6f4a,#358c66); color: #fff; margin-bottom: 18px; }} .kicker {{ margin: 0 0 8px; font-size: 11px; letter-spacing: .15em; text-transform: uppercase; opacity: .78; }} h1 {{ margin: 0; font-size: clamp(28px,4vw,44px); letter-spacing: -.04em; }} .period {{ margin: 12px 0 0; font-size: 14px; opacity: .9; }} .notice {{ margin: 12px 0 0; font-size: 11px; opacity: .78; }} .report-card {{ margin: 18px 0; padding: 22px 24px; border: 1px solid #dbe4dc; border-radius: 16px; background: #fff; break-inside: avoid; }} .report-card h2 {{ margin: 0 0 16px; font-size: 19px; letter-spacing: -.02em; }} .report-card__head {{ display:flex; justify-content:space-between; align-items:baseline; gap:12px; }} .unit,.muted {{ color:#657168; font-size:12px; }} .summary-grid {{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }} .summary-grid div {{ padding:14px; border-radius:12px; background:#f0f4ef; }} .summary-grid span {{ display:block; color:#657168; font-size:11px; }} .summary-grid strong {{ display:block; margin-top:5px; font-size:20px; }} .echart {{ width:100%; height:280px; }} .table-wrap {{ overflow-x:auto; }} table {{ width:100%; border-collapse:collapse; font-size:12px; }} th,td {{ padding:9px 8px; border-bottom:1px solid #e7ede8; text-align:left; vertical-align:top; }} th {{ color:#657168; font-size:10px; text-transform:uppercase; letter-spacing:.06em; }} .recommendation {{ padding:12px 0; border-top:1px solid #e7ede8; }} .recommendation:first-of-type {{ border-top:0; }} .recommendation p {{ margin:6px 0 0; color:#46564b; line-height:1.55; }} .report-warning {{ border-color:#ead7a8; background:#fff8e8; }} .report-warning strong {{ font-size:13px; }} .report-warning p {{ margin:6px 0 0; color:#6f634a; font-size:12px; }} .report-footer {{ margin-top:22px; color:#657168; font-size:10px; }} @page {{ size:A4; margin:14mm; }} @media print {{ body {{ background:#fff; }} .report {{ width:100%; padding:0; }} .report-header {{ color-adjust:exact; -webkit-print-color-adjust:exact; print-color-adjust:exact; }} }} @media(max-width:620px) {{ .report {{ width:min(100% - 20px,1040px); padding-top:16px; }} .report-header,.report-card {{ padding:18px; border-radius:14px; }} .summary-grid {{ grid-template-columns:1fr; }} }}
+</style></head><body><main class="report"><header class="report-header"><p class="kicker">Amigo · пакет для врача</p><h1>Сводка здоровья</h1><p class="period">Период: {_html(meta.get('from','—'))} — {_html(meta.get('to','—'))} · {_html(meta.get('timezone','Europe/Moscow'))}</p><p class="notice">Информационная сводка измерений; не диагноз и не назначение лечения.</p></header>{"".join(blocks)}<footer class="report-footer">Сформировано {_html(meta.get('created_at','—'))}. Данные зафиксированы на момент формирования пакета.</footer></main>{chart_script}</body></html>'''
+    encoded = document.encode("utf-8")
+    if len(encoded) > HTML_MAX_BYTES:
+        raise HTTPException(status_code=422, detail="report_html_too_large")
+    return encoded
+
+
+def render_doctor_report_html(payload: dict, static_dir: Path | None = None) -> bytes:
     """Render a self-contained, print-oriented dashboard from an immutable payload."""
+
+    runtime = _echarts_runtime(static_dir)
+    if runtime is not None:
+        return _render_echarts_report_html(payload, runtime)
 
     meta = payload.get("meta") or {}
     sections = payload.get("sections") or {}
@@ -384,6 +516,12 @@ def render_doctor_report_html(payload: dict) -> bytes:
                 [[item.get("observed_on"), item.get("analyte"), item.get("value"), item.get("reference"), lab_status_labels.get(str(item.get("status")), "Без оценки")] for item in labs if isinstance(item, dict)],
             ) if labs else '<p class="muted">Нет результатов за выбранный период.</p>'
         ) + "</section>")
+        if int(meta.get("labs_excluded_unverified") or 0) > 0:
+            blocks.append(
+                '<aside class="report-card report-warning"><strong>Внимание: '
+                f'{int(meta.get("labs_excluded_unverified") or 0)} лабораторных строк не включено</strong>'
+                '<p>Результаты не подтверждены пользователем и поэтому исключены из пакета.</p></aside>'
+            )
     studies = sections.get("studies")
     if isinstance(studies, list):
         study_rows = []
@@ -420,6 +558,7 @@ h1 {{ margin: 0; font-size: clamp(28px,4vw,44px); letter-spacing: -.04em; }} .pe
 .legend {{ display: flex; flex-wrap: wrap; gap: 14px; margin-top: 5px; color: #657168; font-size: 11px; }} .legend span {{ display: inline-flex; align-items: center; gap: 6px; }} .legend i {{ width: 9px; height: 9px; display: inline-block; border-radius: 50%; }}
 .table-wrap {{ overflow-x: auto; }} table {{ width: 100%; border-collapse: collapse; font-size: 12px; }} th, td {{ padding: 9px 8px; border-bottom: 1px solid #e7ede8; text-align: left; vertical-align: top; }} th {{ color: #657168; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }}
 .recommendation {{ padding: 12px 0; border-top: 1px solid #e7ede8; }} .recommendation:first-of-type {{ border-top: 0; }} .recommendation p {{ margin: 6px 0 0; color: #46564b; line-height: 1.55; }}
+.report-warning {{ border-color: #ead7a8; background: #fff8e8; }} .report-warning strong {{ font-size: 13px; }} .report-warning p {{ margin: 6px 0 0; color: #6f634a; font-size: 12px; }}
 .report-footer {{ margin-top: 22px; color: #657168; font-size: 10px; }}
 @page {{ size: A4; margin: 14mm; }} @media print {{ body {{ background: #fff; }} .report {{ width: 100%; padding: 0; }} .report-header {{ color-adjust: exact; -webkit-print-color-adjust: exact; print-color-adjust: exact; }} .report-card {{ box-shadow: none; }} }}
 @media (max-width: 620px) {{ .report {{ width: min(100% - 20px, 1040px); padding-top: 16px; }} .report-header, .report-card {{ padding: 18px; border-radius: 14px; }} .summary-grid {{ grid-template-columns: 1fr; }} }}
@@ -643,7 +782,7 @@ def create_doctor_report(
     now = datetime.now(timezone.utc)
     payload = build_doctor_report_payload(db, settings, request, now)
     rendered = render_doctor_report(payload)
-    rendered_html = render_doctor_report_html(payload)
+    rendered_html = render_doctor_report_html(payload, settings.static_dir)
     # Page count is validated from the exact same immutable view model used by GET.
     with fitz.open(stream=rendered, filetype="pdf") as document:
         page_count = document.page_count
@@ -680,9 +819,13 @@ def download_doctor_report(report_id: str, db: Session = Depends(get_db)) -> Res
 
 
 @router.get("/{report_id}.html")
-def download_doctor_report_html(report_id: str, db: Session = Depends(get_db)) -> Response:
+def download_doctor_report_html(
+    report_id: str,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Response:
     row = _get_snapshot(db, report_id, datetime.now(timezone.utc))
-    rendered = render_doctor_report_html(row.payload)
+    rendered = render_doctor_report_html(row.payload, settings.static_dir)
     if len(rendered) > HTML_MAX_BYTES:
         raise HTTPException(status_code=422, detail="report_html_too_large")
     return Response(

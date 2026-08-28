@@ -194,11 +194,24 @@ def test_html_download_is_immutable_and_bounded(db):
         db,
         settings,
     )
-    response = download_doctor_report_html(created["id"], db)
+    response = download_doctor_report_html(created["id"], db, settings)
     assert response.media_type == "text/html; charset=utf-8"
     assert response.headers["content-disposition"].endswith('amigo-doctor-report.html"')
     assert len(response.body) == created["html_size_bytes"]
     assert b"<!doctype html>" in response.body.lower()
+
+
+def test_html_uses_bundled_echarts_runtime_when_available(tmp_path):
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+    (static_dir / "echarts.min.js").write_text("window.echarts={init:function(){}};", encoding="utf-8")
+    rendered = render_doctor_report_html(
+        {"meta": {"from": "2026-08-01", "to": "2026-08-28"}, "sections": {"pressure": {"points": [{"measured_at": "2026-08-20", "systolic": 120, "diastolic": 80}]}}},
+        static_dir,
+    ).decode("utf-8")
+    assert "echarts.init" in rendered
+    assert '<div class="echart" id="chart-pressure"' in rendered
+    assert "<svg" not in rendered
 
 
 def test_default_report_sections_persist_as_json_without_source_data(db):

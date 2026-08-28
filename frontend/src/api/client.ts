@@ -976,6 +976,7 @@ export function normalizeDoctorReport(payload: unknown): DoctorReport {
         from: string(meta, "from"),
         to: string(meta, "to"),
         timezone: string(meta, "timezone") ?? "Europe/Moscow",
+        excludedLabsCount: number(meta, "labs_excluded_unverified", "excluded_labs_count") ?? 0,
       },
       summary: isRecord(rawPreviewSections.summary) ? rawPreviewSections.summary : null,
       weight: isRecord(rawPreviewSections.weight) ? normalizeWeightSeries(rawPreviewSections.weight, period) : null,

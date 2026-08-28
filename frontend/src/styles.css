@@ -794,6 +794,9 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 .report-study:first-of-type, .report-ai:first-of-type { border-top: 0; }
 .report-study strong, .report-ai strong { font-size: 11px; }
 .report-study ul, .report-study p, .report-ai p { margin: 7px 0 0; color: var(--text-soft); font-size: 10px; line-height: 1.55; }
+.report-labs-warning { padding: 15px 18px; border-color: color-mix(in srgb, var(--amber) 35%, var(--line)); background: var(--amber-soft); }
+.report-labs-warning strong { color: var(--text); font-size: 12px; }
+.report-labs-warning p { margin: 5px 0 0; color: var(--text-soft); font-size: 11px; line-height: 1.5; }
 
 .circumference-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(250px, .75fr); margin-bottom: 18px; gap: 14px; }
 .circumference-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 21px; gap: 12px; }

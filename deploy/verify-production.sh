@@ -767,6 +767,7 @@ check_authenticated_json_api() {
     python3 - "${API_BODY}" "${contract}" <<'PY'
 from pathlib import Path
 import json
+import re
 import sys
 
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
@@ -1200,14 +1201,17 @@ require_header '^cache-control:.*no-store' "${REPORT_HTML_HEADERS}"
 python3 - "${REPORT_BODY}" "${REPORT_HTML_BODY}" <<'PY'
 from pathlib import Path
 import json
+import re
 import sys
 
 metadata = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 html = Path(sys.argv[2]).read_text(encoding="utf-8")
 if len(html.encode("utf-8")) != metadata.get("html_size_bytes"):
     raise SystemExit("downloaded doctor HTML size differs from immutable snapshot")
-if "<svg" not in html or "<style>" not in html or "http://" in html or "https://" in html:
+if "<script>" not in html or "echarts.init" not in html or "<style>" not in html:
     raise SystemExit("doctor HTML is not self-contained")
+if re.search(r"(?:src|href)=[\"']https?://", html, re.IGNORECASE):
+    raise SystemExit("doctor HTML references an external asset")
 if "Лабораторные" not in html and "лаборатор" not in html.lower():
     raise SystemExit("doctor HTML lacks laboratory section")
 PY

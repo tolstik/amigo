@@ -595,6 +595,7 @@ export interface DoctorReportMeta {
   from: string | null;
   to: string | null;
   timezone: string;
+  excludedLabsCount: number;
 }
 
 export interface DoctorReportLabItem {

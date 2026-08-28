@@ -1,22 +1,49 @@
 from __future__ import annotations
 
 import csv
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from io import StringIO
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import Response
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
 from .db import get_db
 from .ai_queue import public_analysis_payload
+from .auth import AuthContext, require_csrf
 from .health_analytics import activity_series, recovery_series
-from .service import composition_series, overview, pressure_series, weight_series
+from .models import BodyCircumference
+from .service import circumference_series, composition_series, overview, pressure_series, weight_series
 
 
 RangeParam = Annotated[Literal["program", "30d", "90d", "1y", "all"], Query()]
 router = APIRouter(prefix="/api/v1")
+
+
+class CircumferenceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    waist_cm: Decimal | None = Field(default=None, ge=20, le=300, max_digits=6, decimal_places=2)
+    hip_cm: Decimal | None = Field(default=None, ge=20, le=300, max_digits=6, decimal_places=2)
+
+    @model_validator(mode="after")
+    def has_value(self) -> "CircumferenceInput":
+        if self.waist_cm is None and self.hip_cm is None:
+            raise ValueError("at least one circumference is required")
+        return self
+
+
+def _circumference(row: BodyCircumference) -> dict[str, object]:
+    return {
+        "measured_on": row.measured_on,
+        "waist_cm": float(row.waist_cm) if row.waist_cm is not None else None,
+        "hip_cm": float(row.hip_cm) if row.hip_cm is not None else None,
+    }
 
 
 @router.get("/overview")
@@ -49,6 +76,54 @@ def get_composition_series(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     return composition_series(db, settings.tz, range)
+
+
+@router.get("/series/circumference")
+def get_circumference_series(
+    range: RangeParam = "all",
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    return circumference_series(db, settings.tz, range)
+
+
+@router.put("/body-measurements/{measured_on}", status_code=status.HTTP_200_OK)
+def upsert_circumference(
+    payload: CircumferenceInput,
+    measured_on: date = Path(...),
+    _context: AuthContext = Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    today = datetime.now(timezone.utc).astimezone(settings.tz).date()
+    if measured_on > today:
+        raise HTTPException(status_code=422, detail="future_measurement_date")
+    row = db.scalar(
+        select(BodyCircumference)
+        .where(BodyCircumference.measured_on == measured_on)
+        .with_for_update()
+    )
+    if row is None:
+        row = BodyCircumference(measured_on=measured_on)
+        db.add(row)
+    row.waist_cm = payload.waist_cm
+    row.hip_cm = payload.hip_cm
+    db.commit()
+    db.refresh(row)
+    return _circumference(row)
+
+
+@router.delete("/body-measurements/{measured_on}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_circumference(
+    measured_on: date = Path(...),
+    _context: AuthContext = Depends(require_csrf),
+    db: Session = Depends(get_db),
+) -> Response:
+    row = db.scalar(select(BodyCircumference).where(BodyCircumference.measured_on == measured_on))
+    if row is not None:
+        db.delete(row)
+        db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/insights")
@@ -156,7 +231,7 @@ def _csv_response(filename: str, header: list[str], rows: list[list[object]]) ->
 
 @router.get("/export/{kind}.csv")
 def export_csv(
-    kind: Literal["weight", "pressure", "composition", "activity", "recovery"],
+    kind: Literal["weight", "pressure", "composition", "activity", "recovery", "circumference"],
     range: RangeParam = "all",
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -181,6 +256,17 @@ def export_csv(
         return _csv_response(
             "amigo-pressure.csv",
             ["measured_at", "systolic_mmHg", "diastolic_mmHg", "pulse_bpm", "pulse_pressure", "samples"],
+            rows,
+        )
+    if kind == "circumference":
+        payload = circumference_series(db, settings.tz, range)
+        rows = [
+            [row["measured_on"], row["waist_cm"], row["hip_cm"], "cm"]
+            for row in payload["points"]
+        ]
+        return _csv_response(
+            "amigo-circumference.csv",
+            ["measured_on", "waist_cm", "hip_cm", "unit"],
             rows,
         )
     if kind == "activity":

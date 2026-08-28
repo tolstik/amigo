@@ -1,4 +1,4 @@
-import { clampProgress, formatDelta, formatKg, periodLabels } from "./format";
+import { clampProgress, formatDate, formatDelta, formatKg, periodLabels } from "./format";
 
 describe("format helpers", () => {
   it("formats weight and signed change for Russian UI", () => {
@@ -10,6 +10,10 @@ describe("format helpers", () => {
   it("keeps absent values explicit", () => {
     expect(formatKg(null)).toBe("—");
     expect(formatDelta(undefined)).toBe("—");
+  });
+
+  it("keeps date-only API values on their Moscow calendar day", () => {
+    expect(formatDate("2026-08-28")).toContain("28");
   });
 
   it("clamps progress only for visual display", () => {

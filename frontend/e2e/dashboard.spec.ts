@@ -157,6 +157,10 @@ test.beforeEach(async ({ page }) => {
     if (path.endsWith("/auth/login")) return route.fulfill({ json: session });
     if (path.endsWith("/auth/logout")) return route.fulfill({ status: 204 });
     if (path.endsWith("/profile")) return route.fulfill({ json: profile });
+    if (path.endsWith("/series/circumference")) return route.fulfill({ json: {
+      range: "1y", unit: "cm", points: [{ measured_on: "2026-09-01", waist_cm: 96.5, hip_cm: 108.0 }, { measured_on: "2026-09-02", waist_cm: null, hip_cm: 107.5 }], meta: { range: "1y", from: "2026-09-01", to: "2026-09-02", count: 2, timezone: "Europe/Moscow" },
+    } });
+    if (path.includes("/body-measurements/") && method === "PUT") return route.fulfill({ json: { measured_on: path.split("/").at(-1), waist_cm: 95, hip_cm: 107 } });
     if (path.endsWith("/data-quality")) return route.fulfill({ json: {
       range: new URL(route.request().url()).searchParams.get("range") ?? "30d",
       from: "2026-08-31", to: "2026-09-01", timezone: "Europe/Moscow", generated_at: "2026-09-02T08:00:00Z",
@@ -206,10 +210,11 @@ test.beforeEach(async ({ page }) => {
       expect(payload.period).toBe("90d");
       expect(payload.sections).not.toContain("ai");
       return route.fulfill({ status: 201, json: {
-        id: "report-1", options: payload, page_count: 3, size_bytes: 124000, created_at: "2026-09-02T08:00:00Z", expires_at: "2026-09-03T08:00:00Z", download_url: "/amigo/api/v1/reports/doctor/report-1.pdf",
+        id: "report-1", options: payload, page_count: 3, size_bytes: 124000, html_size_bytes: 18500, created_at: "2026-09-02T08:00:00Z", expires_at: "2026-09-03T08:00:00Z", download_url: "/amigo/api/v1/reports/doctor/report-1.pdf", html_download_url: "/amigo/api/v1/reports/doctor/report-1.html",
         preview: { meta: { created_at: "2026-09-02T08:00:00Z", period: "90d", from: "2026-06-06", to: "2026-09-02", timezone: "Europe/Moscow" }, sections: {
           summary: { height_cm: 176, weight: { latest_kg: 125.5 }, pressure: { latest_systolic: 122, latest_diastolic: 78 } },
           weight: weightSeries,
+          circumference: { range: "90d", unit: "cm", points: [{ measured_on: "2026-08-28", waist_cm: 96.5, hip_cm: 108.0 }], meta: { range: "90d", count: 1 } },
           pressure: { points: [{ measured_at: "2026-08-18T18:00:00Z", systolic: 122, diastolic: 78, pulse: 64, pulse_pressure: 44, session_size: 2, period_of_day: "evening" }] },
           activity: activitySeries,
           recovery: recoverySeries,
@@ -219,6 +224,7 @@ test.beforeEach(async ({ page }) => {
       } });
     }
     if (path.endsWith("/reports/doctor/report-1.pdf") && method === "GET") return route.fulfill({ status: 200, contentType: "application/pdf", headers: { "Content-Disposition": "attachment; filename=amigo-doctor-report.pdf" }, body: "%PDF-1.4 synthetic doctor report" });
+    if (path.endsWith("/reports/doctor/report-1.html") && method === "GET") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", headers: { "Content-Disposition": "attachment; filename=amigo-doctor-report.html" }, body: "<!doctype html><html><body>Amigo doctor report</body></html>" });
     if (path.endsWith("/reports/doctor/report-1") && method === "DELETE") return route.fulfill({ status: 204 });
     if (path.endsWith("/labs/summary")) return route.fulfill({ json: {
       items: [labResult],
@@ -597,25 +603,35 @@ test("compares two laboratory panels in stable order", async ({ page }) => {
   await expect(ferritin).toContainText("+6,0");
 });
 
-test("builds, downloads and explicitly deletes a doctor package on mobile", async ({ page }) => {
+test("builds, downloads HTML and explicitly deletes a doctor package on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("./reports/doctor");
   await expect(page.getByRole("heading", { name: "Пакет для врача" })).toBeVisible();
   await expect(page.getByLabel("AI-рекомендации")).not.toBeChecked();
-  await page.getByRole("button", { name: "Сформировать preview и PDF" }).click();
+  await page.getByRole("button", { name: "Сформировать preview и HTML" }).click();
   await expect(page.getByRole("heading", { name: "Preview пакета" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Шаги · Xiaomi Cloud" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Сон", exact: true })).toBeVisible();
   await expect(page.getByText("Ось Y — часы; подсказки — часы и минуты")).toBeVisible();
-  const pdfLink = page.getByRole("link", { name: "Скачать PDF" });
-  await pdfLink.evaluate((element) => element.removeAttribute("download"));
+  const htmlLink = page.getByRole("link", { name: "Скачать HTML" });
+  await htmlLink.evaluate((element) => element.removeAttribute("download"));
   const downloadPromise = page.waitForEvent("download");
-  await pdfLink.click();
-  expect((await downloadPromise).suggestedFilename()).toBe("amigo-doctor-report.pdf");
+  await htmlLink.click();
+  expect((await downloadPromise).suggestedFilename()).toBe("amigo-doctor-report.html");
 
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Удалить пакет" }).click();
   await expect(page.getByRole("heading", { name: "Preview пакета" })).not.toBeVisible();
   const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   expect(hasOverflow).toBe(false);
+});
+
+test("records daily waist and hip measurements", async ({ page }) => {
+  await page.goto("./circumference");
+  await expect(page.getByRole("heading", { name: "Обхваты тела" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "История обхватов" })).toBeVisible();
+  await page.getByLabel("Талия, см").fill("95");
+  await page.getByLabel("Бёдра, см").fill("107");
+  await page.getByRole("button", { name: "Сохранить" }).click();
+  await expect(page.getByRole("status")).toHaveText("Измерение сохранено.");
 });

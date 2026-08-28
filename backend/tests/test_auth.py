@@ -132,6 +132,7 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
         with client_for(db) as client:
             for path in (
                 "/api/v1/overview",
+                "/api/v1/series/circumference?range=30d",
                 "/api/v1/export/weight.csv?range=all",
                 "/api/v1/labs/documents",
                 "/api/v1/labs/summary",
@@ -142,6 +143,7 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
                 "/api/v1/tasks",
                 "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000",
                 "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000.pdf",
+                "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000.html",
                 "/api/v1/profile",
             ):
                 assert client.get(path).status_code == 401, path
@@ -180,6 +182,11 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
                 "/api/v1/reports/doctor",
                 json={"period": "30d", "sections": ["summary"]},
             ).status_code == 401
+            assert client.put(
+                "/api/v1/body-measurements/2026-08-28",
+                json={"waist_cm": 96.5},
+            ).status_code == 401
+            assert client.delete("/api/v1/body-measurements/2026-08-28").status_code == 401
             assert client.delete(
                 "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000"
             ).status_code == 401
@@ -228,6 +235,11 @@ def test_new_mutations_require_exact_origin_and_csrf(db):
             "/api/v1/reports/doctor",
             {"period": "30d", "sections": ["summary"]},
         ),
+        (
+            "put",
+            "/api/v1/body-measurements/2026-08-28",
+            {"waist_cm": 96.5},
+        ),
     )
     try:
         with client_for(db) as client:
@@ -246,6 +258,16 @@ def test_new_mutations_require_exact_origin_and_csrf(db):
                 ).status_code == 403
             assert client.delete(
                 "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000"
+            ).status_code == 403
+            assert client.delete(
+                "/api/v1/body-measurements/2026-08-28",
+            ).status_code == 403
+            assert client.delete(
+                "/api/v1/body-measurements/2026-08-28",
+                headers={
+                    "Origin": "https://evil.example",
+                    "X-CSRF-Token": csrf,
+                },
             ).status_code == 403
             assert client.delete(
                 "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000",

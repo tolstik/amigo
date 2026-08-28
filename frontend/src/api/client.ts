@@ -5,6 +5,8 @@ import type {
   AiAnalysisStatus,
   AiNarrativeItem,
   CompositionPoint,
+  CircumferencePoint,
+  CircumferenceSeriesResponse,
   HealthCorrelation,
   HeartRateHourlyPoint,
   Insight,
@@ -445,6 +447,22 @@ export function normalizeCompositionSeries(payload: unknown, range: Period): Ser
     .filter((point): point is CompositionPoint => point !== null)
     .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
   return { points, meta: metaWithBounds(payload, range, points) };
+}
+
+export function normalizeCircumferenceSeries(payload: unknown, range: Period): CircumferenceSeriesResponse {
+  const body = unbox(payload);
+  const points = seriesItems(body)
+    .map((value): CircumferencePoint | null => {
+      const measuredOn = string(value, "measured_on", "measuredOn", "date");
+      if (!measuredOn) return null;
+      const waistCm = number(value, "waist_cm", "waistCm", "waist");
+      const hipCm = number(value, "hip_cm", "hipCm", "hips", "hip");
+      if (waistCm === null && hipCm === null) return null;
+      return { measuredOn, waistCm, hipCm };
+    })
+    .filter((point): point is CircumferencePoint => point !== null)
+    .sort((left, right) => left.measuredOn.localeCompare(right.measuredOn));
+  return { points, unit: "cm", meta: normalizeMeta(payload, range, points.length) };
 }
 
 export function normalizeActivitySeries(payload: unknown, range: Period): ActivitySeriesResponse {
@@ -892,7 +910,7 @@ export function normalizeLabCompare(payload: unknown): LabCompareResponse {
   return { panels, rows };
 }
 
-const doctorSections = ["summary", "weight", "pressure", "activity", "recovery", "labs", "studies", "ai"] as const;
+const doctorSections = ["summary", "weight", "circumference", "pressure", "activity", "recovery", "labs", "studies", "ai"] as const;
 
 export function normalizeDoctorReport(payload: unknown): DoctorReport {
   const body = unbox(payload);
@@ -905,6 +923,10 @@ export function normalizeDoctorReport(payload: unknown): DoctorReport {
   const rawPreview = record(at(body, "preview"));
   const meta = record(rawPreview.meta);
   const rawPreviewSections = record(rawPreview.sections);
+  const rawCircumference = at(rawPreviewSections, "circumference");
+  const circumference = isRecord(rawCircumference)
+    ? normalizeCircumferenceSeries(rawCircumference, period)
+    : null;
   const rawLabs = at(rawPreviewSections, "labs");
   const labs = Array.isArray(rawLabs) ? rawLabs.map((value): DoctorReportLabItem | null => {
     const analyte = string(value, "analyte");
@@ -942,6 +964,7 @@ export function normalizeDoctorReport(payload: unknown): DoctorReport {
   }).filter((value): value is DoctorReportAiItem => value !== null) : null;
   const reportedDownload = string(body, "download_url", "downloadUrl");
   const exactDownload = `${API_ROOT}/reports/doctor/${encodeURIComponent(id)}.pdf`;
+  const exactHtmlDownload = `${API_ROOT}/reports/doctor/${encodeURIComponent(id)}.html`;
   return {
     id,
     period,
@@ -956,6 +979,7 @@ export function normalizeDoctorReport(payload: unknown): DoctorReport {
       },
       summary: isRecord(rawPreviewSections.summary) ? rawPreviewSections.summary : null,
       weight: isRecord(rawPreviewSections.weight) ? normalizeWeightSeries(rawPreviewSections.weight, period) : null,
+      circumference,
       pressure: isRecord(rawPreviewSections.pressure) ? normalizePressureSeries(rawPreviewSections.pressure, period) : null,
       activity: isRecord(rawPreviewSections.activity) ? normalizeActivitySeries(rawPreviewSections.activity, period) : null,
       recovery: isRecord(rawPreviewSections.recovery) ? normalizeRecoverySeries(rawPreviewSections.recovery, period) : null,
@@ -968,6 +992,8 @@ export function normalizeDoctorReport(payload: unknown): DoctorReport {
     createdAt: string(body, "created_at", "createdAt") ?? "",
     expiresAt: string(body, "expires_at", "expiresAt") ?? "",
     downloadUrl: reportedDownload === exactDownload ? reportedDownload : exactDownload,
+    htmlDownloadUrl: exactHtmlDownload,
+    htmlSizeBytes: number(body, "html_size_bytes", "htmlSizeBytes") ?? 0,
   };
 }
 
@@ -1077,6 +1103,12 @@ export const api = {
     normalizePressureSeries(await fetchJson(`/series/pressure${queryRange(range)}`, signal), range),
   composition: async (range: Period, signal?: AbortSignal) =>
     normalizeCompositionSeries(await fetchJson(`/series/composition${queryRange(range)}`, signal), range),
+  circumference: async (range: Period, signal?: AbortSignal) =>
+    normalizeCircumferenceSeries(await fetchJson(`/series/circumference${queryRange(range)}`, signal), range),
+  saveCircumference: async (date: string, values: { waist_cm: number | null; hip_cm: number | null }) =>
+    requestJson(`/body-measurements/${encodeURIComponent(date)}`, { ...jsonBody(values), method: "PUT" }),
+  deleteCircumference: async (date: string) =>
+    requestJson(`/body-measurements/${encodeURIComponent(date)}`, { method: "DELETE" }),
   activity: async (range: Period, signal?: AbortSignal) =>
     normalizeActivitySeries(await fetchJson(`/series/activity${queryRange(range)}`, signal), range),
   recovery: async (range: Period, signal?: AbortSignal) =>
@@ -1188,6 +1220,6 @@ export function studyDownloadUrl(documentId: string): string {
   return `${API_ROOT}/studies/documents/${documentId}/download`;
 }
 
-export function csvUrl(kind: "weight" | "pressure" | "composition" | "activity" | "recovery", range: Period): string {
+export function csvUrl(kind: "weight" | "pressure" | "composition" | "circumference" | "activity" | "recovery", range: Period): string {
   return `${API_ROOT}/export/${kind}.csv?${new URLSearchParams({ range }).toString()}`;
 }

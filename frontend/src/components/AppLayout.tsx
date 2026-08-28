@@ -15,6 +15,7 @@ const navItems: Array<{ to: string; label: string; icon: IconName; end?: boolean
   { to: "/tasks", label: "Задачи", icon: "calendar" },
   { to: "/pressure", label: "Давление", icon: "pressure" },
   { to: "/composition", label: "Состав тела", icon: "composition" },
+  { to: "/circumference", label: "Обхваты", icon: "activity" },
   { to: "/activity", label: "Активность", icon: "activity" },
   { to: "/recovery", label: "Восстановление", icon: "clock" },
   { to: "/labs", label: "Анализы", icon: "composition" },

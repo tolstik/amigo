@@ -131,6 +131,16 @@ export interface CompositionPoint {
   leanMassKg: number | null;
 }
 
+export interface CircumferencePoint {
+  measuredOn: string;
+  waistCm: number | null;
+  hipCm: number | null;
+}
+
+export interface CircumferenceSeriesResponse extends SeriesResponse<CircumferencePoint> {
+  unit: "cm";
+}
+
 export interface SeriesResponse<T> {
   points: T[];
   meta: SeriesMeta;
@@ -577,7 +587,7 @@ export interface LabCompareResponse {
 }
 
 export type DoctorReportPeriod = "30d" | "90d" | "1y";
-export type DoctorReportSection = "summary" | "weight" | "pressure" | "activity" | "recovery" | "labs" | "studies" | "ai";
+export type DoctorReportSection = "summary" | "weight" | "circumference" | "pressure" | "activity" | "recovery" | "labs" | "studies" | "ai";
 
 export interface DoctorReportMeta {
   createdAt: string | null;
@@ -613,6 +623,7 @@ export interface DoctorReportPreview {
   meta: DoctorReportMeta;
   summary: Record<string, unknown> | null;
   weight: WeightSeriesResponse | null;
+  circumference: CircumferenceSeriesResponse | null;
   pressure: PressureSeriesResponse | null;
   activity: ActivitySeriesResponse | null;
   recovery: RecoverySeriesResponse | null;
@@ -631,4 +642,6 @@ export interface DoctorReport {
   createdAt: string;
   expiresAt: string;
   downloadUrl: string;
+  htmlDownloadUrl: string;
+  htmlSizeBytes: number;
 }

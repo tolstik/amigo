@@ -102,6 +102,7 @@ class DoctorReportSnapshot(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     page_count: Mapped[int] = mapped_column(Integer, nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    html_size_bytes: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )

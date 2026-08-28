@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { api } from "../api/client";
 import type { DoctorReport, DoctorReportPeriod, DoctorReportSection } from "../api/types";
-import { activityDailyChartOption, pressureChartOption, sleepChartOption, weightChartOption } from "../charts/options";
+import { activityDailyChartOption, circumferenceChartOption, pressureChartOption, sleepChartOption, weightChartOption } from "../charts/options";
 import { ChartCard } from "../components/ChartCard";
 import { Icon } from "../components/Icon";
 import { PageHeader } from "../components/PageHeader";
@@ -10,6 +10,7 @@ import { formatDate, formatDateTime, formatNumber } from "../lib/format";
 const sectionOptions: Array<{ key: DoctorReportSection; label: string; note: string }> = [
   { key: "summary", label: "Краткая сводка", note: "Рост, последний вес, давление и состав тела" },
   { key: "weight", label: "Вес", note: "Динамика и план" },
+  { key: "circumference", label: "Обхваты", note: "Талия и бёдра в сантиметрах" },
   { key: "pressure", label: "Давление", note: "Систолическое и диастолическое" },
   { key: "activity", label: "Активность", note: "Шаги только из Xiaomi Cloud" },
   { key: "recovery", label: "Сон и восстановление", note: "Сон в часах в графиках" },
@@ -67,7 +68,7 @@ export function DoctorReportPage() {
   }
 
   async function removeReport() {
-    if (!report || !window.confirm("Удалить этот пакет раньше срока? Ссылка на PDF перестанет работать.")) return;
+    if (!report || !window.confirm("Удалить этот пакет раньше срока? Ссылка на HTML перестанет работать.")) return;
     setDeleting(true);
     setError(null);
     try {
@@ -85,18 +86,19 @@ export function DoctorReportPage() {
   const summaryWeight = nested(summary, "weight");
   const summaryPressure = nested(summary, "pressure");
   return <>
-    <PageHeader eyebrow="Подготовка к визиту" title="Пакет для врача" description="Соберите ограниченную по периоду сводку и точный PDF из одного зафиксированного набора данных. Оригиналы, OCR, имена файлов, чат и идентификаторы источников не включаются." />
+    <PageHeader eyebrow="Подготовка к визиту" title="Пакет для врача" description="Соберите самостоятельный HTML-дашборд из одного зафиксированного набора данных. Он открывается без интернета и аккуратно печатается на A4. Оригиналы, OCR, имена файлов, чат и идентификаторы источников не включаются." />
     <form className="report-builder panel" onSubmit={create} aria-busy={creating}>
       <fieldset><legend>Период</legend><div className="segmented" role="group" aria-label="Период пакета">{(["30d", "90d", "1y"] as const).map((value) => <button key={value} type="button" aria-pressed={period === value} className={period === value ? "is-active" : ""} onClick={() => setPeriod(value)}>{value === "30d" ? "30 дней" : value === "90d" ? "90 дней" : "1 год"}</button>)}</div></fieldset>
       <fieldset><legend>Разделы</legend><div className="report-sections">{sectionOptions.map((item) => <label key={item.key} className={item.key === "ai" ? "report-section report-section--optional" : "report-section"}><input type="checkbox" checked={sections.includes(item.key)} onChange={() => toggle(item.key)} /><span><strong>{item.label}</strong><small>{item.note}</small></span></label>)}</div></fieldset>
-      <div className="report-builder__actions"><p>PDF действует 24 часа и формируется заново из сохранённого preview при скачивании.</p><button className="button button--primary" disabled={creating || !sections.length}>{creating ? "Формируем…" : "Сформировать preview и PDF"}</button></div>
+      <div className="report-builder__actions"><p>HTML действует 24 часа и формируется из неизменяемого preview.</p><button className="button button--primary" disabled={creating || !sections.length}>{creating ? "Формируем…" : "Сформировать preview и HTML"}</button></div>
       {error && <p className="form-error" role="alert">{error}</p>}
     </form>
     <div className="sr-status" aria-live="polite">{status}</div>
     {report && <article className="doctor-preview" aria-labelledby="doctor-preview-title">
-      <div className="doctor-preview__bar panel" aria-busy={deleting}><div><span className="eyebrow">Готово · {report.pageCount} стр. · {bytes(report.sizeBytes)}</span><h2 id="doctor-preview-title">Preview пакета</h2><p>{formatDate(report.preview.meta.from)} — {formatDate(report.preview.meta.to)} · доступен до {formatDateTime(report.expiresAt)}</p></div><div><button className="button button--ghost" type="button" onClick={removeReport} disabled={deleting}>{deleting ? "Удаляем…" : "Удалить пакет"}</button><button className="button button--ghost" type="button" onClick={() => window.print()} disabled={deleting}>Печать</button><a className={`button button--primary${deleting ? " is-disabled" : ""}`} href={report.downloadUrl} download aria-disabled={deleting} onClick={(event) => { if (deleting) event.preventDefault(); }}><Icon name="download" /> Скачать PDF</a></div></div>
+      <div className="doctor-preview__bar panel" aria-busy={deleting}><div><span className="eyebrow">Готово · HTML · {bytes(report.htmlSizeBytes)}</span><h2 id="doctor-preview-title">Preview пакета</h2><p>{formatDate(report.preview.meta.from)} — {formatDate(report.preview.meta.to)} · доступен до {formatDateTime(report.expiresAt)}</p></div><div><button className="button button--ghost" type="button" onClick={removeReport} disabled={deleting}>{deleting ? "Удаляем…" : "Удалить пакет"}</button><button className="button button--ghost" type="button" onClick={() => window.print()} disabled={deleting}>Печать preview</button><a className={`button button--primary${deleting ? " is-disabled" : ""}`} href={report.htmlDownloadUrl} download aria-disabled={deleting} onClick={(event) => { if (deleting) event.preventDefault(); }}><Icon name="download" /> Скачать HTML</a></div></div>
       {summary && <section className="report-summary panel" aria-labelledby="report-summary-title"><div className="panel__head"><div><span className="eyebrow">Зафиксированная сводка</span><h2 id="report-summary-title">Основные показатели</h2></div></div><dl><div><dt>Рост</dt><dd>{numeric(summary, "height_cm") === null ? "—" : `${formatNumber(numeric(summary, "height_cm"), 0)} см`}</dd></div><div><dt>Последний вес</dt><dd>{numeric(summaryWeight, "latest_kg") === null ? "—" : `${formatNumber(numeric(summaryWeight, "latest_kg"))} кг`}</dd></div><div><dt>Последнее давление</dt><dd>{numeric(summaryPressure, "latest_systolic") === null ? "—" : `${formatNumber(numeric(summaryPressure, "latest_systolic"), 0)} / ${formatNumber(numeric(summaryPressure, "latest_diastolic"), 0)}`}</dd></div></dl></section>}
       {report.preview.weight && (report.preview.weight.points.length ? <ChartCard title="Вес" subtitle="Данные точного preview пакета" option={weightChartOption(report.preview.weight.points, false, report.preview.weight.projection, report.preview.weight.planProjection)} ariaLabel="График веса в пакете для врача" height={330} /> : <section className="report-empty panel"><h2>Вес</h2><p>За выбранный период данных нет.</p></section>)}
+      {report.preview.circumference && (report.preview.circumference.points.length ? <ChartCard title="Обхваты тела" subtitle="Талия и бёдра · сантиметры" option={circumferenceChartOption(report.preview.circumference.points)} ariaLabel="График талии и бёдер в пакете для врача" height={330} /> : <section className="report-empty panel"><h2>Обхваты тела</h2><p>За выбранный период данных нет.</p></section>)}
       {report.preview.pressure && (report.preview.pressure.points.length ? <ChartCard title="Давление" subtitle="Систолическое и диастолическое" option={pressureChartOption(report.preview.pressure.points)} ariaLabel="График давления в пакете для врача" height={330} /> : <section className="report-empty panel"><h2>Давление</h2><p>За выбранный период данных нет.</p></section>)}
       {report.preview.activity && (report.preview.activity.points.some((point) => point.steps !== null) ? <ChartCard title="Шаги · Xiaomi Cloud" subtitle="Health Connect не используется как подмена отсутствующих шагов" option={activityDailyChartOption(report.preview.activity.points)} ariaLabel="График шагов Xiaomi Cloud в пакете для врача" height={330} /> : <section className="report-empty panel"><h2>Шаги · Xiaomi Cloud</h2><p>Прямых данных Xiaomi Cloud за выбранный период нет. Значение не заменено нулём или данными Health Connect.</p></section>)}
       {report.preview.recovery && (report.preview.recovery.points.some((point) => point.sleepMinutes !== null) ? <ChartCard title="Сон" subtitle="Ось Y — часы; подсказки — часы и минуты" option={sleepChartOption(report.preview.recovery.points)} ariaLabel="График сна в часах в пакете для врача" height={330} /> : <section className="report-empty panel"><h2>Сон</h2><p>За выбранный период данных нет.</p></section>)}

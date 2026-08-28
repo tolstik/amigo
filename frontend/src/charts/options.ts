@@ -2,6 +2,7 @@ import type { BarSeriesOption, EChartsOption, LineSeriesOption } from "echarts";
 import type {
   ActivityPoint,
   CompositionPoint,
+  CircumferencePoint,
   HeartRateHourlyPoint,
   LabResult,
   PressurePoint,
@@ -582,6 +583,23 @@ export function labHistoryChartOption(rows: LabResult[], unit: string): EChartsO
         connectNulls: false,
         lineStyle: { width: 1.5, type: "dashed", color: colors.violet },
       },
+    ],
+  };
+}
+
+export function circumferenceChartOption(points: CircumferencePoint[]): EChartsOption {
+  return {
+    animationDuration: 500,
+    color: [colors.coral, colors.violet],
+    grid: sharedGrid,
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: { trigger: "axis", confine: true, formatter: tooltipFormatter, backgroundColor: "rgba(22,31,25,.95)", borderWidth: 0, textStyle: { color: "#fff" } },
+    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false }, axisLabel: { ...sharedAxis.axisLabel, formatter: (value: number) => formatShortDate(new Date(value).toISOString()) } },
+    yAxis: { ...sharedAxis, type: "value", scale: true, name: "см", nameTextStyle: { color: colors.muted } },
+    dataZoom: [{ type: "inside", filterMode: "none" }],
+    series: [
+      timeLine("Талия", points.map((point) => [point.measuredOn, point.waistCm]), colors.coral),
+      timeLine("Бёдра", points.map((point) => [point.measuredOn, point.hipCm]), colors.violet),
     ],
   };
 }

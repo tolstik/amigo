@@ -26,7 +26,7 @@ from .analytics import (
     weekly_weight_points,
     weekly_weight_pressure_correlation,
 )
-from .models import Measurement, MeasurementGroup, Plan, SyncState
+from .models import BodyCircumference, Measurement, MeasurementGroup, Plan, SyncState
 
 
 RangeName = Literal["program", "30d", "90d", "1y", "all"]
@@ -567,4 +567,39 @@ def insights(db: Session, tz: ZoneInfo, now: datetime | None = None) -> dict[str
         "items": [],
         "ai_generated": True,
         "status": "pending",
+    }
+
+
+def circumference_series(
+    db: Session, tz: ZoneInfo, range_name: RangeName, now: datetime | None = None
+) -> dict[str, Any]:
+    """Return daily user-entered waist and hip measurements."""
+
+    current = _aware(now or datetime.now(timezone.utc)).astimezone(tz).date()
+    start = local_range_start(range_name, tz, now)
+    query = select(BodyCircumference).order_by(BodyCircumference.measured_on)
+    if start is not None:
+        query = query.where(BodyCircumference.measured_on >= start)
+    query = query.where(BodyCircumference.measured_on <= current)
+    rows = list(db.scalars(query))
+    points = [
+        {
+            "measured_on": row.measured_on.isoformat(),
+            "waist_cm": float(row.waist_cm) if row.waist_cm is not None else None,
+            "hip_cm": float(row.hip_cm) if row.hip_cm is not None else None,
+        }
+        for row in rows
+    ]
+    dates = [point["measured_on"] for point in points]
+    return {
+        "range": range_name,
+        "unit": "cm",
+        "points": points,
+        "meta": {
+            "range": range_name,
+            "from": dates[0] if dates else None,
+            "to": dates[-1] if dates else None,
+            "count": len(points),
+            "timezone": tz.key,
+        },
     }

@@ -156,8 +156,8 @@
       headers и exact package/certificate contract для
       `ru.tolstik.amigo.sync`; origin возвращает exact `405` для POST, а
       public edge безопасно отклоняет его с `403` или `405`.
-- [ ] Без cookie auth session, overview, data-quality, CSV, labs/compare,
-      studies, tasks, doctor report/PDF, updater и assistant возвращают exact
+- [ ] Без cookie auth session, overview, data-quality, CSV, circumference,
+      labs/compare, studies, tasks, doctor report/HTML/PDF, updater и assistant возвращают exact
       `401` при проверке реальных HTTP-методов route; signed Android ingest
       остаётся независимым.
 - [ ] Root-only short-lived verification session создаётся CLI без печати
@@ -410,6 +410,10 @@
       `/amigo/api/v1/reports/doctor/<canonical-lowercase-UUID>.pdf`, использует
       системный Save As и in-memory cookie; query/fragment/POST/malformed UUID,
       redirect, off-origin и файл больше 25 МиБ отклоняются.
+- [ ] Authenticated doctor-report creation returns an immutable preview and an
+      exact `.html` download URL. The HTML response is self-contained (inline
+      CSS/SVG, no external requests), includes laboratory rows by effective
+      result/report date, and renders selected circumference history.
 - [ ] После 30 секунд в фоне WebView обновляется без ручного refresh. In-app
       update видит authenticated metadata, проверяет size/SHA/package/version/
       certificate и открывает только системный installer с явным подтверждением.

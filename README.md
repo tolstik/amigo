@@ -2,7 +2,7 @@
 
 Personal, authenticated health dashboard for weight-program progress, activity,
 recovery, descriptive blood-pressure history, laboratory results, study reports,
-and a context-aware assistant. Withings remains
+daily waist/hip circumference history, and a context-aware assistant. Withings remains
 the only source of weight, body composition, blood pressure, and the pulse
 recorded during a blood-pressure session. Xiaomi Smart Band 9 Pro data is read
 directly from Xiaomi Health Cloud by the Android companion; Health Connect
@@ -174,14 +174,17 @@ runs cannot rewrite its meaning. The worker creates a deduplicated Telegram
 reminder for each due occurrence. Telegram receives only the task title, due
 time, and authenticated dashboard link, never its note or health evidence.
 
-The “Doctor package” creates an immutable, authenticated report snapshot for
+The “Body circumferences” section stores one local-date record with independent
+waist and hip values and renders a shared-period historical chart. The “Doctor package” creates an immutable, authenticated report snapshot for
 `30d`, `90d`, or `1y`. It contains only selected deterministic aggregates,
 confirmed/corrected laboratory results, verified study findings/conclusions,
 and optionally validated AI recommendations with evidence IDs. Filenames,
 originals, OCR, chat, device/account identity, and raw provider data are
-excluded. The locally rendered PDF is limited to 40 pages and 10 MiB; snapshot
-and download expire after 24 hours and can be deleted earlier. Its step chart is
-explicitly Xiaomi Cloud-only and its sleep chart is labelled in hours.
+excluded. The primary download is a self-contained HTML dashboard with inline
+CSS/SVG, A4 print rules, and no external requests. Snapshot and download expire
+after 24 hours and can be deleted earlier. Its step chart is explicitly Xiaomi
+Cloud-only and its sleep chart is labelled in hours. A compatibility PDF endpoint
+remains available for older Android clients.
 
 ## Android app and Xiaomi/Health Connect companion
 

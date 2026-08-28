@@ -795,6 +795,20 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 .report-study strong, .report-ai strong { font-size: 11px; }
 .report-study ul, .report-study p, .report-ai p { margin: 7px 0 0; color: var(--text-soft); font-size: 10px; line-height: 1.55; }
 
+.circumference-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(250px, .75fr); margin-bottom: 18px; gap: 14px; }
+.circumference-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 21px; gap: 12px; }
+.circumference-form .panel__head { grid-column: 1 / -1; margin-bottom: 2px; }
+.circumference-form label { display: grid; gap: 6px; color: var(--text-soft); font-size: 10px; font-weight: 650; }
+.circumference-form input { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface-solid); color: var(--text); }
+.circumference-form input:focus { border-color: var(--blue); outline: 3px solid color-mix(in srgb, var(--blue) 15%, transparent); }
+.circumference-form__actions { display: flex; grid-column: 1 / -1; flex-wrap: wrap; gap: 8px; }
+.circumference-form .form-error, .circumference-form .form-success { grid-column: 1 / -1; margin: 0; }
+.circumference-note { display: flex; padding: 22px; align-items: flex-start; gap: 14px; background: linear-gradient(145deg, color-mix(in srgb, var(--coral-soft) 46%, var(--surface)), var(--surface)); }
+.circumference-note__mark { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--coral-soft); color: var(--coral); }
+.circumference-note__mark svg { width: 21px; }
+.circumference-note h2 { margin: 2px 0 7px; font-size: 16px; }
+.circumference-note p { margin: 0; color: var(--text-soft); font-size: 11px; line-height: 1.6; }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 50% { opacity: .45; } }
 
@@ -916,6 +930,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
   .doctor-preview__bar { align-items: stretch; flex-direction: column; }
   .doctor-preview__bar > div:last-child .button { flex: 1; }
   .report-summary dl { grid-template-columns: 1fr; }
+  .circumference-layout { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 590px) {
@@ -938,6 +953,8 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
   .compare-filter { width: 100%; }
   .report-sections { grid-template-columns: 1fr; }
   .doctor-preview__bar > div:last-child { display: grid; grid-template-columns: 1fr; }
+  .circumference-form { grid-template-columns: 1fr; }
+  .circumference-form__actions { display: grid; grid-template-columns: 1fr; }
 }
 
 @media print {

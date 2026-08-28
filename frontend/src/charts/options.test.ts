@@ -1,6 +1,6 @@
-import type { ActivityPoint, HeartRateHourlyPoint, RecoveryPoint, WeeklyWeightPoint } from "../api/types";
+import type { ActivityPoint, CircumferencePoint, HeartRateHourlyPoint, RecoveryPoint, WeeklyWeightPoint } from "../api/types";
 import type { DailyPressureCategory } from "../lib/pressureCategories";
-import { activityDailyChartOption, heartRateChartOption, pressureCategoryChartOption, pressureChartOption, recoveryChartOption, sleepChartOption, weeklyChangeChartOption, weeklyWeightChartOption } from "./options";
+import { activityDailyChartOption, circumferenceChartOption, heartRateChartOption, pressureCategoryChartOption, pressureChartOption, recoveryChartOption, sleepChartOption, weeklyChangeChartOption, weeklyWeightChartOption } from "./options";
 import { chartOptionForTheme, chartPalettes } from "./theme";
 
 function week(index: number, overrides: Partial<WeeklyWeightPoint> = {}): WeeklyWeightPoint {
@@ -97,6 +97,18 @@ describe("watch heart-rate chart", () => {
 });
 
 describe("daily charts", () => {
+  it("plots independent waist and hip series in centimetres", () => {
+    const points: CircumferencePoint[] = [
+      { measuredOn: "2026-08-20", waistCm: 98.5, hipCm: null },
+      { measuredOn: "2026-08-21", waistCm: null, hipCm: 108.2 },
+    ];
+    const option = circumferenceChartOption(points) as any;
+    expect(option.yAxis.name).toBe("см");
+    expect(option.series.map((item: any) => item.name)).toEqual(["Талия", "Бёдра"]);
+    expect(option.series[0].data[1][1]).toBeNull();
+    expect(option.series[1].data[0][1]).toBeNull();
+  });
+
   it("uses date categories for activity, sleep, resting heart rate and HRV", () => {
     const activity: ActivityPoint = {
       measuredAt: "2026-08-20",

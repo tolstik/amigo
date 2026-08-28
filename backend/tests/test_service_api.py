@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.db import get_db
-from app.auth import require_session
+from app.auth import require_csrf, require_session
 from app.main import app
 from app.ai_models import AiAnalysisJob, AiAnalysisResult
 from app.models import SyncState
-from app.service import composition_series, ensure_default_plan, overview, pressure_series, weight_series
+from app.models import BodyCircumference
+from app.service import circumference_series, composition_series, ensure_default_plan, overview, pressure_series, weight_series
 
 
 def seed(db, add_group):
@@ -65,6 +67,17 @@ def test_service_payloads_match_frontend_contract(db, add_group):
     assert composition["points"][-1]["lean_mass_kg"] == 82.6
 
 
+def test_circumference_series_filters_range_and_keeps_independent_values(db):
+    db.add_all([
+        BodyCircumference(measured_on=date(2026, 6, 1), waist_cm=Decimal("98.5"), hip_cm=None),
+        BodyCircumference(measured_on=date(2026, 8, 20), waist_cm=None, hip_cm=Decimal("108.2")),
+    ])
+    db.commit()
+    settings = Settings(database_url="sqlite+pysqlite:///:memory:")
+    payload = circumference_series(db, settings.tz, "30d", datetime(2026, 8, 25, 10, tzinfo=timezone.utc))
+    assert payload["points"] == [{"measured_on": "2026-08-20", "waist_cm": None, "hip_cm": 108.2}]
+
+
 def test_fastapi_is_read_only_and_returns_csv(db, add_group):
     seed(db, add_group)
 
@@ -86,6 +99,32 @@ def test_fastapi_is_read_only_and_returns_csv(db, add_group):
             assert csv_response.status_code == 200
             assert csv_response.text.startswith("measured_at,value,unit")
             assert client.post("/api/v1/overview").status_code == 405
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_fastapi_circumference_upsert_delete_and_csv(db):
+    def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[require_session] = lambda: object()
+    app.dependency_overrides[require_csrf] = lambda: object()
+    try:
+        with TestClient(app) as client:
+            saved = client.put(
+                "/api/v1/body-measurements/2026-08-25",
+                json={"waist_cm": 96.5},
+            )
+            assert saved.status_code == 200
+            assert saved.json()["hip_cm"] is None
+            series = client.get("/api/v1/series/circumference?range=all")
+            assert series.status_code == 200
+            assert series.json()["points"][0]["waist_cm"] == 96.5
+            csv_response = client.get("/api/v1/export/circumference.csv?range=all")
+            assert csv_response.status_code == 200
+            assert "measured_on,waist_cm,hip_cm,unit" in csv_response.text
+            assert client.delete("/api/v1/body-measurements/2026-08-25").status_code == 204
     finally:
         app.dependency_overrides.clear()
 

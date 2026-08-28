@@ -67,8 +67,11 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
   device/account metadata и различает available, confirmed-empty и missing.
   Tasks имеют once/daily/weekly/calendar-month recurrence и deduplicated
   Telegram delivery; в Telegram уходят только title, due time и dashboard link.
-  Doctor-report snapshot/PDF живёт 24 часа, ограничен 40 страницами/10 МиБ и
-  исключает filenames, originals, OCR, chat, identity и raw provider data.
+  Body-circumference records are keyed by local calendar date and keep waist and
+  hip independently. Doctor-report snapshots live 24 hours and exclude
+  filenames, originals, OCR, chat, identity and raw provider data. The primary
+  download is a self-contained print-oriented HTML document; the bounded PDF
+  endpoint (40 pages/10 MiB) remains only for Android compatibility.
 - PostgreSQL `stored_files` — источник истины для оригиналов анализов и
   исследований. Для совместимости с предыдущим release лабораторные файлы
   временно dual-write сохраняются также в root-owned

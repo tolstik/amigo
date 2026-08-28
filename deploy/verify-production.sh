@@ -28,6 +28,8 @@ readonly REPORT_HEADERS="${TMP_DIR}/doctor-report.headers"
 readonly REPORT_BODY="${VERIFICATION_DIR}/doctor-report.json"
 readonly REPORT_PDF_HEADERS="${TMP_DIR}/doctor-report-pdf.headers"
 readonly REPORT_PDF_BODY="${VERIFICATION_DIR}/doctor-report.pdf"
+readonly REPORT_HTML_HEADERS="${TMP_DIR}/doctor-report-html.headers"
+readonly REPORT_HTML_BODY="${VERIFICATION_DIR}/doctor-report.html"
 readonly CSV_HEADERS="${TMP_DIR}/csv.headers"
 readonly CSV_BODY="${TMP_DIR}/csv.body"
 readonly INGEST_HEADERS="${TMP_DIR}/ingest.headers"
@@ -67,6 +69,8 @@ cleanup() {
         "${REPORT_BODY}" \
         "${REPORT_PDF_HEADERS}" \
         "${REPORT_PDF_BODY}" \
+        "${REPORT_HTML_HEADERS}" \
+        "${REPORT_HTML_BODY}" \
         "${CSV_HEADERS}" \
         "${CSV_BODY}" \
         "${INGEST_HEADERS}" \
@@ -669,11 +673,14 @@ for protected_path in \
     api/v1/overview \
     'api/v1/data-quality?range=30d' \
     api/v1/export/weight.csv \
+    api/v1/export/circumference.csv \
+    api/v1/series/circumference?range=30d \
     api/v1/labs/documents \
     api/v1/studies/documents \
     'api/v1/tasks?state=open' \
     api/v1/reports/doctor/00000000-0000-0000-0000-000000000000 \
     api/v1/reports/doctor/00000000-0000-0000-0000-000000000000.pdf \
+    api/v1/reports/doctor/00000000-0000-0000-0000-000000000000.html \
     api/v1/app-update \
     api/v1/assistant/messages; do
     [[ "$(public_status "${protected_path}")" == "401" ]] \
@@ -693,6 +700,15 @@ for protected_post_path in \
     [[ "$(public_status "${protected_post_path}" POST)" == "401" ]] \
         || amigo_die "unauthenticated protected POST route did not return 401: ${protected_post_path}"
 done
+[[ "$(public_status 'api/v1/body-measurements/2026-08-28' DELETE)" == "401" ]] \
+    || amigo_die "unauthenticated circumference DELETE route did not return 401"
+CIRCUMFERENCE_PUT_STATUS="$(curl --silent --show-error --max-time 20 \
+    --proto '=https' --tlsv1.2 --request PUT \
+    --header 'Content-Type: application/json' --data '{"waist_cm":96.5}' \
+    --output /dev/null --write-out '%{http_code}' \
+    "${AMIGO_PUBLIC_URL}api/v1/body-measurements/2026-08-28")"
+[[ "${CIRCUMFERENCE_PUT_STATUS}" == "401" ]] \
+    || amigo_die "unauthenticated circumference PUT route did not return 401"
 amigo_log "PASS dashboard JSON, CSV, quality, laboratory comparison, tasks, doctor reports, updater, and assistant require authentication"
 
 amigo_compose run --rm --no-deps --user 0 \
@@ -778,6 +794,14 @@ elif contract in {"activity", "recovery"}:
                 raise SystemExit("recovery API no longer preserves sleep_minutes")
             if "sleep_hours" in row:
                 raise SystemExit("recovery persistence/API contract unexpectedly changed to hours")
+elif contract == "circumference":
+    if not isinstance(payload.get("points"), list) or not isinstance(payload.get("meta"), dict):
+        raise SystemExit("circumference API contract is incomplete")
+    for row in payload["points"]:
+        if not isinstance(row, dict) or not isinstance(row.get("measured_on"), str):
+            raise SystemExit("circumference point is invalid")
+        if row.get("waist_cm") is None and row.get("hip_cm") is None:
+            raise SystemExit("circumference point has no value")
 elif contract == "data-quality":
     sources = payload.get("sources")
     metrics = payload.get("metrics")
@@ -894,6 +918,7 @@ check_authenticated_json_api "api/v1/profile" profile
 check_authenticated_json_api "api/v1/overview" overview
 check_authenticated_json_api "api/v1/series/activity?range=30d" activity
 check_authenticated_json_api "api/v1/series/recovery?range=30d" recovery
+check_authenticated_json_api "api/v1/series/circumference?range=30d" circumference
 check_authenticated_json_api "api/v1/data-quality?range=30d" data-quality
 check_authenticated_json_api "api/v1/ai-analysis" ai
 check_authenticated_json_api "api/v1/labs/documents" documents
@@ -1090,10 +1115,14 @@ if payload.get("id") != report_id:
     raise SystemExit("doctor report response ID changed during verification")
 if payload.get("download_url") != f"/amigo/api/v1/reports/doctor/{report_id}.pdf":
     raise SystemExit("doctor report download URL is not exact")
+if payload.get("html_download_url") != f"/amigo/api/v1/reports/doctor/{report_id}.html":
+    raise SystemExit("doctor report HTML download URL is not exact")
 if not isinstance(payload.get("page_count"), int) or not 1 <= payload["page_count"] <= 40:
     raise SystemExit("doctor report page bound is invalid")
 if not isinstance(payload.get("size_bytes"), int) or not 0 < payload["size_bytes"] <= 10 * 1024 * 1024:
     raise SystemExit("doctor report byte bound is invalid")
+if not isinstance(payload.get("html_size_bytes"), int) or not 0 < payload["html_size_bytes"] <= 10 * 1024 * 1024:
+    raise SystemExit("doctor report HTML byte bound is invalid")
 created = datetime.fromisoformat(str(payload.get("created_at")).replace("Z", "+00:00"))
 expires = datetime.fromisoformat(str(payload.get("expires_at")).replace("Z", "+00:00"))
 ttl = (expires.astimezone(timezone.utc) - created.astimezone(timezone.utc)).total_seconds()
@@ -1159,6 +1188,28 @@ metadata = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 size = Path(sys.argv[2]).stat().st_size
 if size != metadata["size_bytes"] or not 0 < size <= 10 * 1024 * 1024:
     raise SystemExit("downloaded doctor PDF size differs from its immutable snapshot")
+PY
+curl --config "${AUTH_CURL_CONFIG}" \
+    --max-time 60 \
+    --dump-header "${REPORT_HTML_HEADERS}" \
+    --output "${REPORT_HTML_BODY}" \
+    "${AMIGO_PUBLIC_URL}api/v1/reports/doctor/${DOCTOR_REPORT_ID}.html"
+require_header '^content-type:[[:space:]]*text/html' "${REPORT_HTML_HEADERS}"
+require_header '^content-disposition:.*amigo-doctor-report\.html' "${REPORT_HTML_HEADERS}"
+require_header '^cache-control:.*no-store' "${REPORT_HTML_HEADERS}"
+python3 - "${REPORT_BODY}" "${REPORT_HTML_BODY}" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+metadata = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+html = Path(sys.argv[2]).read_text(encoding="utf-8")
+if len(html.encode("utf-8")) != metadata.get("html_size_bytes"):
+    raise SystemExit("downloaded doctor HTML size differs from immutable snapshot")
+if "<svg" not in html or "<style>" not in html or "http://" in html or "https://" in html:
+    raise SystemExit("doctor HTML is not self-contained")
+if "Лабораторные" not in html and "лаборатор" not in html.lower():
+    raise SystemExit("doctor HTML lacks laboratory section")
 PY
 amigo_compose run --rm --no-deps \
     --volume "${VERIFICATION_DIR}:/verification:ro" \

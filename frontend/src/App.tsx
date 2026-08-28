@@ -26,6 +26,7 @@ import { DataQualityPage } from "./pages/DataQualityPage";
 import { DoctorReportPage } from "./pages/DoctorReportPage";
 import { LabsComparePage } from "./pages/LabsComparePage";
 import { TasksPage } from "./pages/TasksPage";
+import { CircumferencePage } from "./pages/CircumferencePage";
 
 export type OverviewContext = ApiState<Overview>;
 
@@ -56,6 +57,7 @@ function PrivateApp({ session, onLogout }: { session: AuthSession; onLogout: () 
         <Route path="tasks" element={<TasksPage />} />
         <Route path="pressure" element={<PressurePage />} />
         <Route path="composition" element={<CompositionPage />} />
+        <Route path="circumference" element={<CircumferencePage />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="recovery" element={<RecoveryPage />} />
         <Route path="labs" element={<LabsPage />} />

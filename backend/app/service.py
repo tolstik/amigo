@@ -26,7 +26,8 @@ from .analytics import (
     weekly_weight_points,
     weekly_weight_pressure_correlation,
 )
-from .models import BodyCircumference, Measurement, MeasurementGroup, Plan, SyncState
+from .body_measurements_models import BodyCircumference
+from .models import Measurement, MeasurementGroup, Plan, SyncState
 
 
 RangeName = Literal["program", "30d", "90d", "1y", "all"]

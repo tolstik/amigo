@@ -11,7 +11,7 @@ from app.auth import require_csrf, require_session
 from app.main import app
 from app.ai_models import AiAnalysisJob, AiAnalysisResult
 from app.models import SyncState
-from app.models import BodyCircumference
+from app.body_measurements_models import BodyCircumference
 from app.service import circumference_series, composition_series, ensure_default_plan, overview, pressure_series, weight_series
 
 

@@ -291,6 +291,7 @@ for explicit_dynamic_proxy in \
     'api/v1/tasks/$amigo_task_action_id/$amigo_task_action' \
     'api/v1/tasks/$amigo_task_id' \
     'api/v1/reports/doctor/$amigo_doctor_pdf_id.pdf' \
+    'api/v1/reports/doctor/$amigo_doctor_html_id.html' \
     'api/v1/reports/doctor/$amigo_doctor_report_id'; do
     grep --quiet --fixed-strings "${explicit_dynamic_proxy}" \
         "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
@@ -322,7 +323,7 @@ doctor_create_limit="$(awk '
 [[ "${doctor_create_limit}" == 'limit_req zone=amigo_report burst=5 nodelay;' ]] \
     || amigo_die "exact doctor report creation route does not use the dedicated rate limit"
 [[ "$(grep --count --fixed-strings 'limit_req zone=amigo_report burst=10 nodelay;' \
-    "${SCRIPT_DIR}/nginx/amigo.locations.conf")" -eq 2 ]] \
+    "${SCRIPT_DIR}/nginx/amigo.locations.conf")" -eq 3 ]] \
     || amigo_die "doctor report access routes must share the dedicated zone with burst 10"
 grep --quiet --fixed-strings 'limit_req zone=amigo_upload burst=25 nodelay;' \
     "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
@@ -354,6 +355,7 @@ for canonical_uuid_capture in \
     'amigo_task_action_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
     'amigo_task_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
     'amigo_doctor_pdf_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
+    'amigo_doctor_html_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
     'amigo_doctor_report_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'; do
     grep --quiet --fixed-strings "${canonical_uuid_capture}" \
         "${SCRIPT_DIR}/nginx/amigo.locations.conf" \

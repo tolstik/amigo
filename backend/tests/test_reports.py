@@ -102,6 +102,21 @@ def test_report_export_keeps_unverified_labs_and_raw_weight_points():
     assert "126.5" not in html
 
 
+def test_report_export_never_substitutes_daily_weight_for_raw_measurements():
+    payload = {
+        "meta": {"from": "2026-08-01", "to": "2026-08-28"},
+        "sections": {
+            "weight": {
+                "raw": [],
+                "points": [{"measured_at": "2026-08-20", "weight_kg": 126.6, "planned_kg": 126.5}],
+            },
+        },
+    }
+    html = render_doctor_report_html(payload).decode("utf-8")
+    assert "126.6" not in html
+    assert "126.5" not in html
+
+
 def test_pdf_renders_sleep_scale_in_hours_and_stays_bounded():
     payload = {
         "meta": {

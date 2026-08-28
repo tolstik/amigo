@@ -428,7 +428,7 @@ def _render_echarts_report_html(payload: dict, runtime: str) -> bytes:
   const base = (unit) => ({{ animation: false, grid: {{ left: 58, right: 20, top: 42, bottom: 48, containLabel: true }}, tooltip: {{ trigger: "axis", confine: true }}, legend: {{ top: 8, left: 0 }}, xAxis: {{ type: "time", axisLabel: {{ color: palette.muted }}, axisLine: {{ lineStyle: {{ color: palette.grid }} }}, splitLine: {{ show: false }} }}, yAxis: {{ type: "value", scale: true, name: unit, nameTextStyle: {{ color: palette.muted }}, axisLabel: {{ color: palette.muted }}, splitLine: {{ lineStyle: {{ color: palette.grid }} }} }}, dataZoom: [{{ type: "inside", filterMode: "none" }}] }});
   const render = (id, option) => {{ const node = document.getElementById(id); if (!node) return; const chart = echarts.init(node, null, {{ renderer: "svg" }}); chart.setOption(option); charts.push(chart); }};
   const pointData = (items, dateKey, valueKey) => items.map(item => [item[dateKey], item[valueKey] == null ? null : Number(item[valueKey])]);
-  const weight = data.sections?.weight; if (weight) {{ const actual = Array.isArray(weight.raw) && weight.raw.length ? weight.raw : rows(weight, "points").map(item => ({{ measured_at: item.measured_at, value: item.weight_kg }})); const o = base("кг"); o.series = [line("Реальные измерения", pointData(actual, "measured_at", "value"), palette.green, {{ showSymbol: true, smooth: false }})]; render("chart-weight", o); }}
+  const weight = data.sections?.weight; if (weight) {{ const actual = Array.isArray(weight.raw) ? weight.raw : []; const o = base("кг"); o.series = [line("Реальные измерения", pointData(actual, "measured_at", "value"), palette.green, {{ showSymbol: true, smooth: false }})]; render("chart-weight", o); }}
   const circumference = data.sections?.circumference; if (circumference) {{ const o = base("см"); o.series = [line("Талия", pointData(rows(circumference, "points"), "measured_on", "waist_cm"), palette.coral), line("Бёдра", pointData(rows(circumference, "points"), "measured_on", "hip_cm"), palette.violet)]; render("chart-circumference", o); }}
   const pressure = data.sections?.pressure; if (pressure) {{ const o = base("мм рт. ст."); o.series = [line("Систолическое", pointData(rows(pressure, "points"), "measured_at", "systolic"), palette.coral), line("Диастолическое", pointData(rows(pressure, "points"), "measured_at", "diastolic"), palette.blue)]; render("chart-pressure", o); }}
   const activity = data.sections?.activity; if (activity) {{ const o = base("шаги"); o.series = [{{ name: "Шаги", type: "bar", data: pointData(rows(activity, "daily"), "date", "steps"), itemStyle: {{ color: palette.green }}, barMaxWidth: 18 }}]; render("chart-activity", o); }}
@@ -488,7 +488,7 @@ def render_doctor_report_html(payload: dict, static_dir: Path | None = None) -> 
     weight = sections.get("weight")
     if isinstance(weight, dict):
         raw = list(weight.get("raw") or [])
-        blocks.append(_svg_chart("Вес · реальные измерения", raw or list(weight.get("points") or []), [("value", "Реальные измерения", "#2d9365")], unit="кг"))
+        blocks.append(_svg_chart("Вес · реальные измерения", raw, [("value", "Реальные измерения", "#2d9365")], unit="кг"))
     circumference = sections.get("circumference")
     if isinstance(circumference, dict):
         points = list(circumference.get("points") or [])
@@ -673,7 +673,7 @@ def render_doctor_report(payload: dict) -> bytes:
     weight = sections.get("weight")
     if isinstance(weight, dict):
         raw = list(weight.get("raw") or [])
-        writer.chart("Вес · реальные измерения", raw or list(weight.get("points") or []), "value", unit="кг")
+        writer.chart("Вес · реальные измерения", raw, "value", unit="кг")
     circumference = sections.get("circumference")
     if isinstance(circumference, dict):
         points = list(circumference.get("points") or [])

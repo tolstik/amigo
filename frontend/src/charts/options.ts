@@ -697,7 +697,7 @@ export function weightActualChartOption(points: WeightRawPoint[]): EChartsOption
   };
 }
 
-export function pressureChartOption(points: PressurePoint[]): EChartsOption {
+function pressureChartOptionBase(points: PressurePoint[], includeSessionPulse: boolean): EChartsOption {
   const elevatedGuideLine = (name: string, value: number) => ({
     name,
     yAxis: value,
@@ -717,10 +717,10 @@ export function pressureChartOption(points: PressurePoint[]): EChartsOption {
     legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
     tooltip: { trigger: "axis", confine: true, formatter: tooltipFormatter, backgroundColor: "rgba(22,31,25,.95)", borderWidth: 0, textStyle: { color: "#fff" } },
     xAxis: { ...sharedAxis, type: "time", splitLine: { show: false }, axisLabel: { ...sharedAxis.axisLabel, formatter: (value: number) => formatShortDate(new Date(value).toISOString()) } },
-    yAxis: [
+    yAxis: includeSessionPulse ? [
       { ...sharedAxis, type: "value", scale: true, name: "мм рт. ст.", nameTextStyle: { color: colors.muted } },
       { ...sharedAxis, type: "value", scale: true, name: "уд/мин", nameTextStyle: { color: colors.muted }, splitLine: { show: false } },
-    ],
+    ] : { ...sharedAxis, type: "value", scale: true, name: "мм рт. ст.", nameTextStyle: { color: colors.muted } },
     dataZoom: [{ type: "inside", filterMode: "none" }],
     series: [
       {
@@ -745,7 +745,40 @@ export function pressureChartOption(points: PressurePoint[]): EChartsOption {
           ],
         },
       },
-      { ...timeLine("Пульс", points.map((point) => [point.measuredAt, point.pulse]), colors.amber), yAxisIndex: 1, lineStyle: { width: 1.8, color: colors.amber, opacity: 0.76 } },
+      ...(includeSessionPulse
+        ? [{ ...timeLine("Пульс", points.map((point) => [point.measuredAt, point.pulse]), colors.amber), yAxisIndex: 1, lineStyle: { width: 1.8, color: colors.amber, opacity: 0.76 } }]
+        : []),
+    ],
+  };
+}
+
+export function pressureChartOption(points: PressurePoint[]): EChartsOption {
+  return pressureChartOptionBase(points, true);
+}
+
+export function doctorPressureChartOption(points: PressurePoint[]): EChartsOption {
+  return pressureChartOptionBase(points, false);
+}
+
+export function watchHeartRateDailyChartOption(points: RecoveryPoint[]): EChartsOption {
+  const withWatchHeartRate = points.filter((point) => (
+    point.minimumHeartRateBpm !== null
+    || point.averageHeartRateBpm !== null
+    || point.maximumHeartRateBpm !== null
+  ));
+  return {
+    animationDuration: 500,
+    color: [colors.blue, colors.coral, colors.violet],
+    grid: sharedGrid,
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: { trigger: "axis", confine: true, formatter: heartRateTooltipFormatter, backgroundColor: "rgba(22,31,25,.95)", borderWidth: 0, textStyle: { color: "#fff" } },
+    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false }, axisLabel: { ...sharedAxis.axisLabel, formatter: (value: number) => formatShortDate(new Date(value).toISOString()) } },
+    yAxis: { ...sharedAxis, type: "value", scale: true, name: "уд/мин", nameTextStyle: { color: colors.muted } },
+    dataZoom: [{ type: "inside", filterMode: "none" }],
+    series: [
+      timeLine("Минимум", withWatchHeartRate.map((point) => [point.measuredAt, point.minimumHeartRateBpm]), colors.blue, { smooth: false, lineStyle: { width: 1.5, type: "dashed", color: colors.blue, opacity: 0.72 } }),
+      timeLine("Средний", withWatchHeartRate.map((point) => [point.measuredAt, point.averageHeartRateBpm]), colors.coral, { smooth: false, lineStyle: { width: 3, color: colors.coral }, z: 4 }),
+      timeLine("Максимум", withWatchHeartRate.map((point) => [point.measuredAt, point.maximumHeartRateBpm]), colors.violet, { smooth: false, lineStyle: { width: 1.5, type: "dashed", color: colors.violet, opacity: 0.72 } }),
     ],
   };
 }

@@ -524,7 +524,9 @@ OCR, chat, device/account identity и raw provider payload запрещены. S
 внутри snapshot остаётся `sleep_minutes`, но PDF axis/label переводится в часы;
 steps в PDF явно обозначены как Xiaomi Cloud-only. Вес в export-графике
 показывается исходными Withings-замерами без медианного усреднения, тренда,
-прогноза и плановой линии.
+прогноза и плановой линии. График давления содержит только систолическое и
+диастолическое значения; дневные minimum/weighted average/maximum пульса с
+часов выводятся отдельным графиком без raw heart-rate samples.
 
 ## Android APK, pairing и backfill
 

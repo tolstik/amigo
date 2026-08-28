@@ -1220,6 +1220,20 @@ unverified = any(
 )
 if unverified and "Не проверено" not in html:
     raise SystemExit("doctor HTML hides unverified laboratory status")
+sections = metadata.get("preview", {}).get("sections", {}) if isinstance(metadata.get("preview"), dict) else {}
+recovery_daily = (sections.get("recovery") or {}).get("daily", [])
+watch_heart_rate_present = any(
+    isinstance(row, dict) and any(
+        isinstance(row.get(key), (int, float))
+        for key in ("minimum_heart_rate_bpm", "average_heart_rate_bpm", "maximum_heart_rate_bpm")
+    )
+    for row in recovery_daily
+)
+if watch_heart_rate_present and 'id="chart-watch-heart-rate"' not in html:
+    raise SystemExit("doctor HTML lacks the separate watch heart-rate chart")
+pressure_script = html.split("const pressure =", 1)[1].split("const activity =", 1)[0]
+if 'line("Пульс"' in pressure_script:
+    raise SystemExit("doctor pressure chart still contains session pulse")
 PY
 amigo_compose run --rm --no-deps \
     --volume "${VERIFICATION_DIR}:/verification:ro" \
@@ -1240,6 +1254,12 @@ sleep_present = any(
 )
 if sleep_present and "часы" not in text:
     raise SystemExit("doctor PDF sleep scale is not displayed in hours")
+watch_heart_rate_present = any(
+    isinstance(row, dict) and isinstance(row.get("average_heart_rate_bpm"), (int, float))
+    for row in payload["preview"]["sections"]["recovery"]["daily"]
+)
+if watch_heart_rate_present and "Пульс с часов" not in text:
+    raise SystemExit("doctor PDF lacks its separate watch heart-rate chart")
 '
 
 REPORT_DELETE_STATUS="$(

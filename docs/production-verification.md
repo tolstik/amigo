@@ -190,8 +190,10 @@
       snapshot содержит только privacy allowlist, laboratory rows с явным
       статусом проверки (включая unverified) и
       verified studies, имеет TTL 24 часа; PDF не превышает 40 страниц/10 МиБ,
-      явно помечает Xiaomi-only steps, показывает sleep scale в часах и удалён
-      тем же verification run.
+      явно помечает Xiaomi-only steps, показывает sleep scale в часах, не
+      смешивает session pulse с графиком давления и выводит отдельный график
+      дневного min/average/max пульса с часов; snapshot удалён тем же
+      verification run.
 - [ ] Пустой unsigned POST на каждый точный signed route —
       `/amigo-ingest/v1/health-connect/batches`,
       `/amigo-ingest/v1/mi-fitness/batches` и

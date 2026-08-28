@@ -187,7 +187,9 @@ after 24 hours and can be deleted earlier. Its step chart is explicitly Xiaomi
 Cloud-only and its sleep chart is labelled in hours. A compatibility PDF endpoint
 remains available for older Android clients. The export weight chart plots raw
 Withings measurements only; it does not add daily averaging, a trend, forecast,
-or plan line.
+or plan line. The pressure chart contains only systolic and diastolic values;
+watch heart rate is shown in a separate chart as daily minimum, weighted
+average, and maximum.
 
 ## Android app and Xiaomi/Health Connect companion
 

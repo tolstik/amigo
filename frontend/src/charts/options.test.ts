@@ -1,6 +1,6 @@
 import type { ActivityPoint, CircumferencePoint, HeartRateHourlyPoint, RecoveryPoint, WeeklyWeightPoint, WeightRawPoint } from "../api/types";
 import type { DailyPressureCategory } from "../lib/pressureCategories";
-import { activityDailyChartOption, circumferenceChartOption, heartRateChartOption, pressureCategoryChartOption, pressureChartOption, recoveryChartOption, sleepChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightActualChartOption } from "./options";
+import { activityDailyChartOption, circumferenceChartOption, doctorPressureChartOption, heartRateChartOption, pressureCategoryChartOption, pressureChartOption, recoveryChartOption, sleepChartOption, watchHeartRateDailyChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightActualChartOption } from "./options";
 import { chartOptionForTheme, chartPalettes } from "./theme";
 
 function week(index: number, overrides: Partial<WeeklyWeightPoint> = {}): WeeklyWeightPoint {
@@ -181,6 +181,40 @@ describe("daily charts", () => {
 });
 
 describe("daily pressure category strip", () => {
+  it("keeps session pulse out of the doctor pressure chart", () => {
+    const point = {
+      measuredAt: "2026-08-25T09:00:00+03:00",
+      systolic: 122,
+      diastolic: 78,
+      pulse: 64,
+      pulsePressure: 44,
+      sessionSize: 1,
+      periodOfDay: "morning" as const,
+    };
+    expect((pressureChartOption([point]).series as any[]).map((item) => item.name)).toContain("Пульс");
+    expect((doctorPressureChartOption([point]).series as any[]).map((item) => item.name)).toEqual(["Систолическое", "Диастолическое"]);
+  });
+
+  it("renders daily watch heart-rate bounds separately for the doctor", () => {
+    const point: RecoveryPoint = {
+      measuredAt: "2026-08-25",
+      sleepMinutes: null,
+      deepSleepMinutes: null,
+      remSleepMinutes: null,
+      awakeMinutes: null,
+      restingHeartRateBpm: null,
+      averageHeartRateBpm: 64,
+      minimumHeartRateBpm: 48,
+      maximumHeartRateBpm: 102,
+      hrvRmssdMs: null,
+      spo2Pct: null,
+      vo2Max: null,
+    };
+    const series = watchHeartRateDailyChartOption([point]).series as any[];
+    expect(series.map((item) => item.name)).toEqual(["Минимум", "Средний", "Максимум"]);
+    expect(series.map((item) => item.data[0][1])).toEqual([48, 64, 102]);
+  });
+
   it("adds labelled elevated and critical boundaries to the pressure trend", () => {
     const option = pressureChartOption([{
       measuredAt: "2026-08-25T09:00:00+03:00",

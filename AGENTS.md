@@ -302,8 +302,10 @@
   and 10 MiB and may include only selected deterministic aggregates,
   laboratory results with an explicit verification status (including
   `unverified` rows), verified study findings/conclusions, and optional
-  validated AI recommendations/evidence IDs. Never include filenames,
-  originals, OCR, chat, device/account identity, or raw provider payloads.
+  validated AI recommendations/evidence IDs. Its pressure graph contains no
+  pulse series; daily minimum/average/maximum watch heart rate is a separate
+  graph. Never include filenames, originals, OCR, chat, device/account
+  identity, raw heart-rate samples, or raw provider payloads.
 - Study-report uploads support the same bounded formats and queue for ultrasound,
   MRI, CT, X-ray, ECG, and other reports; DICOM is not supported. PostgreSQL
   stores the original plus structured findings/conclusion. Obvious identifier

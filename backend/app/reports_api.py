@@ -385,6 +385,18 @@ def _render_echarts_report_html(payload: dict, runtime: str) -> bytes:
         chart("chart-activity", "Шаги · только Xiaomi Cloud", "шаги")
     if isinstance(sections.get("recovery"), dict):
         chart("chart-recovery", "Продолжительность сна", "часы")
+        recovery_daily = list(sections["recovery"].get("daily") or [])
+        if any(
+            isinstance(row, dict)
+            and any(
+                row.get(key) is not None
+                for key in ("minimum_heart_rate_bpm", "average_heart_rate_bpm", "maximum_heart_rate_bpm")
+            )
+            for row in recovery_daily
+        ):
+            chart("chart-watch-heart-rate", "Пульс с часов", "уд/мин")
+        else:
+            blocks.append('<section class="report-card"><h2>Пульс с часов</h2><p class="muted">Нет данных с часов за выбранный период.</p></section>')
     labs = sections.get("labs")
     if isinstance(labs, list):
         blocks.append('<section class="report-card"><h2>Лабораторные результаты</h2>' + (
@@ -433,6 +445,7 @@ def _render_echarts_report_html(payload: dict, runtime: str) -> bytes:
   const pressure = data.sections?.pressure; if (pressure) {{ const o = base("мм рт. ст."); o.series = [line("Систолическое", pointData(rows(pressure, "points"), "measured_at", "systolic"), palette.coral), line("Диастолическое", pointData(rows(pressure, "points"), "measured_at", "diastolic"), palette.blue)]; render("chart-pressure", o); }}
   const activity = data.sections?.activity; if (activity) {{ const o = base("шаги"); o.series = [{{ name: "Шаги", type: "bar", data: pointData(rows(activity, "daily"), "date", "steps"), itemStyle: {{ color: palette.green }}, barMaxWidth: 18 }}]; render("chart-activity", o); }}
   const recovery = data.sections?.recovery; if (recovery) {{ const values = rows(recovery, "daily").map(item => [item.date, item.sleep_minutes == null ? null : Number(item.sleep_minutes) / 60]); const o = base("часы"); o.series = [{{ name: "Сон", type: "bar", data: values, itemStyle: {{ color: palette.violet }}, barMaxWidth: 18 }}]; render("chart-recovery", o); }}
+  if (recovery) {{ const daily = rows(recovery, "daily"); const o = base("уд/мин"); o.series = [line("Минимум", pointData(daily, "date", "minimum_heart_rate_bpm"), palette.blue, {{ smooth: false, lineStyle: {{ width: 1.5, type: "dashed", color: palette.blue }} }}), line("Средний", pointData(daily, "date", "average_heart_rate_bpm"), palette.coral, {{ smooth: false }}), line("Максимум", pointData(daily, "date", "maximum_heart_rate_bpm"), palette.violet, {{ smooth: false, lineStyle: {{ width: 1.5, type: "dashed", color: palette.violet }} }})]; render("chart-watch-heart-rate", o); }}
   window.addEventListener("beforeprint", () => charts.forEach(chart => chart.resize()));
 }})();
 </script>'''
@@ -508,6 +521,17 @@ def render_doctor_report_html(payload: dict, static_dir: Path | None = None) -> 
         sleep_rows = [row for row in list(recovery.get("daily") or []) if isinstance(row, dict)]
         sleep_points = [dict(row, sleep_hours=(row.get("sleep_minutes") / 60 if isinstance(row.get("sleep_minutes"), (int, float)) else None)) for row in sleep_rows]
         blocks.append(_svg_chart("Продолжительность сна", sleep_points, [("sleep_hours", "Сон", "#8068dd")], date_key="date", unit="часы"))
+        blocks.append(_svg_chart(
+            "Пульс с часов",
+            sleep_rows,
+            [
+                ("minimum_heart_rate_bpm", "Минимум", "#4b7bec"),
+                ("average_heart_rate_bpm", "Средний", "#dd755e"),
+                ("maximum_heart_rate_bpm", "Максимум", "#8068dd"),
+            ],
+            date_key="date",
+            unit="уд/мин",
+        ))
     labs = sections.get("labs")
     if isinstance(labs, list):
         blocks.append('<section class="report-card"><h2>Лабораторные результаты</h2>' + (
@@ -694,6 +718,12 @@ def render_doctor_report(payload: dict) -> bytes:
             "sleep_minutes",
             divisor=60,
             unit="часы",
+        )
+        writer.chart(
+            "Пульс с часов · среднее за день",
+            list(recovery.get("daily") or []),
+            "average_heart_rate_bpm",
+            unit="уд/мин",
         )
     labs = sections.get("labs")
     if isinstance(labs, list):

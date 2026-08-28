@@ -129,8 +129,8 @@ def test_pdf_renders_sleep_scale_in_hours_and_stays_bounded():
         "sections": {
             "recovery": {
                 "daily": [
-                    {"date": "2026-08-24", "sleep_minutes": 420},
-                    {"date": "2026-08-25", "sleep_minutes": 450},
+                    {"date": "2026-08-24", "sleep_minutes": 420, "minimum_heart_rate_bpm": 48, "average_heart_rate_bpm": 64, "maximum_heart_rate_bpm": 102},
+                    {"date": "2026-08-25", "sleep_minutes": 450, "minimum_heart_rate_bpm": 50, "average_heart_rate_bpm": 66, "maximum_heart_rate_bpm": 98},
                 ]
             },
             "activity": {"daily": [{"date": "2026-08-25", "steps": None}]},
@@ -143,6 +143,7 @@ def test_pdf_renders_sleep_scale_in_hours_and_stays_bounded():
         assert document.page_count <= 40
         text = "\n".join(page.get_text() for page in document)
     assert "Продолжительность сна" in text
+    assert "Пульс с часов" in text
     assert "часы" in text
     assert "Шаги · только Xiaomi Cloud" in text
 
@@ -242,11 +243,20 @@ def test_html_uses_bundled_echarts_runtime_when_available(tmp_path):
     static_dir.mkdir()
     (static_dir / "echarts.min.js").write_text("window.echarts={init:function(){}};", encoding="utf-8")
     rendered = render_doctor_report_html(
-        {"meta": {"from": "2026-08-01", "to": "2026-08-28"}, "sections": {"pressure": {"points": [{"measured_at": "2026-08-20", "systolic": 120, "diastolic": 80}]}}},
+        {
+            "meta": {"from": "2026-08-01", "to": "2026-08-28"},
+            "sections": {
+                "pressure": {"points": [{"measured_at": "2026-08-20", "systolic": 120, "diastolic": 80, "pulse": 65}]},
+                "recovery": {"daily": [{"date": "2026-08-20", "minimum_heart_rate_bpm": 48, "average_heart_rate_bpm": 64, "maximum_heart_rate_bpm": 102}]},
+            },
+        },
         static_dir,
     ).decode("utf-8")
     assert "echarts.init" in rendered
     assert '<div class="echart" id="chart-pressure"' in rendered
+    assert '<div class="echart" id="chart-watch-heart-rate"' in rendered
+    pressure_script = rendered.split("const pressure =", 1)[1].split("const activity =", 1)[0]
+    assert 'line("Пульс"' not in pressure_script
     assert "<svg" not in rendered
 
 

@@ -704,7 +704,13 @@ def render_doctor_report(payload: dict) -> bytes:
             if not isinstance(item, dict):
                 continue
             reference = f" · референс {item['reference']}" if item.get("reference") else ""
-            verification = "Не проверено" if item.get("verification_status") == "unverified" else "Проверено"
+            verification = (
+                "Не проверено"
+                if item.get("verification_status") == "unverified"
+                else "Исправлено"
+                if item.get("verification_status") == "corrected"
+                else "Проверено"
+            )
             writer.text(
                 f"{item.get('observed_on') or 'Дата не указана'} · {item.get('analyte')}: "
                 f"{item.get('value')}{reference} · {item.get('status')} · {verification}",

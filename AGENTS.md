@@ -300,7 +300,8 @@
 - Doctor-report snapshots are immutable, authenticated, and retained for 24
   hours unless deleted earlier. Locally rendered PDFs are capped at 40 pages
   and 10 MiB and may include only selected deterministic aggregates,
-  verified/corrected labs, verified study findings/conclusions, and optional
+  laboratory results with an explicit verification status (including
+  `unverified` rows), verified study findings/conclusions, and optional
   validated AI recommendations/evidence IDs. Never include filenames,
   originals, OCR, chat, device/account identity, or raw provider payloads.
 - Study-report uploads support the same bounded formats and queue for ultrasound,

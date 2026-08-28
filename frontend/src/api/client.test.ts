@@ -43,6 +43,7 @@ describe("API normalization", () => {
     }, "program");
     expect(result.points).toHaveLength(1);
     expect(result.points[0]).toMatchObject({ weightKg: 126.8, smoothed7dKg: 126.9, plannedKg: 126.64 });
+    expect(result.raw[0]).toMatchObject({ measuredAt: "2026-08-18T05:00:00Z", valueKg: 126.7 });
     expect(result.meta.range).toBe("program");
     expect(result.projection).toEqual([]);
     expect(result.planProjection).toEqual([]);

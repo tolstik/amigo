@@ -87,6 +87,11 @@ export interface WeightPoint {
   isOutlier: boolean;
 }
 
+export interface WeightRawPoint {
+  measuredAt: string;
+  valueKg: number;
+}
+
 export interface WeightProjectionPoint {
   measuredAt: string;
   forecastKg: number;
@@ -147,6 +152,7 @@ export interface SeriesResponse<T> {
 }
 
 export interface WeightSeriesResponse extends SeriesResponse<WeightPoint> {
+  raw: WeightRawPoint[];
   projection: WeightProjectionPoint[];
   planProjection: WeightPlanPoint[];
   weekly: WeeklyWeightPoint[];
@@ -595,7 +601,7 @@ export interface DoctorReportMeta {
   from: string | null;
   to: string | null;
   timezone: string;
-  excludedLabsCount: number;
+  unverifiedLabsCount: number;
 }
 
 export interface DoctorReportLabItem {
@@ -604,7 +610,7 @@ export interface DoctorReportLabItem {
   observedOn: string | null;
   reference: string | null;
   status: LabStatus;
-  verificationStatus: "verified" | "corrected";
+  verificationStatus: "unverified" | "verified" | "corrected";
 }
 
 export interface DoctorReportStudyItem {

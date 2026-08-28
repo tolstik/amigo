@@ -23,6 +23,7 @@ import type {
   SyncStatus,
   WeightPlanPoint,
   WeightProjectionPoint,
+  WeightRawPoint,
   WeightPoint,
   WeightSeriesResponse,
   WeeklyActivityPoint,
@@ -318,6 +319,14 @@ export function normalizeWeightSeries(payload: unknown, range: Period): WeightSe
     })
     .filter((point): point is WeightPlanPoint => point !== null)
     .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
+  const raw = list(body, "raw")
+    .map((value): WeightRawPoint | null => {
+      const measuredAt = string(value, "measured_at", "measuredAt", "timestamp");
+      const valueKg = number(value, "value", "weight_kg", "weightKg");
+      return measuredAt && valueKg !== null ? { measuredAt, valueKg } : null;
+    })
+    .filter((point): point is WeightRawPoint => point !== null)
+    .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
   const weekly = list(body, "weekly", "weeks")
     .map((value): WeeklyWeightPoint | null => {
       const startDate = string(value, "start_date", "startDate");
@@ -340,7 +349,7 @@ export function normalizeWeightSeries(payload: unknown, range: Period): WeightSe
     })
     .filter((point): point is WeeklyWeightPoint => point !== null)
     .sort((left, right) => left.startDate.localeCompare(right.startDate));
-  return { points, projection, planProjection, weekly, meta: metaWithBounds(payload, range, points) };
+  return { points, raw, projection, planProjection, weekly, meta: metaWithBounds(payload, range, points) };
 }
 
 function emptyStats(): PressureStats {
@@ -933,13 +942,14 @@ export function normalizeDoctorReport(payload: unknown): DoctorReport {
     const resultValue = string(value, "value");
     if (!analyte || !resultValue) return null;
     const rawStatus = string(value, "status");
+    const verification = string(value, "verification_status", "verificationStatus");
     return {
       analyte,
       value: resultValue,
       observedOn: string(value, "observed_on", "observedOn"),
       reference: string(value, "reference"),
       status: rawStatus && labStatuses.includes(rawStatus as typeof labStatuses[number]) ? rawStatus as LabResult["status"] : "indeterminate",
-      verificationStatus: string(value, "verification_status") === "corrected" ? "corrected" : "verified",
+      verificationStatus: verification === "corrected" || verification === "unverified" ? verification : "verified",
     };
   }).filter((value): value is DoctorReportLabItem => value !== null) : null;
   const rawStudies = at(rawPreviewSections, "studies");
@@ -976,7 +986,7 @@ export function normalizeDoctorReport(payload: unknown): DoctorReport {
         from: string(meta, "from"),
         to: string(meta, "to"),
         timezone: string(meta, "timezone") ?? "Europe/Moscow",
-        excludedLabsCount: number(meta, "labs_excluded_unverified", "excluded_labs_count") ?? 0,
+        unverifiedLabsCount: number(meta, "labs_unverified_count", "labs_excluded_unverified", "excluded_labs_count") ?? 0,
       },
       summary: isRecord(rawPreviewSections.summary) ? rawPreviewSections.summary : null,
       weight: isRecord(rawPreviewSections.weight) ? normalizeWeightSeries(rawPreviewSections.weight, period) : null,

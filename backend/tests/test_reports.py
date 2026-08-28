@@ -22,7 +22,7 @@ from app.reports_api import (
 from app.worker import cleanup_doctor_reports
 
 
-def test_report_payload_includes_only_confirmed_structured_labs(db):
+def test_report_payload_includes_structured_labs_with_verification_status(db):
     document = LabDocument(
         id="11111111-1111-4111-8111-111111111111",
         storage_key="root-only-random-key",
@@ -76,9 +76,30 @@ def test_report_payload_includes_only_confirmed_structured_labs(db):
     )
     encoded = json.dumps(payload, ensure_ascii=False)
     assert "Ферритин" in encoded
-    assert "Скрытый черновик" not in encoded
+    assert "Скрытый черновик" in encoded
+    assert next(item for item in payload["sections"]["labs"] if item["analyte"] == "Скрытый черновик")["verification_status"] == "unverified"
     assert "patient-private-name.pdf" not in encoded
     assert "root-only-random-key" not in encoded
+
+
+def test_report_export_keeps_unverified_labs_and_raw_weight_points():
+    payload = {
+        "meta": {"from": "2026-08-01", "to": "2026-08-28", "labs_unverified_count": 1},
+        "sections": {
+            "weight": {
+                "raw": [
+                    {"measured_at": "2026-08-20T06:00:00Z", "value": 126.8},
+                    {"measured_at": "2026-08-20T18:00:00Z", "value": 126.4},
+                ],
+                "points": [{"measured_at": "2026-08-20", "weight_kg": 126.6, "planned_kg": 126.5}],
+            },
+            "labs": [{"analyte": "Ферритин", "value": "42 нг/мл", "observed_on": "2026-08-20", "status": "within_reference", "verification_status": "unverified"}],
+        },
+    }
+    html = render_doctor_report_html(payload).decode("utf-8")
+    assert "Реальные измерения" in html
+    assert "Не проверено" in html
+    assert "126.5" not in html
 
 
 def test_pdf_renders_sleep_scale_in_hours_and_stays_bounded():

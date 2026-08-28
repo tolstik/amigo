@@ -1149,11 +1149,11 @@ def walk(value):
 walk(preview)
 sections = preview["sections"]
 if any(
-    item.get("verification_status") not in {"verified", "corrected"}
+    item.get("verification_status") not in {"unverified", "verified", "corrected"}
     for item in sections.get("labs", [])
     if isinstance(item, dict)
 ):
-    raise SystemExit("doctor report contains an unverified laboratory result")
+    raise SystemExit("doctor report contains an invalid laboratory verification status")
 for row in (sections.get("recovery") or {}).get("daily", []):
     if not isinstance(row, dict):
         raise SystemExit("doctor report recovery row is invalid")
@@ -1214,6 +1214,12 @@ if re.search(r"(?:src|href)=[\"']https?://", html, re.IGNORECASE):
     raise SystemExit("doctor HTML references an external asset")
 if "Лабораторные" not in html and "лаборатор" not in html.lower():
     raise SystemExit("doctor HTML lacks laboratory section")
+unverified = any(
+    isinstance(item, dict) and item.get("verification_status") == "unverified"
+    for item in (metadata.get("preview", {}).get("sections", {}).get("labs", []) if isinstance(metadata.get("preview"), dict) else [])
+)
+if unverified and "Не проверено" not in html:
+    raise SystemExit("doctor HTML hides unverified laboratory status")
 PY
 amigo_compose run --rm --no-deps \
     --volume "${VERIFICATION_DIR}:/verification:ro" \

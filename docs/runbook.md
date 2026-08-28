@@ -518,11 +518,13 @@ Doctor report создаётся authenticated POST, после чего exact G
 по canonical lowercase UUID и DELETE может удалить snapshot раньше срока.
 Snapshot immutable и автоматически очищается через 24 часа; PDF генерируется
 локально, не более 40 страниц/10 МиБ. Разрешены deterministic aggregates,
-verified/corrected laboratory rows, verified study findings/conclusion и
+laboratory rows с явным статусом проверки (включая `unverified`), verified study findings/conclusion и
 опциональные validated AI recommendations/evidence IDs. Filenames, originals,
 OCR, chat, device/account identity и raw provider payload запрещены. Sleep
 внутри snapshot остаётся `sleep_minutes`, но PDF axis/label переводится в часы;
-steps в PDF явно обозначены как Xiaomi Cloud-only.
+steps в PDF явно обозначены как Xiaomi Cloud-only. Вес в export-графике
+показывается исходными Withings-замерами без медианного усреднения, тренда,
+прогноза и плановой линии.
 
 ## Android APK, pairing и backfill
 

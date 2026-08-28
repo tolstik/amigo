@@ -177,14 +177,17 @@ time, and authenticated dashboard link, never its note or health evidence.
 The “Body circumferences” section stores one local-date record with independent
 waist and hip values and renders a shared-period historical chart. The “Doctor package” creates an immutable, authenticated report snapshot for
 `30d`, `90d`, or `1y`. It contains only selected deterministic aggregates,
-confirmed/corrected laboratory results, verified study findings/conclusions,
+laboratory results with an explicit verification status (including unverified
+rows), verified study findings/conclusions,
 and optionally validated AI recommendations with evidence IDs. Filenames,
 originals, OCR, chat, device/account identity, and raw provider data are
 excluded. The primary download is a self-contained HTML dashboard with inline
 CSS/SVG, A4 print rules, and no external requests. Snapshot and download expire
 after 24 hours and can be deleted earlier. Its step chart is explicitly Xiaomi
 Cloud-only and its sleep chart is labelled in hours. A compatibility PDF endpoint
-remains available for older Android clients.
+remains available for older Android clients. The export weight chart plots raw
+Withings measurements only; it does not add daily averaging, a trend, forecast,
+or plan line.
 
 ## Android app and Xiaomi/Health Connect companion
 

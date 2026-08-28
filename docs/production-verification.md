@@ -187,7 +187,8 @@
       rollback history и не попадают в dashboard/CSV/Telegram/AI/correlations.
 - [ ] Lab compare и task mutation routes проходят 403 без CSRF и безопасные
       404/422 с CSRF без создания документа/задачи. Временный 30-day doctor
-      snapshot содержит только privacy allowlist, verified/corrected labs и
+      snapshot содержит только privacy allowlist, laboratory rows с явным
+      статусом проверки (включая unverified) и
       verified studies, имеет TTL 24 часа; PDF не превышает 40 страниц/10 МиБ,
       явно помечает Xiaomi-only steps, показывает sleep scale в часах и удалён
       тем же verification run.

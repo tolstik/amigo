@@ -11,6 +11,7 @@ import type {
   WeeklyWeightPoint,
   WeightPlanPoint,
   WeightPoint,
+  WeightRawPoint,
   WeightProjectionPoint,
 } from "../api/types";
 import { formatDate, formatDateTime, formatDelta, formatKg, formatNumber, formatShortDate } from "../lib/format";
@@ -678,6 +679,21 @@ export function weightChartOption(
     yAxis: { ...sharedAxis, type: "value", scale: true, name: "кг", nameTextStyle: { color: colors.muted } },
     dataZoom: detailed ? [{ type: "inside", filterMode: "none" }] : undefined,
     series,
+  };
+}
+
+export function weightActualChartOption(points: WeightRawPoint[]): EChartsOption {
+  const ordered = [...points].sort((left, right) => Date.parse(left.measuredAt) - Date.parse(right.measuredAt));
+  return {
+    animationDuration: 500,
+    color: [colors.green],
+    grid: sharedGrid,
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: { trigger: "axis", confine: true, formatter: tooltipFormatter, backgroundColor: "rgba(22,31,25,.95)", borderWidth: 0, textStyle: { color: "#fff" } },
+    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false }, axisLabel: { ...sharedAxis.axisLabel, formatter: (value: number) => formatDateTime(new Date(value).toISOString()) } },
+    yAxis: { ...sharedAxis, type: "value", scale: true, name: "кг", nameTextStyle: { color: colors.muted } },
+    dataZoom: [{ type: "inside", filterMode: "none" }],
+    series: [timeLine("Реальные измерения", ordered.map((point) => [point.measuredAt, point.valueKg]), colors.green, { showSymbol: true, smooth: false, lineStyle: { width: 2.5, color: colors.green } })],
   };
 }
 

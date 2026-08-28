@@ -1,6 +1,6 @@
-import type { ActivityPoint, CircumferencePoint, HeartRateHourlyPoint, RecoveryPoint, WeeklyWeightPoint } from "../api/types";
+import type { ActivityPoint, CircumferencePoint, HeartRateHourlyPoint, RecoveryPoint, WeeklyWeightPoint, WeightRawPoint } from "../api/types";
 import type { DailyPressureCategory } from "../lib/pressureCategories";
-import { activityDailyChartOption, circumferenceChartOption, heartRateChartOption, pressureCategoryChartOption, pressureChartOption, recoveryChartOption, sleepChartOption, weeklyChangeChartOption, weeklyWeightChartOption } from "./options";
+import { activityDailyChartOption, circumferenceChartOption, heartRateChartOption, pressureCategoryChartOption, pressureChartOption, recoveryChartOption, sleepChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightActualChartOption } from "./options";
 import { chartOptionForTheme, chartPalettes } from "./theme";
 
 function week(index: number, overrides: Partial<WeeklyWeightPoint> = {}): WeeklyWeightPoint {
@@ -97,6 +97,16 @@ describe("watch heart-rate chart", () => {
 });
 
 describe("daily charts", () => {
+  it("keeps the export weight chart on raw measurements without plan or trend", () => {
+    const points: WeightRawPoint[] = [
+      { measuredAt: "2026-08-20T06:00:00Z", valueKg: 126.8 },
+      { measuredAt: "2026-08-20T18:00:00Z", valueKg: 126.4 },
+    ];
+    const option = weightActualChartOption(points) as any;
+    expect(option.series.map((item: any) => item.name)).toEqual(["Реальные измерения"]);
+    expect(option.series[0].data).toEqual([[points[0].measuredAt, 126.8], [points[1].measuredAt, 126.4]]);
+  });
+
   it("plots independent waist and hip series in centimetres", () => {
     const points: CircumferencePoint[] = [
       { measuredOn: "2026-08-20", waistCm: 98.5, hipCm: null },

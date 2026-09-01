@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from uuid import uuid4
 from decimal import Decimal
 from typing import Any
 
@@ -84,23 +83,6 @@ class Plan(Base):
     target_weight_kg: Mapped[Decimal] = mapped_column(Numeric(8, 3), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-class Medication(Base):
-    """A current long-term medication entered by the account owner."""
-
-    __tablename__ = "medications"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
-    dosage: Mapped[str] = mapped_column(String(80), nullable=False)
-    schedule: Mapped[str | None] = mapped_column(String(120))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
-    )
 
 
 class ProviderCredential(Base):

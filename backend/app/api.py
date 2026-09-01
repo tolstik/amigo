@@ -18,7 +18,7 @@ from .ai_queue import public_analysis_payload
 from .auth import AuthContext, require_csrf
 from .health_analytics import activity_series, recovery_series
 from .body_measurements_models import BodyCircumference
-from .models import Medication
+from .medication_models import Medication
 from .service import circumference_series, composition_series, overview, pressure_series, weight_series
 
 

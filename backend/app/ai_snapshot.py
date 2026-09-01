@@ -15,7 +15,7 @@ from .ai_queue import AnalysisTrigger, enqueue_analysis
 from .config import Settings
 from .health_analytics import activity_series, recovery_series
 from .lab_models import LabResult
-from .models import Medication
+from .medication_models import Medication
 from .service import overview, pressure_series, weight_series
 
 

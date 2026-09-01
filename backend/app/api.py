@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
@@ -18,6 +18,7 @@ from .ai_queue import public_analysis_payload
 from .auth import AuthContext, require_csrf
 from .health_analytics import activity_series, recovery_series
 from .body_measurements_models import BodyCircumference
+from .models import Medication
 from .service import circumference_series, composition_series, overview, pressure_series, weight_series
 
 
@@ -36,6 +37,117 @@ class CircumferenceInput(BaseModel):
         if self.waist_cm is None and self.hip_cm is None:
             raise ValueError("at least one circumference is required")
         return self
+
+
+class MedicationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str = Field(min_length=1, max_length=120)
+    dosage: str = Field(min_length=1, max_length=80)
+    schedule: str | None = Field(default=None, max_length=120)
+
+
+class MedicationPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    dosage: str | None = Field(default=None, min_length=1, max_length=80)
+    schedule: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def has_value(self) -> "MedicationPatch":
+        if not self.model_fields_set:
+            raise ValueError("at least one medication field is required")
+        return self
+
+
+def _medication(row: Medication) -> dict[str, object]:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "dosage": row.dosage,
+        "schedule": row.schedule,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def _enqueue_medication_analysis(db: Session, settings: Settings) -> None:
+    # Keep the API import graph light and mirror profile/laboratory mutations.
+    from .ai_snapshot import enqueue_current_analysis
+
+    enqueue_current_analysis(db, settings, trigger="manual", debounce_seconds=0)
+
+
+def _ensure_medication_capacity(db: Session) -> None:
+    if (db.scalar(select(func.count()).select_from(Medication)) or 0) >= 32:
+        raise HTTPException(status_code=422, detail="too_many_medications")
+
+
+@router.get("/medications")
+def get_medications(db: Session = Depends(get_db)) -> dict[str, list[dict[str, object]]]:
+    rows = db.scalars(select(Medication).order_by(Medication.name, Medication.id)).all()
+    return {"items": [_medication(row) for row in rows]}
+
+
+@router.post("/medications", status_code=status.HTTP_201_CREATED)
+def create_medication(
+    payload: MedicationInput,
+    _context: AuthContext = Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    _ensure_medication_capacity(db)
+    row = Medication(
+        name=payload.name,
+        dosage=payload.dosage,
+        schedule=payload.schedule or None,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    _enqueue_medication_analysis(db, settings)
+    return _medication(row)
+
+
+@router.patch("/medications/{medication_id}")
+def patch_medication(
+    medication_id: str,
+    payload: MedicationPatch,
+    _context: AuthContext = Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    row = db.get(Medication, medication_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="medication_not_found")
+    values = payload.model_dump(exclude_unset=True)
+    if "name" in values:
+        row.name = values["name"]
+    if "dosage" in values:
+        row.dosage = values["dosage"]
+    if "schedule" in values:
+        row.schedule = values["schedule"] or None
+    db.commit()
+    db.refresh(row)
+    _enqueue_medication_analysis(db, settings)
+    return _medication(row)
+
+
+@router.delete("/medications/{medication_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_medication(
+    medication_id: str,
+    _context: AuthContext = Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    row = db.get(Medication, medication_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="medication_not_found")
+    db.delete(row)
+    db.commit()
+    _enqueue_medication_analysis(db, settings)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _circumference(row: BodyCircumference) -> dict[str, object]:

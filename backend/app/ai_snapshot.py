@@ -10,11 +10,12 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .ai_contracts import AnalysisSnapshot, SnapshotFact, SnapshotLabResult, SnapshotPoint, SnapshotSeries
+from .ai_contracts import AnalysisSnapshot, SnapshotFact, SnapshotLabResult, SnapshotMedication, SnapshotPoint, SnapshotSeries
 from .ai_queue import AnalysisTrigger, enqueue_analysis
 from .config import Settings
 from .health_analytics import activity_series, recovery_series
 from .lab_models import LabResult
+from .models import Medication
 from .service import overview, pressure_series, weight_series
 
 
@@ -287,6 +288,22 @@ def build_analysis_snapshot(
         _timestamp(activity.get("data_as_of")),
         _timestamp(recovery.get("data_as_of")),
     ]
+    medications = [] if db is None else list(
+        db.scalars(select(Medication).order_by(Medication.name, Medication.id))
+    )
+    medication_context = [
+        SnapshotMedication(
+            name=row.name,
+            dosage=row.dosage,
+            schedule=row.schedule,
+        )
+        for row in medications
+    ]
+    source_candidates.extend(
+        row.updated_at.astimezone(timezone.utc)
+        for row in medications
+        if row.updated_at is not None
+    )
     laboratory_rows = [] if db is None else list(
         db.scalars(
             select(LabResult)
@@ -335,6 +352,7 @@ def build_analysis_snapshot(
         facts=facts,
         series=[value for value in series_candidates if value is not None],
         labs=laboratory,
+        medications=medication_context,
     )
 
 

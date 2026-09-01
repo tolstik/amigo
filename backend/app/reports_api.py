@@ -21,6 +21,7 @@ from .db import get_db
 from .feature_models import DoctorReportSnapshot
 from .health_analytics import activity_series, recovery_series
 from .lab_models import LabReport, LabResult, StudyDocument
+from .models import Medication
 from .service import circumference_series, overview, pressure_series, weight_series
 
 
@@ -28,6 +29,7 @@ router = APIRouter(prefix="/api/v1/reports/doctor", tags=["reports"])
 Period = Literal["30d", "90d", "1y"]
 Section = Literal[
     "summary",
+    "medications",
     "weight",
     "circumference",
     "pressure",
@@ -90,6 +92,13 @@ def _lab_reference(row: LabResult) -> str | None:
     return None
 
 
+def _medication_payload(db: Session) -> list[dict[str, str | None]]:
+    return [
+        {"name": row.name, "dosage": row.dosage, "schedule": row.schedule}
+        for row in db.scalars(select(Medication).order_by(Medication.name, Medication.id))
+    ]
+
+
 def build_doctor_report_payload(
     db: Session,
     settings: Settings,
@@ -118,7 +127,10 @@ def build_doctor_report_payload(
             "weight": source.get("weight"),
             "pressure": source.get("pressure"),
             "composition": source.get("composition"),
+            "medications": _medication_payload(db),
         }
+    if "medications" in sections:
+        payload["sections"]["medications"] = _medication_payload(db)
     if "weight" in sections:
         payload["sections"]["weight"] = weight_series(db, settings.tz, request.period, now)
     if "circumference" in sections:
@@ -363,12 +375,42 @@ def _render_echarts_report_html(payload: dict, runtime: str) -> bytes:
         summary = sections["summary"]
         weight = summary.get("weight") or {}
         pressure = summary.get("pressure") or {}
+        show_summary_medications = not isinstance(sections.get("medications"), list)
+        medications = [item for item in summary.get("medications") or [] if isinstance(item, dict)] if show_summary_medications else []
         blocks.append(
             '<section class="report-card summary"><h2>Краткая сводка</h2><div class="summary-grid">'
             f'<div><span>Рост</span><strong>{_html(summary.get("height_cm") or "—")} см</strong></div>'
             f'<div><span>Последний вес</span><strong>{_html(weight.get("latest_kg") or "—")} кг</strong></div>'
             f'<div><span>Последнее давление</span><strong>{_html(pressure.get("latest_systolic") or "—")} / {_html(pressure.get("latest_diastolic") or "—")}</strong></div>'
-            '</div></section>'
+            '</div>'
+            + (
+                '<div class="report-medications"><h3>Постоянные препараты</h3>'
+                + _html_table(
+                    ["Препарат", "Дозировка", "Режим"],
+                    [[item.get("name"), item.get("dosage"), item.get("schedule")] for item in medications],
+                )
+                + '</div>'
+                if show_summary_medications and medications
+                else '<p class="muted report-medications-empty">Постоянные препараты не указаны.</p>'
+                if show_summary_medications
+                else ''
+            )
+            + '</section>'
+        )
+    medications_section = sections.get("medications")
+    if isinstance(medications_section, list):
+        medication_rows = [item for item in medications_section if isinstance(item, dict)]
+        blocks.append(
+            '<section class="report-card"><h2>Постоянные препараты</h2>'
+            + (
+                _html_table(
+                    ["Препарат", "Дозировка", "Режим"],
+                    [[item.get("name"), item.get("dosage"), item.get("schedule")] for item in medication_rows],
+                )
+                if medication_rows
+                else '<p class="muted">Постоянные препараты не указаны.</p>'
+            )
+            + '</section>'
         )
     if isinstance(sections.get("weight"), dict):
         chart("chart-weight", "Вес", "кг")
@@ -450,7 +492,7 @@ def _render_echarts_report_html(payload: dict, runtime: str) -> bytes:
 }})();
 </script>'''
     document = f'''<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Amigo — пакет для врача</title><style>
-:root {{ color-scheme: light; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #18221c; background: #f4f6f1; }} * {{ box-sizing: border-box; }} body {{ margin: 0; background: #f4f6f1; color: #18221c; }} .report {{ width: min(100% - 32px, 1040px); margin: 0 auto; padding: 34px 0 48px; }} .report-header {{ padding: 28px 30px; border-radius: 20px; background: linear-gradient(130deg,#1c6f4a,#358c66); color: #fff; margin-bottom: 18px; }} .kicker {{ margin: 0 0 8px; font-size: 11px; letter-spacing: .15em; text-transform: uppercase; opacity: .78; }} h1 {{ margin: 0; font-size: clamp(28px,4vw,44px); letter-spacing: -.04em; }} .period {{ margin: 12px 0 0; font-size: 14px; opacity: .9; }} .notice {{ margin: 12px 0 0; font-size: 11px; opacity: .78; }} .report-card {{ margin: 18px 0; padding: 22px 24px; border: 1px solid #dbe4dc; border-radius: 16px; background: #fff; break-inside: avoid; }} .report-card h2 {{ margin: 0 0 16px; font-size: 19px; letter-spacing: -.02em; }} .report-card__head {{ display:flex; justify-content:space-between; align-items:baseline; gap:12px; }} .unit,.muted {{ color:#657168; font-size:12px; }} .summary-grid {{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }} .summary-grid div {{ padding:14px; border-radius:12px; background:#f0f4ef; }} .summary-grid span {{ display:block; color:#657168; font-size:11px; }} .summary-grid strong {{ display:block; margin-top:5px; font-size:20px; }} .echart {{ width:100%; height:280px; }} .table-wrap {{ overflow-x:auto; }} table {{ width:100%; border-collapse:collapse; font-size:12px; }} th,td {{ padding:9px 8px; border-bottom:1px solid #e7ede8; text-align:left; vertical-align:top; }} th {{ color:#657168; font-size:10px; text-transform:uppercase; letter-spacing:.06em; }} .recommendation {{ padding:12px 0; border-top:1px solid #e7ede8; }} .recommendation:first-of-type {{ border-top:0; }} .recommendation p {{ margin:6px 0 0; color:#46564b; line-height:1.55; }} .report-warning {{ border-color:#ead7a8; background:#fff8e8; }} .report-warning strong {{ font-size:13px; }} .report-warning p {{ margin:6px 0 0; color:#6f634a; font-size:12px; }} .report-footer {{ margin-top:22px; color:#657168; font-size:10px; }} @page {{ size:A4; margin:14mm; }} @media print {{ body {{ background:#fff; }} .report {{ width:100%; padding:0; }} .report-header {{ color-adjust:exact; -webkit-print-color-adjust:exact; print-color-adjust:exact; }} }} @media(max-width:620px) {{ .report {{ width:min(100% - 20px,1040px); padding-top:16px; }} .report-header,.report-card {{ padding:18px; border-radius:14px; }} .summary-grid {{ grid-template-columns:1fr; }} }}
+:root {{ color-scheme: light; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #18221c; background: #f4f6f1; }} * {{ box-sizing: border-box; }} body {{ margin: 0; background: #f4f6f1; color: #18221c; }} .report {{ width: min(100% - 32px, 1040px); margin: 0 auto; padding: 34px 0 48px; }} .report-header {{ padding: 28px 30px; border-radius: 20px; background: linear-gradient(130deg,#1c6f4a,#358c66); color: #fff; margin-bottom: 18px; }} .kicker {{ margin: 0 0 8px; font-size: 11px; letter-spacing: .15em; text-transform: uppercase; opacity: .78; }} h1 {{ margin: 0; font-size: clamp(28px,4vw,44px); letter-spacing: -.04em; }} .period {{ margin: 12px 0 0; font-size: 14px; opacity: .9; }} .notice {{ margin: 12px 0 0; font-size: 11px; opacity: .78; }} .report-card {{ margin: 18px 0; padding: 22px 24px; border: 1px solid #dbe4dc; border-radius: 16px; background: #fff; break-inside: avoid; }} .report-card h2 {{ margin: 0 0 16px; font-size: 19px; letter-spacing: -.02em; }} .report-card__head {{ display:flex; justify-content:space-between; align-items:baseline; gap:12px; }} .unit,.muted {{ color:#657168; font-size:12px; }} .summary-grid {{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }} .summary-grid div {{ padding:14px; border-radius:12px; background:#f0f4ef; }} .summary-grid span {{ display:block; color:#657168; font-size:11px; }} .summary-grid strong {{ display:block; margin-top:5px; font-size:20px; }} .report-medications {{ margin-top:18px; }} .report-medications h3 {{ margin:0 0 8px; color:#46564b; font-size:13px; }} .report-medications-empty {{ margin:18px 0 0; }} .echart {{ width:100%; height:280px; }} .table-wrap {{ overflow-x:auto; }} table {{ width:100%; border-collapse:collapse; font-size:12px; }} th,td {{ padding:9px 8px; border-bottom:1px solid #e7ede8; text-align:left; vertical-align:top; }} th {{ color:#657168; font-size:10px; text-transform:uppercase; letter-spacing:.06em; }} .recommendation {{ padding:12px 0; border-top:1px solid #e7ede8; }} .recommendation:first-of-type {{ border-top:0; }} .recommendation p {{ margin:6px 0 0; color:#46564b; line-height:1.55; }} .report-warning {{ border-color:#ead7a8; background:#fff8e8; }} .report-warning strong {{ font-size:13px; }} .report-warning p {{ margin:6px 0 0; color:#6f634a; font-size:12px; }} .report-footer {{ margin-top:22px; color:#657168; font-size:10px; }} @page {{ size:A4; margin:14mm; }} @media print {{ body {{ background:#fff; }} .report {{ width:100%; padding:0; }} .report-header {{ color-adjust:exact; -webkit-print-color-adjust:exact; print-color-adjust:exact; }} }} @media(max-width:620px) {{ .report {{ width:min(100% - 20px,1040px); padding-top:16px; }} .report-header,.report-card {{ padding:18px; border-radius:14px; }} .summary-grid {{ grid-template-columns:1fr; }} }}
 </style></head><body><main class="report"><header class="report-header"><p class="kicker">Amigo · пакет для врача</p><h1>Сводка здоровья</h1><p class="period">Период: {_html(meta.get('from','—'))} — {_html(meta.get('to','—'))} · {_html(meta.get('timezone','Europe/Moscow'))}</p><p class="notice">Информационная сводка измерений; не диагноз и не назначение лечения.</p></header>{"".join(blocks)}<footer class="report-footer">Сформировано {_html(meta.get('created_at','—'))}. Данные зафиксированы на момент формирования пакета.</footer></main>{chart_script}</body></html>'''
     encoded = document.encode("utf-8")
     if len(encoded) > HTML_MAX_BYTES:
@@ -487,6 +529,8 @@ def render_doctor_report_html(payload: dict, static_dir: Path | None = None) -> 
     if isinstance(summary, dict):
         weight = summary.get("weight") or {}
         pressure = summary.get("pressure") or {}
+        show_summary_medications = not isinstance(sections.get("medications"), list)
+        medications = [item for item in summary.get("medications") or [] if isinstance(item, dict)] if show_summary_medications else []
         cards = [
             ("Рост", f"{_html(summary.get('height_cm') or '—')} см"),
             ("Последний вес", f"{_html(weight.get('latest_kg') or '—')} кг"),
@@ -495,7 +539,36 @@ def render_doctor_report_html(payload: dict, static_dir: Path | None = None) -> 
         blocks.append(
             '<section class="report-card summary"><h2>Краткая сводка</h2><div class="summary-grid">'
             + "".join(f'<div><span>{_html(label)}</span><strong>{value}</strong></div>' for label, value in cards)
-            + "</div></section>"
+            + "</div>"
+            + (
+                '<div class="report-medications"><h3>Постоянные препараты</h3>'
+                + _html_table(
+                    ["Препарат", "Дозировка", "Режим"],
+                    [[item.get("name"), item.get("dosage"), item.get("schedule")] for item in medications],
+                )
+                + '</div>'
+                if show_summary_medications and medications
+                else '<p class="muted report-medications-empty">Постоянные препараты не указаны.</p>'
+                if show_summary_medications
+                else ''
+            )
+            + "</section>"
+        )
+
+    medications_section = sections.get("medications")
+    if isinstance(medications_section, list):
+        medication_rows = [item for item in medications_section if isinstance(item, dict)]
+        blocks.append(
+            '<section class="report-card"><h2>Постоянные препараты</h2>'
+            + (
+                _html_table(
+                    ["Препарат", "Дозировка", "Режим"],
+                    [[item.get("name"), item.get("dosage"), item.get("schedule")] for item in medication_rows],
+                )
+                if medication_rows
+                else '<p class="muted">Постоянные препараты не указаны.</p>'
+            )
+            + "</section>"
         )
 
     weight = sections.get("weight")
@@ -577,7 +650,7 @@ h1 {{ margin: 0; font-size: clamp(28px,4vw,44px); letter-spacing: -.04em; }} .pe
 .notice {{ margin: 12px 0 0; font-size: 11px; opacity: .78; }} .report-card {{ margin: 18px 0; padding: 22px 24px; border: 1px solid #dbe4dc; border-radius: 16px; background: #fff; break-inside: avoid; }}
 .report-card h2 {{ margin: 0 0 16px; font-size: 19px; letter-spacing: -.02em; }} .report-card__head {{ display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }}
 .unit, .muted {{ color: #657168; font-size: 12px; }} .summary-grid {{ display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }}
-.summary-grid div {{ padding: 14px; border-radius: 12px; background: #f0f4ef; }} .summary-grid span {{ display: block; color: #657168; font-size: 11px; }} .summary-grid strong {{ display: block; margin-top: 5px; font-size: 20px; }}
+.summary-grid div {{ padding: 14px; border-radius: 12px; background: #f0f4ef; }} .summary-grid span {{ display: block; color: #657168; font-size: 11px; }} .summary-grid strong {{ display: block; margin-top: 5px; font-size: 20px; }} .report-medications {{ margin-top: 18px; }} .report-medications h3 {{ margin: 0 0 8px; color: #46564b; font-size: 13px; }} .report-medications-empty {{ margin: 18px 0 0; }}
 .report-chart svg {{ display: block; width: 100%; height: auto; margin-top: 6px; }} .plot {{ fill: #fbfdfb; stroke: #dbe4dc; }} .grid {{ stroke: #e7ede8; stroke-width: 1; }} .axis {{ fill: #657168; font-size: 11px; }}
 .legend {{ display: flex; flex-wrap: wrap; gap: 14px; margin-top: 5px; color: #657168; font-size: 11px; }} .legend span {{ display: inline-flex; align-items: center; gap: 6px; }} .legend i {{ width: 9px; height: 9px; display: inline-block; border-radius: 50%; }}
 .table-wrap {{ overflow-x: auto; }} table {{ width: 100%; border-collapse: collapse; font-size: 12px; }} th, td {{ padding: 9px 8px; border-bottom: 1px solid #e7ede8; text-align: left; vertical-align: top; }} th {{ color: #657168; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }}
@@ -694,6 +767,27 @@ def render_doctor_report(payload: dict) -> bytes:
             f"Последнее давление: {pressure.get('latest_systolic', '—')}/"
             f"{pressure.get('latest_diastolic', '—')} мм рт. ст."
         )
+        show_summary_medications = not isinstance(sections.get("medications"), list)
+        medications = [item for item in summary.get("medications") or [] if isinstance(item, dict)] if show_summary_medications else []
+        if show_summary_medications:
+            writer.heading("Постоянные препараты")
+            if not medications:
+                writer.text("Постоянные препараты не указаны.", 9)
+            for item in medications:
+                schedule = f" · {item.get('schedule')}" if item.get("schedule") else ""
+                writer.text(
+                    f"{item.get('name', '—')} · {item.get('dosage', '—')}{schedule}",
+                    9,
+                )
+    medications_section = sections.get("medications")
+    if isinstance(medications_section, list):
+        writer.heading("Постоянные препараты")
+        medication_rows = [item for item in medications_section if isinstance(item, dict)]
+        if not medication_rows:
+            writer.text("Постоянные препараты не указаны.", 9)
+        for item in medication_rows:
+            schedule = f" · {item.get('schedule')}" if item.get("schedule") else ""
+            writer.text(f"{item.get('name', '—')} · {item.get('dosage', '—')}{schedule}", 9)
     weight = sections.get("weight")
     if isinstance(weight, dict):
         raw = list(weight.get("raw") or [])

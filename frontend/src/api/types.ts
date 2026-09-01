@@ -336,6 +336,15 @@ export interface UserProfile {
   ai_data_consent_at: string | null;
 }
 
+export interface Medication {
+  id: string;
+  name: string;
+  dosage: string;
+  schedule: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export type LabStatus = "within_reference" | "below_reference" | "above_reference" | "outside_reference" | "indeterminate";
 
 export interface LabResult {
@@ -593,7 +602,7 @@ export interface LabCompareResponse {
 }
 
 export type DoctorReportPeriod = "30d" | "90d" | "1y";
-export type DoctorReportSection = "summary" | "weight" | "circumference" | "pressure" | "activity" | "recovery" | "labs" | "studies" | "ai";
+export type DoctorReportSection = "summary" | "medications" | "weight" | "circumference" | "pressure" | "activity" | "recovery" | "labs" | "studies" | "ai";
 
 export interface DoctorReportMeta {
   createdAt: string | null;
@@ -626,9 +635,16 @@ export interface DoctorReportAiItem {
   evidenceIds: string[];
 }
 
+export interface DoctorReportMedication {
+  name: string;
+  dosage: string;
+  schedule: string | null;
+}
+
 export interface DoctorReportPreview {
   meta: DoctorReportMeta;
   summary: Record<string, unknown> | null;
+  medications: DoctorReportMedication[] | null;
   weight: WeightSeriesResponse | null;
   circumference: CircumferenceSeriesResponse | null;
   pressure: PressureSeriesResponse | null;

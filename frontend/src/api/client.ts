@@ -39,6 +39,7 @@ import type {
   DoctorReport,
   DoctorReportAiItem,
   DoctorReportLabItem,
+  DoctorReportMedication,
   DoctorReportPeriod,
   DoctorReportSection,
   DoctorReportStudyItem,
@@ -58,6 +59,7 @@ import type {
   LabDocument,
   LabResult,
   LabResultInput,
+  Medication,
   UserProfile,
   StudyDocument,
   StudyModality,
@@ -171,6 +173,27 @@ function normalizeInsight(value: unknown, index: number): Insight | null {
     tone: normalizedTone(string(value, "tone", "severity", "kind")),
     createdAt: string(value, "created_at", "createdAt", "date"),
   };
+}
+
+function normalizeMedication(value: unknown): Medication | null {
+  const id = string(value, "id");
+  const name = string(value, "name");
+  const dosage = string(value, "dosage");
+  if (!id || !name || !dosage) return null;
+  return {
+    id,
+    name,
+    dosage,
+    schedule: string(value, "schedule"),
+    created_at: string(value, "created_at", "createdAt"),
+    updated_at: string(value, "updated_at", "updatedAt"),
+  };
+}
+
+function requiredMedication(value: unknown): Medication {
+  const normalized = normalizeMedication(value);
+  if (!normalized) throw new Error("Некорректный ответ препарата");
+  return normalized;
 }
 
 export function normalizeOverview(payload: unknown): Overview {
@@ -919,7 +942,7 @@ export function normalizeLabCompare(payload: unknown): LabCompareResponse {
   return { panels, rows };
 }
 
-const doctorSections = ["summary", "weight", "circumference", "pressure", "activity", "recovery", "labs", "studies", "ai"] as const;
+const doctorSections = ["summary", "medications", "weight", "circumference", "pressure", "activity", "recovery", "labs", "studies", "ai"] as const;
 
 export function normalizeDoctorReport(payload: unknown): DoctorReport {
   const body = unbox(payload);
@@ -952,6 +975,13 @@ export function normalizeDoctorReport(payload: unknown): DoctorReport {
       verificationStatus: verification === "corrected" || verification === "unverified" ? verification : "verified",
     };
   }).filter((value): value is DoctorReportLabItem => value !== null) : null;
+  const rawMedications = at(rawPreviewSections, "medications");
+  const medications = Array.isArray(rawMedications) ? rawMedications.map((value): DoctorReportMedication | null => {
+    const name = string(value, "name");
+    const dosage = string(value, "dosage");
+    if (!name || !dosage) return null;
+    return { name, dosage, schedule: string(value, "schedule") };
+  }).filter((value): value is DoctorReportMedication => value !== null) : null;
   const rawStudies = at(rawPreviewSections, "studies");
   const studies = Array.isArray(rawStudies) ? rawStudies.map((value): DoctorReportStudyItem | null => {
     const modality = string(value, "modality");
@@ -989,6 +1019,7 @@ export function normalizeDoctorReport(payload: unknown): DoctorReport {
         unverifiedLabsCount: number(meta, "labs_unverified_count", "labs_excluded_unverified", "excluded_labs_count") ?? 0,
       },
       summary: isRecord(rawPreviewSections.summary) ? rawPreviewSections.summary : null,
+      medications,
       weight: isRecord(rawPreviewSections.weight) ? normalizeWeightSeries(rawPreviewSections.weight, period) : null,
       circumference,
       pressure: isRecord(rawPreviewSections.pressure) ? normalizePressureSeries(rawPreviewSections.pressure, period) : null,
@@ -1107,6 +1138,18 @@ export const api = {
   profile: async (signal?: AbortSignal) => fetchJson("/profile", signal) as Promise<UserProfile>,
   updateProfile: async (profile: Partial<{ birth_date: string | null; reference_sex: string | null; accept_ai_data_processing: boolean }>) =>
     requestJson("/profile", { ...jsonBody(profile), method: "PATCH" }) as Promise<UserProfile>,
+  medications: async (signal?: AbortSignal) => {
+    const payload = await fetchJson("/medications", signal);
+    return (Array.isArray(payload) ? payload : list(payload, "items", "medications"))
+      .map(normalizeMedication)
+      .filter((item): item is Medication => item !== null);
+  },
+  createMedication: async (medication: { name: string; dosage: string; schedule?: string | null }) =>
+    requiredMedication(await requestJson("/medications", jsonBody(medication))),
+  updateMedication: async (id: string, medication: Partial<{ name: string; dosage: string; schedule: string | null }>) =>
+    requiredMedication(await requestJson(`/medications/${encodeURIComponent(id)}`, { ...jsonBody(medication), method: "PATCH" })),
+  deleteMedication: async (id: string) =>
+    requestJson(`/medications/${encodeURIComponent(id)}`, { method: "DELETE" }),
   overview: async (signal?: AbortSignal) => normalizeOverview(await fetchJson("/overview", signal)),
   weight: async (range: Period, signal?: AbortSignal) =>
     normalizeWeightSeries(await fetchJson(`/series/weight${queryRange(range)}`, signal), range),

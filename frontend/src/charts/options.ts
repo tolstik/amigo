@@ -753,11 +753,32 @@ function pressureChartOptionBase(points: PressurePoint[], includeSessionPulse: b
 }
 
 export function pressureChartOption(points: PressurePoint[]): EChartsOption {
+  // Kept as the legacy combined option for callers that still need the
+  // historical pressure-session view. The dashboard uses the dedicated
+  // pressureTrendChartOption below so its main trend never plots pulse.
   return pressureChartOptionBase(points, true);
+}
+
+export function pressureTrendChartOption(points: PressurePoint[]): EChartsOption {
+  return pressureChartOptionBase(points, false);
 }
 
 export function doctorPressureChartOption(points: PressurePoint[]): EChartsOption {
   return pressureChartOptionBase(points, false);
+}
+
+export function pressurePulseChartOption(points: PressurePoint[]): EChartsOption {
+  return {
+    animationDuration: 500,
+    color: [colors.amber],
+    grid: sharedGrid,
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: { trigger: "axis", confine: true, formatter: heartRateTooltipFormatter, backgroundColor: "rgba(22,31,25,.95)", borderWidth: 0, textStyle: { color: "#fff" } },
+    xAxis: { ...sharedAxis, type: "time", splitLine: { show: false }, axisLabel: { ...sharedAxis.axisLabel, formatter: (value: number) => formatShortDate(new Date(value).toISOString()) } },
+    yAxis: { ...sharedAxis, type: "value", scale: true, name: "уд/мин", nameTextStyle: { color: colors.muted } },
+    dataZoom: [{ type: "inside", filterMode: "none" }],
+    series: [timeLine("Пульс в сессиях", points.map((point) => [point.measuredAt, point.pulse]), colors.amber, { lineStyle: { width: 2.5, color: colors.amber } })],
+  };
 }
 
 export function watchHeartRateDailyChartOption(points: RecoveryPoint[]): EChartsOption {

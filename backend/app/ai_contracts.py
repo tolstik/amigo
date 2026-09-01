@@ -167,6 +167,14 @@ class SnapshotLabResult(StrictModel):
     verified: bool
 
 
+class SnapshotMedication(StrictModel):
+    """A user-entered medication context item for the private analyst."""
+
+    name: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+    dosage: Annotated[str, StringConstraints(min_length=1, max_length=80)]
+    schedule: Annotated[str | None, StringConstraints(max_length=120)] = None
+
+
 class AnalysisSnapshot(StrictModel):
     schema_version: Literal["2"] = SNAPSHOT_SCHEMA_VERSION
     source_through: datetime
@@ -174,6 +182,7 @@ class AnalysisSnapshot(StrictModel):
     facts: Annotated[list[SnapshotFact], Field(max_length=96)] = Field(default_factory=list)
     series: Annotated[list[SnapshotSeries], Field(max_length=12)] = Field(default_factory=list)
     labs: Annotated[list[SnapshotLabResult], Field(max_length=240)] = Field(default_factory=list)
+    medications: Annotated[list[SnapshotMedication], Field(max_length=32)] = Field(default_factory=list)
 
     @field_validator("source_through")
     @classmethod

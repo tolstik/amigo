@@ -9,6 +9,7 @@ import { formatDate, formatDateTime, formatNumber } from "../lib/format";
 
 const sectionOptions: Array<{ key: DoctorReportSection; label: string; note: string }> = [
   { key: "summary", label: "Краткая сводка", note: "Рост, последний вес, давление и состав тела" },
+  { key: "medications", label: "Препараты", note: "Постоянные названия, дозировки и режим" },
   { key: "weight", label: "Вес", note: "Реальные замеры Withings" },
   { key: "circumference", label: "Обхваты", note: "Талия и бёдра в сантиметрах" },
   { key: "pressure", label: "Давление", note: "Систолическое и диастолическое" },
@@ -36,6 +37,17 @@ function nested(source: Record<string, unknown> | null, key: string): Record<str
 function numeric(source: Record<string, unknown>, key: string): number | null {
   const value = source[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function medicationsFromSummary(source: Record<string, unknown> | null): Array<{ name: string; dosage: string; schedule: string | null }> {
+  const value = source?.medications;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    if (typeof row.name !== "string" || typeof row.dosage !== "string") return [];
+    return [{ name: row.name, dosage: row.dosage, schedule: typeof row.schedule === "string" ? row.schedule : null }];
+  });
 }
 
 export function DoctorReportPage() {
@@ -85,6 +97,7 @@ export function DoctorReportPage() {
   const summary = report?.preview.summary ?? null;
   const summaryWeight = nested(summary, "weight");
   const summaryPressure = nested(summary, "pressure");
+  const summaryMedications = report?.sections.includes("medications") ? [] : medicationsFromSummary(summary);
   return <>
     <PageHeader eyebrow="Подготовка к визиту" title="Пакет для врача" description="Соберите самостоятельный HTML-дашборд из одного зафиксированного набора данных. Он открывается без интернета и аккуратно печатается на A4. Оригиналы, OCR, имена файлов, чат и идентификаторы источников не включаются." />
     <form className="report-builder panel" onSubmit={create} aria-busy={creating}>
@@ -97,7 +110,8 @@ export function DoctorReportPage() {
     {report && <article className="doctor-preview" aria-labelledby="doctor-preview-title">
       <div className="doctor-preview__bar panel" aria-busy={deleting}><div><span className="eyebrow">Готово · HTML · {bytes(report.htmlSizeBytes)}</span><h2 id="doctor-preview-title">Preview пакета</h2><p>{formatDate(report.preview.meta.from)} — {formatDate(report.preview.meta.to)} · доступен до {formatDateTime(report.expiresAt)}</p></div><div><button className="button button--ghost" type="button" onClick={removeReport} disabled={deleting}>{deleting ? "Удаляем…" : "Удалить пакет"}</button><button className="button button--ghost" type="button" onClick={() => window.print()} disabled={deleting}>Печать preview</button><a className={`button button--primary${deleting ? " is-disabled" : ""}`} href={report.htmlDownloadUrl} download aria-disabled={deleting} onClick={(event) => { if (deleting) event.preventDefault(); }}><Icon name="download" /> Скачать HTML</a></div></div>
       {report.preview.meta.unverifiedLabsCount > 0 && <aside className="report-labs-warning panel" role="status"><strong>{report.preview.meta.unverifiedLabsCount} строк отмечены как «Не проверено»</strong><p>Они включены в экспорт с исходным статусом. Сверьте значения с бланком перед визитом к врачу.</p></aside>}
-      {summary && <section className="report-summary panel" aria-labelledby="report-summary-title"><div className="panel__head"><div><span className="eyebrow">Зафиксированная сводка</span><h2 id="report-summary-title">Основные показатели</h2></div></div><dl><div><dt>Рост</dt><dd>{numeric(summary, "height_cm") === null ? "—" : `${formatNumber(numeric(summary, "height_cm"), 0)} см`}</dd></div><div><dt>Последний вес</dt><dd>{numeric(summaryWeight, "latest_kg") === null ? "—" : `${formatNumber(numeric(summaryWeight, "latest_kg"))} кг`}</dd></div><div><dt>Последнее давление</dt><dd>{numeric(summaryPressure, "latest_systolic") === null ? "—" : `${formatNumber(numeric(summaryPressure, "latest_systolic"), 0)} / ${formatNumber(numeric(summaryPressure, "latest_diastolic"), 0)}`}</dd></div></dl></section>}
+      {summary && <section className="report-summary panel" aria-labelledby="report-summary-title"><div className="panel__head"><div><span className="eyebrow">Зафиксированная сводка</span><h2 id="report-summary-title">Основные показатели</h2></div></div><dl><div><dt>Рост</dt><dd>{numeric(summary, "height_cm") === null ? "—" : `${formatNumber(numeric(summary, "height_cm"), 0)} см`}</dd></div><div><dt>Последний вес</dt><dd>{numeric(summaryWeight, "latest_kg") === null ? "—" : `${formatNumber(numeric(summaryWeight, "latest_kg"))} кг`}</dd></div><div><dt>Последнее давление</dt><dd>{numeric(summaryPressure, "latest_systolic") === null ? "—" : `${formatNumber(numeric(summaryPressure, "latest_systolic"), 0)} / ${formatNumber(numeric(summaryPressure, "latest_diastolic"), 0)}`}</dd></div></dl>{!report?.sections.includes("medications") && <div className="report-summary__medications"><h3>Постоянные препараты</h3>{summaryMedications.length ? <div className="report-medication-list">{summaryMedications.map((item) => <div key={`${item.name}-${item.dosage}`}><strong>{item.name}</strong><span>{item.dosage}{item.schedule ? ` · ${item.schedule}` : ""}</span></div>)}</div> : <p>Не указаны</p>}</div>}</section>}
+      {report?.preview.medications && <section className="report-list panel" aria-labelledby="report-medications-title"><div className="panel__head"><div><span className="eyebrow">Зафиксировано при формировании</span><h2 id="report-medications-title">Постоянные препараты</h2></div></div>{report.preview.medications.length ? <div className="report-medication-list">{report.preview.medications.map((item) => <div key={`${item.name}-${item.dosage}`}><strong>{item.name}</strong><span>{item.dosage}{item.schedule ? ` · ${item.schedule}` : ""}</span></div>)}</div> : <p>Не указаны.</p>}</section>}
       {report.preview.weight && (report.preview.weight.raw.length ? <ChartCard title="Вес" subtitle="Реальные измерения Withings · без усреднения и плана" option={weightActualChartOption(report.preview.weight.raw)} ariaLabel="График реальных измерений веса в пакете для врача" height={330} /> : <section className="report-empty panel"><h2>Вес</h2><p>За выбранный период реальных измерений нет.</p></section>)}
       {report.preview.circumference && (report.preview.circumference.points.length ? <ChartCard title="Обхваты тела" subtitle="Талия и бёдра · сантиметры" option={circumferenceChartOption(report.preview.circumference.points)} ariaLabel="График талии и бёдер в пакете для врача" height={330} /> : <section className="report-empty panel"><h2>Обхваты тела</h2><p>За выбранный период данных нет.</p></section>)}
       {report.preview.pressure && (report.preview.pressure.points.length ? <ChartCard title="Давление" subtitle="Только систолическое и диастолическое · без пульса" option={doctorPressureChartOption(report.preview.pressure.points)} ariaLabel="График систолического и диастолического давления в пакете для врача" height={330} /> : <section className="report-empty panel"><h2>Давление</h2><p>За выбранный период данных нет.</p></section>)}

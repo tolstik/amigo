@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { api, csvUrl } from "../api/client";
 import type { PressurePoint, PressureStats } from "../api/types";
-import { pressureCategoryChartOption, pressureChartOption } from "../charts/options";
+import { pressureCategoryChartOption, pressurePulseChartOption, pressureTrendChartOption } from "../charts/options";
 import { ErrorState, EmptyState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
 import { PressureTable } from "../components/DataTables";
@@ -79,7 +79,7 @@ export function PressurePage() {
       <PageHeader
         eyebrow="Наблюдение"
         title="Статистика давления"
-        description="Систолическое, диастолическое и пульс собраны по сессиям. Линии показывают измерения, а отдельная дневная полоса — заданный визуальный ориентир, не медицинскую оценку."
+        description="Давление и пульс собраны по сессиям. Пульс вынесен в отдельный график, а дневная полоса показывает заданный визуальный ориентир, не медицинскую оценку."
         actions={<a className="button button--secondary" href={csvUrl("pressure", period)} download><Icon name="download" /> Скачать CSV</a>}
       />
 
@@ -97,12 +97,19 @@ export function PressurePage() {
         <>
           <ChartCard
             title="Динамика показателей"
-            subtitle={`${series.data?.meta.count ?? points.length} сессий · пунктиром отмечены границы повышенного и критически высокого давления, пульс на правой шкале`}
-            option={pressureChartOption(points)}
-            ariaLabel="График систолического и диастолического давления и пульса"
+            subtitle={`${series.data?.meta.count ?? points.length} сессий · пунктиром отмечены границы повышенного и критически высокого давления`}
+            option={pressureTrendChartOption(points)}
+            ariaLabel="График систолического и диастолического давления"
             height={460}
             footer={<PressureTable points={points} />}
           />
+          {points.some((point) => point.pulse !== null) && <ChartCard
+            title="Пульс в сессиях"
+            subtitle="Пульс, записанный вместе с домашним измерением давления"
+            option={pressurePulseChartOption(points)}
+            ariaLabel="График пульса в сессиях измерения давления"
+            height={300}
+          />}
           <ChartCard
             title="Дневной визуальный ориентир"
             subtitle={`${dailyCategories.length} дней с сессиями · категория дня — наиболее требующая внимания среди сессий`}

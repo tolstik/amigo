@@ -163,8 +163,8 @@ export function OverviewPage() {
       {preview.data?.points.length ? (
         <ChartCard
           title="Последние 90 дней"
-          subtitle="Дневные медианы, сглаженный тренд и линия плана"
-          option={weightChartOption(preview.data.points, false, preview.data.projection, preview.data.planProjection)}
+          subtitle="Дневные медианы, сглаженный тренд и линия плана · необычные замеры скрыты"
+          option={weightChartOption(preview.data.points.filter((point) => !point.isOutlier), false, preview.data.projection, preview.data.planProjection)}
           ariaLabel="График веса за последние 90 дней"
           height={330}
           aside={<Link className="text-link" to="/history">Вся история <Icon name="arrow" /></Link>}

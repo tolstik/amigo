@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
@@ -42,7 +42,12 @@ app.include_router(assistant_router, dependencies=[Depends(require_session)])
 
 @app.middleware("http")
 async def privacy_headers(request, call_next):
-    response = await call_next(request)
+    # The removed comparison endpoint must not fall through to the SPA GET
+    # route (which would otherwise turn POST into 405).
+    if request.url.path == "/api/v1/labs/compare":
+        response = JSONResponse({"detail": "Not Found"}, status_code=404)
+    else:
+        response = await call_next(request)
     if request.url.path.startswith("/assets/"):
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     else:

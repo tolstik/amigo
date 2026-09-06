@@ -51,11 +51,13 @@ def _records(
     record_types: frozenset[str],
     tz: ZoneInfo,
     start: date | None = None,
+    *,
+    cloud_only: bool = False,
 ) -> list[HealthConnectRecord | MiFitnessRecord]:
     # Steps are a Xiaomi Cloud-only publication contract. Health Connect rows
     # stay in PostgreSQL as rollback history, but must never reach analytics or
     # any downstream consumer which shares this selector (CSV, Telegram or AI).
-    health_connect_types = record_types - {"steps"}
+    health_connect_types = frozenset() if cloud_only else record_types - {"steps"}
     health_connect: list[HealthConnectRecord] = []
     if health_connect_types:
         query = (
@@ -83,7 +85,8 @@ def _records(
         health_connect = list(db.scalars(query))
     sources = list(
         db.scalars(
-            select(MiFitnessSource).where(
+            select(MiFitnessSource).join(HealthConnectDevice).where(
+                HealthConnectDevice.status == "approved",
                 MiFitnessSource.enabled.is_(True),
                 MiFitnessSource.activated_at.is_not(None),
                 MiFitnessSource.account_fingerprint.is_not(None),

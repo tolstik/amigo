@@ -11,7 +11,9 @@ class DashboardUrlPolicyTest {
     fun acceptsOnlyKnownDashboardRoutesOnTheCanonicalOrigin() {
         assertTrue(DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru/amigo/"))
         assertTrue(DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru/amigo/labs"))
-        for (path in listOf("data-quality", "tasks", "labs/compare", "reports/doctor")) {
+        assertFalse(DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru/amigo/labs/compare"))
+        assertFalse(DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru/amigo/api/v1/labs/compare"))
+        for (path in listOf("data-quality", "tasks", "swimming", "reports/doctor")) {
             assertTrue(
                 DashboardUrlPolicy.isAllowedNavigation("https://amigo.tolstik.ru/amigo/$path"),
             )

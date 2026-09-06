@@ -132,6 +132,7 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
         with client_for(db) as client:
             for path in (
                 "/api/v1/overview",
+                "/api/v1/series/swimming?range=90d",
                 "/api/v1/series/circumference?range=30d",
                 "/api/v1/export/weight.csv?range=all",
                 "/api/v1/labs/documents",
@@ -152,15 +153,6 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
             ).status_code == 401
             assert client.post("/api/v1/labs/uploads").status_code == 401
             assert client.post("/api/v1/studies/uploads").status_code == 401
-            assert client.post(
-                "/api/v1/labs/compare",
-                json={
-                    "document_ids": [
-                        "00000000-0000-4000-8000-000000000001",
-                        "00000000-0000-4000-8000-000000000002",
-                    ]
-                },
-            ).status_code == 401
             assert client.post(
                 "/api/v1/tasks",
                 json={
@@ -219,16 +211,6 @@ def test_new_mutations_require_exact_origin_and_csrf(db):
             "post",
             "/api/v1/tasks/00000000-0000-4000-8000-000000000000/cancel",
             {},
-        ),
-        (
-            "post",
-            "/api/v1/labs/compare",
-            {
-                "document_ids": [
-                    "00000000-0000-4000-8000-000000000001",
-                    "00000000-0000-4000-8000-000000000002",
-                ]
-            },
         ),
         (
             "post",

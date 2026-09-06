@@ -6,6 +6,7 @@ import { AppLayout } from "./components/AppLayout";
 import { useApi, type ApiState } from "./hooks/useApi";
 import { CompositionPage } from "./pages/CompositionPage";
 import { ActivityPage } from "./pages/ActivityPage";
+import { SwimmingPage } from "./pages/SwimmingPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { PressurePage } from "./pages/PressurePage";
@@ -24,7 +25,6 @@ import { StudyDocumentPage } from "./pages/StudyDocumentPage";
 import { GlobalLoadingPopup } from "./components/GlobalLoadingPopup";
 import { DataQualityPage } from "./pages/DataQualityPage";
 import { DoctorReportPage } from "./pages/DoctorReportPage";
-import { LabsComparePage } from "./pages/LabsComparePage";
 import { TasksPage } from "./pages/TasksPage";
 import { CircumferencePage } from "./pages/CircumferencePage";
 
@@ -59,9 +59,9 @@ function PrivateApp({ session, onLogout }: { session: AuthSession; onLogout: () 
         <Route path="composition" element={<CompositionPage />} />
         <Route path="circumference" element={<CircumferencePage />} />
         <Route path="activity" element={<ActivityPage />} />
+        <Route path="swimming" element={<SwimmingPage />} />
         <Route path="recovery" element={<RecoveryPage />} />
         <Route path="labs" element={<LabsPage />} />
-        <Route path="labs/compare" element={<LabsComparePage />} />
         <Route path="labs/upload" element={<LabsUploadPage />} />
         <Route path="labs/documents/:id" element={<LabDocumentPage />} />
         <Route path="labs/documents/:id/view" element={<DocumentViewerPage kind="lab" />} />

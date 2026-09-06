@@ -514,6 +514,24 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 .goal-panel__target strong { margin-top: 4px; color: var(--text); font-size: 16px; }
 .progress-track { height: 10px; margin: 25px 0 22px; overflow: hidden; border-radius: 99px; background: var(--surface-soft); }
 .progress-track > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--green-deep), var(--progress-end)); box-shadow: 0 0 16px var(--progress-shadow); transition: width .5s ease; }
+.goal-progress { margin-top: 20px; }
+.goal-progress__label { display: flex; justify-content: space-between; gap: 12px; color: var(--text); font-size: 13px; }
+.goal-progress .progress-track { margin: 9px 0 6px; }
+.goal-progress > small { color: var(--text-faint); font-size: 10px; }
+.goal-progress--plan .progress-track > span { background: var(--blue); box-shadow: none; }
+.swimming-coverage { margin: 16px 0 24px; color: var(--text-soft); font-size: 12px; line-height: 1.6; }
+.swimming-history { margin-top: 20px; padding: 22px; }
+.swimming-session { border-top: 1px solid var(--line); }
+.swimming-session > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; padding: 18px 0; cursor: pointer; font-size: 13px; }
+.swimming-session > summary::before { content: "+"; color: var(--blue); font-size: 20px; }
+.swimming-session[open] > summary::before { content: "−"; }
+.swimming-session > summary > strong { flex: 1 1 150px; }
+.swimming-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px; padding: 16px; margin: 0; border-radius: 12px; background: var(--surface-soft); }
+.swimming-details dt { color: var(--text-soft); font-size: 11px; }
+.swimming-details dd { margin: 5px 0 0; color: var(--text); font-weight: 650; font-size: 13px; overflow-wrap: anywhere; }
+.swimming-note { font-size: 11px; line-height: 1.6; color: var(--text-faint); }
+.swimming-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 18px; border-top: 1px solid var(--line); }
+.swimming-pagination > span { flex: 1 1 100%; font-size: 12px; color: var(--text-soft); }
 .goal-metrics { display: grid; grid-template-columns: 1fr 1.35fr; gap: 18px 24px; }
 .goal-metrics div { min-width: 0; }
 .goal-metrics span { display: block; margin-bottom: 5px; color: var(--text-faint); font-size: 11px; }
@@ -669,8 +687,8 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 .segmented { display: inline-flex; padding: 4px; gap: 3px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-soft); }
 .segmented button { min-height: 36px; padding: 0 13px; border: 0; border-radius: 9px; background: transparent; color: var(--text-soft); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
 .segmented button.is-active { background: var(--text); color: var(--bg-elevated); box-shadow: 0 3px 9px var(--active-shadow); }
-.quality-controls select, .compare-picker select, .compare-filter select, .task-form input, .task-form textarea, .task-form select { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 11px; outline: none; background: var(--bg-elevated); color: var(--text); font: inherit; }
-.quality-controls select:focus, .compare-picker select:focus, .compare-filter select:focus, .task-form input:focus, .task-form textarea:focus, .task-form select:focus { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+.quality-controls select, .task-form input, .task-form textarea, .task-form select { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 11px; outline: none; background: var(--bg-elevated); color: var(--text); font: inherit; }
+.quality-controls select:focus, .task-form input:focus, .task-form textarea:focus, .task-form select:focus { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
 
 .drawer-backdrop { position: fixed; z-index: 1100; inset: 0; display: flex; padding: 18px; align-items: stretch; justify-content: flex-end; background: color-mix(in srgb, var(--text) 35%, transparent); backdrop-filter: blur(3px); }
 .evidence-drawer { width: min(430px, 100%); padding: 25px; overflow-y: auto; border: 1px solid var(--line); border-radius: 22px; background: var(--surface-solid); box-shadow: var(--shadow-lg); }
@@ -754,28 +772,6 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 .task-source p { margin: 5px 0; line-height: 1.5; }
 .task-source small { color: var(--text-faint); }
 
-.compare-picker { margin-bottom: 18px; padding: 18px; }
-.compare-picker__slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.compare-picker label, .compare-filter { display: grid; gap: 6px; color: var(--text-soft); font-size: 10px; font-weight: 650; }
-.compare-picker__actions { display: flex; margin-top: 14px; justify-content: flex-end; gap: 9px; }
-.compare-picker .form-error { margin-top: 12px; }
-.compare-results { padding: 20px; }
-.compare-results .panel__head { margin-bottom: 15px; }
-.compare-filter { width: min(220px, 100%); flex: 0 0 auto; }
-.lab-compare-scroll { max-width: 100%; overflow: auto; border: 1px solid var(--line); border-radius: 12px; }
-.lab-compare-table { width: 100%; min-width: 850px; border-collapse: collapse; font-size: 10px; }
-.lab-compare-table th, .lab-compare-table td { min-width: 175px; padding: 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; }
-.lab-compare-table thead th { position: sticky; top: 0; z-index: 2; background: var(--surface-soft); }
-.lab-compare-table thead th:first-child, .lab-compare-table tbody th { position: sticky; left: 0; z-index: 3; width: 190px; min-width: 190px; background: var(--surface-solid); }
-.lab-compare-table thead th:first-child { z-index: 4; background: var(--surface-soft); }
-.lab-compare-table th small, .lab-compare-table th em { display: block; margin-top: 5px; color: var(--text-faint); font-size: 8px; font-style: normal; font-weight: 500; line-height: 1.4; }
-.lab-compare-table th em { color: var(--amber); }
-.compare-value + .compare-value, .compare-delta + .compare-delta { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line); }
-.compare-value strong, .compare-value span, .compare-value small, .compare-delta strong, .compare-delta small { display: block; }
-.compare-value strong, .compare-delta strong { font-size: 12px; }
-.compare-value span { margin-top: 3px; color: var(--text-soft); }
-.compare-value small, .compare-delta small, .missing-value { margin-top: 4px; color: var(--text-faint); font-size: 8px; line-height: 1.4; }
-.compare-empty { margin: 25px 0; color: var(--text-soft); text-align: center; }
 
 .report-builder { margin-bottom: 20px; padding: 20px; }
 .report-builder fieldset { margin: 0; padding: 0; border: 0; }
@@ -948,7 +944,6 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 
 @media (max-width: 1150px) {
   .report-sections { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .compare-picker__slots { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 820px) {
@@ -956,7 +951,6 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
   .task-card { align-items: stretch; flex-direction: column; }
   .task-card__actions { width: 100%; }
   .task-card__actions .button { flex: 1; }
-  .compare-picker__slots { grid-template-columns: 1fr; }
   .doctor-preview__bar { align-items: stretch; flex-direction: column; }
   .doctor-preview__bar > div:last-child .button { flex: 1; }
   .report-summary dl { grid-template-columns: 1fr; }
@@ -976,11 +970,8 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
   .quality-controls .segmented { grid-template-columns: 1fr 1fr; }
   .quality-matrix thead th:first-child, .quality-matrix tbody th { width: 165px; min-width: 165px; }
   .quality-matrix tbody th small { max-width: 145px; }
-  .compare-picker__actions, .report-builder__actions { align-items: stretch; flex-direction: column; }
-  .compare-picker__actions .button, .report-builder__actions .button { width: 100%; }
-  .compare-results { padding: 14px; }
-  .compare-results .panel__head { align-items: stretch; flex-direction: column; }
-  .compare-filter { width: 100%; }
+  .report-builder__actions { align-items: stretch; flex-direction: column; }
+  .report-builder__actions .button { width: 100%; }
   .report-sections { grid-template-columns: 1fr; }
   .doctor-preview__bar > div:last-child { display: grid; grid-template-columns: 1fr; }
   .circumference-form { grid-template-columns: 1fr; }

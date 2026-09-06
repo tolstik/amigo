@@ -1,5 +1,6 @@
 import type { BarSeriesOption, EChartsOption, LineSeriesOption } from "echarts";
 import type {
+  SwimmingPoint,
   ActivityPoint,
   CompositionPoint,
   CircumferencePoint,
@@ -37,6 +38,25 @@ const sharedAxis = {
   axisLabel: { color: colors.muted, hideOverlap: true },
   splitLine: { lineStyle: { color: colors.grid } },
 };
+
+export function swimmingChartOption(points: SwimmingPoint[], metric: "distance_meters" | "duration_seconds"): EChartsOption {
+  const distance = metric === "distance_meters";
+  const unit = distance ? "м" : "мин";
+  return {
+    grid: { ...sharedGrid, top: 30, bottom: 65 },
+    tooltip: { trigger: "axis", valueFormatter: (value) => typeof value === "number" ? `${formatNumber(value, 1)} ${unit}` : "Нет данных" },
+    xAxis: { ...sharedAxis, type: "category", data: points.map((point) => formatDateTime(point.start_time, true)) },
+    yAxis: { ...sharedAxis, type: "value", name: unit, min: 0 },
+    dataZoom: [{ type: "inside" }, { type: "slider", height: 20, bottom: 8 }],
+    series: [{
+      type: "bar",
+      name: distance ? "Дистанция" : "Длительность",
+      barMaxWidth: 38,
+      itemStyle: { color: distance ? colors.blue : colors.green, borderRadius: [5, 5, 0, 0] },
+      data: points.map((point) => point[metric] === null ? null : point[metric]! / (distance ? 1 : 60)),
+    }],
+  };
+}
 
 function tooltipDate(value: unknown): string {
   if (typeof value !== "string" && typeof value !== "number") return "";

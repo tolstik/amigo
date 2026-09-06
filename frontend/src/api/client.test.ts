@@ -6,7 +6,6 @@ import {
   normalizeDataQuality,
   normalizeDoctorReport,
   normalizeHealthTaskList,
-  normalizeLabCompare,
   normalizeOverview,
   normalizePressureSeries,
   normalizeRecoverySeries,
@@ -258,22 +257,6 @@ describe("API normalization", () => {
     expect(assistant.analysisId).toBe(42);
     expect(assistant.recommendations[0]).toMatchObject({ id: "recommendation-1", evidenceIds: ["lab.ferritin"] });
     expect(assistant.evidence["lab.ferritin"]).toMatchObject({ label: "Ферритин", value: 42 });
-  });
-
-  it("normalizes lab comparison arrays and deterministic incompatibility", () => {
-    const result = normalizeLabCompare({
-      panels: [{ document_id: "doc-a", observed_on: "2026-08-01", verified: true, result_count: 1 }, { document_id: "doc-b", observed_on: "2026-09-01", verified: false, result_count: 2 }],
-      rows: [{
-        analyte_id: "ferritin", analyte_name: "Ферритин", comparable: false, incompatibility: "multiple_results", missing: false, status_changed: false, value_changed: false, deltas: [],
-        cells: [
-          [{ id: "result-a", document_id: "doc-a", analyte_id: "ferritin", analyte_name: "Ферритин", value_numeric: 42, unit: "нг/мл", status: "within_reference", verification_status: "verified" }],
-          [{ id: "result-b", document_id: "doc-b", analyte_id: "ferritin", analyte_name: "Ферритин", value_numeric: 39, unit: "нг/мл", status: "within_reference", verification_status: "unverified" }, { id: "result-c", document_id: "doc-b", analyte_id: "ferritin", analyte_name: "Ферритин", value_numeric: 41, unit: "нг/мл", status: "within_reference", verification_status: "unverified" }],
-        ],
-      }],
-    });
-    expect(result.panels.map((panel) => panel.documentId)).toEqual(["doc-a", "doc-b"]);
-    expect(result.rows[0]).toMatchObject({ analyteId: "ferritin", incompatibility: "multiple_results", comparable: false });
-    expect(result.rows[0].cells[1]).toHaveLength(2);
   });
 
   it("normalizes one immutable doctor-report preview while retaining sleep minutes", () => {

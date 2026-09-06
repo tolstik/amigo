@@ -36,6 +36,7 @@ from .mi_fitness_models import (
     MiFitnessStatusReport,
 )
 from .models import Outbox
+from .swimming import POOL_TYPES, normalise_swimming
 
 
 ACTIVATION_WINDOW = timedelta(days=3)
@@ -566,7 +567,17 @@ def ingest_signed_mi_fitness_batch(
         record_end = incoming.end_time or incoming.start_time
         if incoming.start_time > current + timedelta(days=1) or record_end > current + timedelta(days=1):
             raise HealthIngestError(422, "record_time_in_future")
-        primary, unit, subtype, metrics, start_offset, end_offset = _normalise_record(incoming)
+        swimming = incoming.values.get("swimming")
+        if "swimming" in incoming.values:
+            exercise_type = incoming.values.get("exercise_type")
+            if incoming.type != "exercise" or not isinstance(exercise_type, str) or exercise_type not in POOL_TYPES:
+                raise HealthIngestError(422, "invalid_swimming_record")
+            base = incoming.model_copy(update={"values": {key: value for key, value in incoming.values.items() if key != "swimming"}})
+        else:
+            base = incoming
+        primary, unit, subtype, metrics, start_offset, end_offset = _normalise_record(base)
+        if "swimming" in incoming.values:
+            metrics["swimming"] = normalise_swimming(swimming, float(primary or 0))
         candidate_signature = (
             _iso_utc(incoming.start_time),
             _iso_utc(record_end),

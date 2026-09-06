@@ -71,6 +71,7 @@ internal class XiaomiSyncCoordinator(
             // Persist one immutable target before fetching any metric. All ten dedicated
             // refresh cursors are then materialised up front, so bounded continuations resume
             // this round without either moving its activation window or starving backfill.
+            preferences.prepareExerciseDetailsUpgrade(requestedRefreshTarget)
             val refreshRound = prepareRefreshRound(
                 requestedTarget = requestedRefreshTarget,
                 requestedDays = refreshDays,

@@ -78,11 +78,11 @@
 - [ ] До первого Withings API request legacy collector переведён в единственный
       disabled-marker; после incremental sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.
-- [ ] Android `1.4.1` (`versionCode 16`) получен как
-      [`Amigo-1.4.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.2/Amigo-1.4.1.apk)
-      из release [`v5.2.2`](https://github.com/tolstik/amigo/releases/tag/v5.2.2);
+- [ ] Android `1.5.0` (`versionCode 17`) получен как
+      [`Amigo-1.5.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.0/Amigo-1.5.0.apk)
+      из release [`v5.3.0`](https://github.com/tolstik/amigo/releases/tag/v5.3.0);
       его SHA-256 равен
-      `fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5`, размер
+      `4ac0cf4035eb8b5b29df30de0c2bbe6b78c2d4e1caef1ee7fc348e994922ce2c`, размер
       равен `3 520 750` bytes, а
       signing certificate SHA-256 равен
       `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
@@ -133,7 +133,7 @@
       terminal failed rows. Остаток исторической очереди может обрабатываться
       асинхронно пачками не более пяти.
 - [ ] `/srv/amigo/data/android/amigo-sync.apk` — root:root regular file `0600`
-      с точными hash/size `1.4.1`; `web` видит `/android` только read-only.
+      с точными hash/size `1.5.0`; `web` видит `/android` только read-only.
 - [ ] Listener `18181` — только `127.0.0.1:18181` для `web`; listener `18182` —
       только `127.0.0.1:18182` для `ingest`. `ai-gateway:8090` и
       `lab-parser:8085` не опубликованы в Docker и не слушают host.
@@ -156,8 +156,8 @@
       headers и exact package/certificate contract для
       `ru.tolstik.amigo.sync`; origin возвращает exact `405` для POST, а
       public edge безопасно отклоняет его с `403` или `405`.
-- [ ] Без cookie auth session, overview, data-quality, CSV, circumference,
-      labs/compare, studies, tasks, doctor report/HTML/PDF, updater и assistant возвращают exact
+- [ ] Без cookie auth session, overview, swimming, data-quality, CSV, circumference,
+      studies, tasks, doctor report/HTML/PDF, updater и assistant возвращают exact
       `401` при проверке реальных HTTP-методов route; signed Android ingest
       остаётся независимым.
 - [ ] Root-only short-lived verification session создаётся CLI без печати
@@ -238,8 +238,8 @@
 ## Ручная продуктовая проверка
 
 - [ ] Desktop и mobile: «Обзор», «Прогресс», «Вся история», «Давление»,
-      «Состав тела», «Активность», «Восстановление», «Качество данных»,
-      «Задачи», «Анализы», «Сравнение анализов», «Исследования», «Пакет для
+      «Состав тела», «Активность», «Бассейн», «Восстановление», «Качество данных»,
+      «Задачи», «Анализы», «Исследования», «Пакет для
       врача», «Ассистент» и «Профиль» открываются без console errors после login; защищённый deep link
       сохраняется через форму входа, logout и повторный login работают.
 - [ ] Auth: неверный пароль не раскрывает существование пользователя; cookies
@@ -330,10 +330,13 @@
       задачи, в том числе из AI recommendation с frozen source snapshot.
       Повтор worker polling не дублирует Telegram reminder одной occurrence;
       сообщение содержит только title, due time и dashboard link.
-- [ ] Сравнение 2–3 завершённых лабораторных панелей связывает только одинаковый
-      persisted `analyte_id`; несовместимые unit/specimen/method, multiple,
-      missing, qualified или textual values показывают явную причину и не
-      получают ложный delta/конверсию.
+- [ ] Сравнение анализов отсутствует в меню и Android allowlist; GET/POST
+      `/amigo/api/v1/labs/compare` возвращают 404. Архив, результаты и история
+      отдельных лабораторных показателей доступны.
+- [ ] «Бассейн» показывает только завершённое покрытие активного Xiaomi:
+      сводку с количеством известных значений, графики и до 50 тренировок на
+      странице. Неопределённое плавание и открытая вода исключены. Общий период
+      сохраняется; прочерки не превращаются в нулевую дистанцию.
 - [ ] «Пакет для врача» создаёт immutable 30d/90d/1y preview/PDF и может удалить
       его до автоматического 24-hour expiry. В PDF не более 40 страниц/10 МиБ,
       сон показан в часах, steps помечены Xiaomi Cloud-only; отсутствуют
@@ -353,7 +356,7 @@
       bounded medical/measurement рекомендацию. В AI output отсутствуют диагноз,
       лечение, назначение или изменение лекарства/дозировки и фиксированная цель
       по калориям.
-- [ ] Signed APK `1.4.1` установлен через `adb install -r`; прежние pairing
+- [ ] Signed APK `1.5.0` установлен через `adb install -r`; прежние pairing
       state, non-exportable Keystore key, выбранный Mi Fitness origin и cursors
       сохранены. Amigo имеет только read-only Health Connect permissions;
       location и exercise routes не запрошены.
@@ -461,8 +464,8 @@
       services, SHA-256 установленных Compose/nginx/Codex, результаты
       verification, exact previous-release recovery command и отдельную
       `rollback.sh --to-legacy` disaster command без секретов.
-- [ ] Release `v5.2.2` указывает на deployed fix-forward commit; asset
-      `Amigo-1.4.1.apk` скачивается, повторно даёт ожидаемые APK SHA-256/size и
+- [ ] Release `v5.3.0` указывает на deployed fix-forward commit; asset
+      `Amigo-1.5.0.apk` скачивается, повторно даёт ожидаемые APK SHA-256/size и
       signing certificate, а verified App Link association остаётся доступна.
 - [ ] Изменения `AGENTS.md`, runbook и `production-checkpoint.md` перенесены в
       канонический Git и закоммичены.

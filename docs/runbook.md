@@ -6,6 +6,13 @@ origin-сервере от `root`. Пароли, OAuth-токены, Telegram-т
 chat ID, Codex `auth.json` и значения из медицинских payload не копируются
 в команды, логи или Markdown.
 
+## Бассейн и план/факт
+
+Контракт раздела бассейна, ограничения полей и миграция Android описаны в
+[docs/xiaomi-swimming.md](xiaomi-swimming.md). Обзор сравнивает фактический
+прогресс по последнему весу с календарным планом на московскую дату.
+Сравнение лабораторных панелей удалено; прежний API возвращает 404.
+
 ## Неизменяемые эксплуатационные условия
 
 - Production URL: `https://amigo.tolstik.ru/amigo/`.
@@ -220,11 +227,11 @@ backup. Теперь checkpoint сам создаёт локальный documen
    `ghcr.io/tolstik/amigo:GIT_SHA` доступен production или root Docker уже
    авторизован только для чтения package. OCI label
    `org.opencontainers.image.revision` должен совпадать с `GIT_SHA`.
-9. Для Android `1.4.1` (`versionCode 16`) использовать signed
-   [`Amigo-1.4.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.2/Amigo-1.4.1.apk)
+9. Для Android `1.5.0` (`versionCode 17`) использовать signed
+   [`Amigo-1.5.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.0/Amigo-1.5.0.apk)
    из GitHub release
-   [`v5.2.2`](https://github.com/tolstik/amigo/releases/tag/v5.2.2) и сверить SHA-256
-   `fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5`
+   [`v5.3.0`](https://github.com/tolstik/amigo/releases/tag/v5.3.0) и сверить SHA-256
+   `4ac0cf4035eb8b5b29df30de0c2bbe6b78c2d4e1caef1ee7fc348e994922ce2c`
    и размер `3 520 750` bytes.
    Signing certificate SHA-256 должен быть
    `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
@@ -342,7 +349,7 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    MariaDB строку и импорт legacy-only весов из root-only TSV. Неизменившийся
    TSV не переписывается.
 6. Запуск `web` без workers, direct health на `127.0.0.1:18181` и атомарная
-   установка проверенного APK `1.4.1` в root-only Android directory.
+   установка проверенного APK `1.5.0` в root-only Android directory.
 7. Запуск изолированных `ai-gateway` и `lab-parser`; synthetic smoke через
    `ai-worker` последовательно проверяет live-контракты analysis, laboratory
    extraction, analyte guide и assistant turn, включая auth, sandbox, model,
@@ -362,7 +369,7 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    Тройной gateway smoke/retry не повторяется.
 9. Запуск `ingest`, затем атомарная установка nginx route. Общий prefix
    разрешает только `GET`/`HEAD`/`OPTIONS`; exact
-   auth/profile/data-quality/labs/studies/lab-compare/tasks/doctor-report/assistant
+   auth/profile/data-quality/labs/studies/tasks/doctor-report/assistant
    mutation routes имеют отдельные rate/body limits, upload — 21 МиБ, SSE —
    отключённый buffering. Ingest имеет точные rate-limited routes и body limit
    1 МиБ. Doctor-report lifecycle использует dedicated `amigo_report` zone
@@ -497,11 +504,8 @@ medication/dosage instructions и fixed calorie target.
 Официальный turn/event contract:
 [Codex app-server](https://learn.chatgpt.com/docs/app-server#turns).
 
-Сравнение лабораторных панелей принимает только 2–3 завершённых документа.
-Backend связывает строки исключительно по сохранённому `analyte_id`; delta
-рассчитывается только для единственного numeric результата в каждом документе
-при полном совпадении unit/specimen/method. Fuzzy matching и автоматическая
-конверсия единиц запрещены.
+Сравнение лабораторных панелей удалено. GET/POST `/api/v1/labs/compare`
+возвращают 404; архив, результаты и история отдельных показателей сохранены.
 
 Центр качества читает `/api/v1/data-quality?range=30d|90d` и показывает только
 агрегированное состояние источников/метрик. Для steps контракт всегда
@@ -530,21 +534,23 @@ steps в PDF явно обозначены как Xiaomi Cloud-only. Вес в e
 
 ## Android APK, pairing и backfill
 
-1. Установить проверенный signed Android `1.4.1` (`versionCode 16`) —
-   [`Amigo-1.4.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.2/Amigo-1.4.1.apk)
-   из release [`v5.2.2`](https://github.com/tolstik/amigo/releases/tag/v5.2.2) —
-   или обновить предыдущий signed `1.4.0` из
-   [`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1):
+1. Установить проверенный signed Android `1.5.0` (`versionCode 17`) —
+   [`Amigo-1.5.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.0/Amigo-1.5.0.apk)
+   из release [`v5.3.0`](https://github.com/tolstik/amigo/releases/tag/v5.3.0) —
+   или обновить предыдущий signed `1.4.1` из
+   [`v5.2.2`](https://github.com/tolstik/amigo/releases/tag/v5.2.2):
 
    ```bash
    adb install -r <PATH_TO_SIGNED_APK>
    ```
 
-   SHA-256 asset `Amigo-1.4.1.apk`:
-   `fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5`;
+   SHA-256 asset `Amigo-1.5.0.apk`:
+   `4ac0cf4035eb8b5b29df30de0c2bbe6b78c2d4e1caef1ee7fc348e994922ce2c`;
    размер `3 520 750` bytes.
    Upgrade через `adb install -r` сохраняет pairing state, non-exportable
-   Android Keystore key, выбранный Mi Fitness origin и resumable sync cursors.
+   Android Keystore key, выбранный Mi Fitness origin и курсоры остальных
+   показателей. Только `exercise` однократно перечитывается для обогащения
+   бассейна; незавершённые снимки получают новые ID.
    При подтверждении Xiaomi по email системная клавиатура должна открываться
    для поля кода, а переход в почтовое приложение и возврат не должны сбрасывать
    текущую форму или cookies из изолированного auth-процесса. Отмена или успешное
@@ -713,7 +719,7 @@ sudo bash /srv/amigo/deploy/verify-production.sh
   lifecycle использует отдельную zone `60r/m` с creation `burst=5` и access
   `burst=10`;
 - public login shell и method-correct `401` для
-  health JSON/CSV/data-quality/labs/lab-compare/studies/tasks/doctor-report/updater/assistant
+  health JSON/CSV/data-quality/labs/studies/tasks/doctor-report/updater/assistant
   без session;
 - short-lived root-only verification session, authenticated overview/activity/
   recovery/data-quality/AI-v4/labs/studies/tasks/updater/assistant/CSV, exact Origin+CSRF,
@@ -730,7 +736,7 @@ sudo bash /srv/amigo/deploy/verify-production.sh
   failure текущего контракта и analyte guide contract,
   root-only dual-write lab storage, web RW/ai-worker RO/parser no-mount и
   внутренний parser health;
-- root-only signed APK `1.4.1`, точные hash/size, read-only web mount,
+- root-only signed APK `1.5.0`, точные hash/size, read-only web mount,
   authenticated metadata и повторно скачанный APK с тем же hash;
 - все три точных signed ingest route: unsigned empty Health Connect/Xiaomi
   batch и Xiaomi status отклоняются до создания записи;

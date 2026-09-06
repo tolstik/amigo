@@ -1,4 +1,5 @@
 import type {
+  SwimmingSeries,
   ActivityPoint,
   ActivitySeriesResponse,
   AiAnalysis,
@@ -51,11 +52,6 @@ import type {
   HealthTaskPatch,
   HealthTaskSource,
   LabAnalyteGuide,
-  LabCompareDelta,
-  LabCompareIncompatibility,
-  LabComparePanel,
-  LabCompareResponse,
-  LabCompareRow,
   LabDocument,
   LabResult,
   LabResultInput,
@@ -212,6 +208,7 @@ export function normalizeOverview(payload: unknown): Overview {
         "weight.planned_today_kg",
         "planned_weight_today_kg",
       ),
+      progressTodayPct: number(body, "plan.progress_today_pct"),
     },
     weight: {
       latestKg: number(body, "weight.latest_kg", "weight.latestKg", "latest_weight_kg", "latest_weight.value"),
@@ -232,6 +229,8 @@ export function normalizeOverview(payload: unknown): Overview {
         "plan_delta_kg",
       ),
       progressPct: number(body, "weight.progress_pct", "weight.progressPct", "weight.goal_progress_pct", "goal_progress_percent"),
+      latestDeviationFromPlanKg: number(body, "weight.latest_deviation_from_plan_kg"),
+      isStale: boolean(body, "weight.is_stale"),
       trend28dKg: number(body, "weight.trend_28d_kg", "weight.trend28dKg", "change_28d_kg"),
       trend42dKg: number(body, "weight.trend_42d_kg", "weight.trend42dKg", "change_42d_kg"),
       forecastDate: string(body, "weight.forecast_date", "weight.forecastDate", "forecast.target_date"),
@@ -895,53 +894,6 @@ function normalizeLabResult(value: unknown): LabResult | null {
   };
 }
 
-const incompatibilities = ["missing_result", "multiple_results", "non_numeric_value", "qualified_value", "different_unit", "different_specimen", "different_method"] as const;
-
-export function normalizeLabCompare(payload: unknown): LabCompareResponse {
-  const body = unbox(payload);
-  const panels = list(body, "panels").map((value): LabComparePanel | null => {
-    const documentId = string(value, "document_id", "documentId");
-    return documentId ? {
-      documentId,
-      observedOn: string(value, "observed_on", "observedOn"),
-      verified: boolean(value, "verified"),
-      resultCount: number(value, "result_count", "resultCount") ?? 0,
-    } : null;
-  }).filter((value): value is LabComparePanel => value !== null);
-  const rows = list(body, "rows").map((value): LabCompareRow | null => {
-    const analyteName = string(value, "analyte_name", "analyteName");
-    if (!analyteName) return null;
-    const cells = list(value, "cells").map((cell) => Array.isArray(cell)
-      ? cell.map(normalizeLabResult).filter((item): item is LabResult => item !== null)
-      : []);
-    const reason = string(value, "incompatibility");
-    const deltas = list(value, "deltas").map((delta): LabCompareDelta | null => {
-      const fromDocumentId = string(delta, "from_document_id", "fromDocumentId");
-      const toDocumentId = string(delta, "to_document_id", "toDocumentId");
-      const absolute = number(delta, "absolute");
-      return fromDocumentId && toDocumentId && absolute !== null ? {
-        fromDocumentId,
-        toDocumentId,
-        absolute,
-        percent: number(delta, "percent"),
-      } : null;
-    }).filter((delta): delta is LabCompareDelta => delta !== null);
-    return {
-      analyteId: string(value, "analyte_id", "analyteId"),
-      analyteName,
-      cells,
-      comparable: boolean(value, "comparable"),
-      incompatibility: reason && incompatibilities.includes(reason as typeof incompatibilities[number])
-        ? reason as LabCompareIncompatibility : null,
-      deltas,
-      missing: boolean(value, "missing"),
-      statusChanged: boolean(value, "status_changed", "statusChanged"),
-      valueChanged: boolean(value, "value_changed", "valueChanged"),
-    };
-  }).filter((value): value is LabCompareRow => value !== null);
-  return { panels, rows };
-}
-
 const doctorSections = ["summary", "medications", "weight", "circumference", "pressure", "activity", "recovery", "labs", "studies", "ai"] as const;
 
 export function normalizeDoctorReport(payload: unknown): DoctorReport {
@@ -1132,6 +1084,8 @@ function queryRange(range: Period): string {
 }
 
 export const api = {
+  swimming: async (period: Period, offset: number, signal?: AbortSignal) =>
+    fetchJson(`/series/swimming?${new URLSearchParams({ range: period, offset: String(offset) })}`, signal) as Promise<SwimmingSeries>,
   session: async (signal?: AbortSignal) => requestJson("/auth/session", {}, signal) as Promise<AuthSession>,
   login: async (username: string, password: string) => requestJson("/auth/login", jsonBody({ username, password })) as Promise<AuthSession>,
   logout: async () => requestJson("/auth/logout", { method: "POST" }),
@@ -1214,8 +1168,6 @@ export const api = {
   labSummary: async (signal?: AbortSignal) => fetchJson("/labs/summary", signal) as Promise<{ items: LabResult[]; counts: Record<string, number> }>,
   labHistory: async (analyteId: string, signal?: AbortSignal) =>
     fetchJson(`/labs/analytes/${encodeURIComponent(analyteId)}/history`, signal) as Promise<{ analyte_id: string; guide: LabAnalyteGuide; items: LabResult[] }>,
-  compareLabs: async (documentIds: string[]) =>
-    normalizeLabCompare(await requestJson("/labs/compare", jsonBody({ document_ids: documentIds }))),
   tasks: async (state: TaskStateFilter, signal?: AbortSignal) =>
     normalizeHealthTaskList(await fetchJson(`/tasks?${new URLSearchParams({ state }).toString()}`, signal)),
   createTask: async (task: HealthTaskInput) => normalizeHealthTask(await requestJson("/tasks", jsonBody(task))),

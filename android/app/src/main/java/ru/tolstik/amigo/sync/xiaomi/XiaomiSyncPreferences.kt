@@ -2,6 +2,7 @@ package ru.tolstik.amigo.sync.xiaomi
 
 import android.content.Context
 import java.time.Instant
+import java.util.UUID
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -23,8 +24,8 @@ data class XiaomiLocalStatus(
     val completedTypes: Int,
 )
 
-internal class XiaomiSyncPreferences(context: Context) {
-    private val values = context.getSharedPreferences("amigo_xiaomi_sync", Context.MODE_PRIVATE)
+internal class XiaomiSyncPreferences(private val values: android.content.SharedPreferences) {
+    constructor(context: Context) : this(context.getSharedPreferences("amigo_xiaomi_sync", Context.MODE_PRIVATE))
     private val json = Json { ignoreUnknownKeys = true }
 
     fun status(hasCredentials: Boolean) = XiaomiLocalStatus(
@@ -170,6 +171,25 @@ internal class XiaomiSyncPreferences(context: Context) {
     fun historyEnd(metric: XiaomiMetric): Instant? =
         instant(metricKey(metric, "history_end"))
 
+    /** One atomic upgrade: re-read only exercise history, never pairing or other metrics. */
+    @Synchronized
+    fun prepareExerciseDetailsUpgrade(now: Instant) {
+        if (values.getInt(KEY_EXERCISE_DETAILS_VERSION, 0) >= 1) return
+        val metric = XiaomiMetric.EXERCISE
+        val refresh = refreshCursor(metric)
+        val editor = values.edit()
+            .putInt(KEY_EXERCISE_DETAILS_VERSION, 1)
+            .remove(metricKey(metric, "cursor"))
+            .putString(metricKey(metric, "history_end"), now.toString())
+        if (refresh != null) {
+            // Retain the immutable round bounds, but discard old-format page state.
+            editor.putString(metricKey(metric, "refresh_cursor"), encodeCursor(
+                XiaomiCursor("mi-exercise-${UUID.randomUUID()}", refresh.rangeStart, refresh.rangeEnd),
+            ))
+        }
+        check(editor.commit()) { "Не удалось сохранить обновление истории тренировок" }
+    }
+
     fun refreshStart(metric: XiaomiMetric): Instant? =
         instant(metricKey(metric, "refresh_start"))
 
@@ -266,6 +286,7 @@ internal class XiaomiSyncPreferences(context: Context) {
         private const val KEY_DISCOVERED_ACCOUNT = "region_discovered_account"
         private const val KEY_REFRESH_ROUND_TARGET = "refresh_round_target"
         private const val KEY_REFRESH_ROUND_DAYS = "refresh_round_days"
+        private const val KEY_EXERCISE_DETAILS_VERSION = "exercise_details_version"
     }
 }
 

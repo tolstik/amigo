@@ -140,10 +140,11 @@ original, extracted findings, and conclusion in PostgreSQL and provides the same
 queue, view, edit, confirmation, retry, and delete flow. Obvious identifier
 header lines are removed before structured study facts can enter AI context.
 
-Laboratory comparison accepts exactly two or three completed panels and matches
-rows only by the persisted canonical `analyte_id`. Numeric deltas are shown only
-for one value per panel with identical unit, specimen, and method; there is no
-fuzzy name matching or implicit unit conversion.
+The pool section shows finalized Xiaomi indoor-swimming sessions, optional
+distance/time/heart-rate summaries, and paginated history. Android 1.5.0 rereads
+exercise history to enrich earlier sessions; see [the swimming contract](docs/xiaomi-swimming.md).
+Laboratory panel comparison has been removed. The laboratory archive, results,
+and individual analyte history remain available.
 
 Before the first laboratory upload or assistant question, the profile requires explicit
 `amigo-ai-data-v1` consent. The disclosure states that Codex CLI runs locally,
@@ -193,7 +194,7 @@ average, and maximum.
 
 ## Android app and Xiaomi/Health Connect companion
 
-Amigo `1.4.1` (`versionCode 16`, package `ru.tolstik.amigo.sync`) opens the full
+Amigo `1.5.0` (`versionCode 17`, package `ru.tolstik.amigo.sync`) opens the full
 authenticated dashboard in a top-level WebView. It uses the same local account
 and 90-day server session as a browser, while signed ingest remains independent.
 Only the fixed production origin and known SPA routes are accepted; there is no
@@ -284,17 +285,17 @@ Build, install, and phone setup are documented in
 documented in [docs/runbook.md](docs/runbook.md).
 
 The signed current companion is
-[`Amigo-1.4.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.2/Amigo-1.4.1.apk)
-from release [`v5.2.2`](https://github.com/tolstik/amigo/releases/tag/v5.2.2).
+[`Amigo-1.5.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.0/Amigo-1.5.0.apk)
+from release [`v5.3.0`](https://github.com/tolstik/amigo/releases/tag/v5.3.0).
 Its SHA-256 is
-`fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5`; its
+`4ac0cf4035eb8b5b29df30de0c2bbe6b78c2d4e1caef1ee7fc348e994922ce2c`; its
 size is `3,520,750` bytes and its signing-certificate SHA-256 is
 `25cc38ecb31081f6826ff049b807335a05e86ee9895470975e8521af95191c02`.
 The previous signed companion is
-[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk)
-from release [`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1),
+[`Amigo-1.4.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.2/Amigo-1.4.1.apk)
+from release [`v5.2.2`](https://github.com/tolstik/amigo/releases/tag/v5.2.2),
 SHA-256
-`4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`.
+`fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5`.
 Verify the checksum before installing an APK.
 
 ## Telegram schedule

@@ -62,7 +62,7 @@ export function OverviewPage() {
       <section className="kpi-grid" aria-label="Главные показатели">
         <KpiCard
           label="Последний вес"
-          value={formatKg(weight.latestKg)}
+          value={formatKg(weight.latestKg, 2)}
           hint={weight.latestAt ? `Замер ${formatDateTime(weight.latestAt)}` : "Ждём первый замер"}
           icon="scale"
           tone="green"
@@ -70,8 +70,8 @@ export function OverviewPage() {
         />
         <KpiCard
           label="С начала программы"
-          value={formatDelta(weight.changeSinceStartKg)}
-          hint={`Стартовый вес ${formatKg(plan.startWeightKg)}`}
+          value={formatDelta(weight.changeSinceStartKg, "кг", 2)}
+          hint={`Старт ${formatKg(plan.startWeightKg, 2)}${weight.latestAt ? ` · Замер ${formatDateTime(weight.latestAt)}` : ""}`}
           icon="progress"
           tone="blue"
         />
@@ -94,15 +94,26 @@ export function OverviewPage() {
       <section className="overview-columns">
         <article className="panel goal-panel">
           <div className="panel__head">
-            <div><span className="eyebrow">Движение к цели</span><h2>{formatPercent(progress)} пути</h2></div>
+            <div><span className="eyebrow">Движение к цели</span><h2>План и факт</h2></div>
             <span className="goal-panel__target">Цель <strong>{formatKg(plan.targetWeightKg)}</strong></span>
           </div>
-          <div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(clampProgress(progress))} aria-label="Прогресс к целевому весу">
-            <span style={{ width: `${clampProgress(progress)}%` }} />
+          <div className="goal-progress">
+            <div className="goal-progress__label"><strong>Факт</strong><span>{progress === null ? "Нет данных" : formatPercent(progress, 1)}</span></div>
+            <div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress === null ? undefined : clampProgress(progress)} aria-valuetext={progress === null ? "Нет данных" : formatPercent(progress, 1)} aria-label="Факт по последнему весу">
+              <span style={{ width: `${clampProgress(progress)}%` }} />
+            </div>
+            <small>{weight.latestAt ? `Последний замер ${formatDateTime(weight.latestAt)}` : "Ждём первый замер"}</small>
+          </div>
+          <div className="goal-progress goal-progress--plan">
+            <div className="goal-progress__label"><strong>План на сегодня</strong><span>{plan.progressTodayPct === null ? "Нет данных" : formatPercent(plan.progressTodayPct, 1)}</span></div>
+            <div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={plan.progressTodayPct === null ? undefined : clampProgress(plan.progressTodayPct)} aria-valuetext={plan.progressTodayPct === null ? "Нет данных" : formatPercent(plan.progressTodayPct, 1)} aria-label="План на сегодня">
+              <span style={{ width: `${clampProgress(plan.progressTodayPct)}%` }} />
+            </div>
+            <small>{formatDate(overview.data.generatedAt)} · {formatKg(plan.plannedTodayKg)}</small>
           </div>
           <div className="goal-metrics">
             <div><span>По плану сегодня</span><strong>{formatKg(plan.plannedTodayKg)}</strong></div>
-            <div><span>Положение</span><strong>{planPosition(weight.deviationFromPlanKg)}</strong></div>
+            <div><span>Положение</span><strong>{weight.isStale ? "Нужен свежий замер: последнему больше 14 дней" : planPosition(weight.latestDeviationFromPlanKg)}</strong></div>
             <div><span>Тренд за 28 дней</span><strong>{formatDelta(weight.trend28dKg)}</strong></div>
             <div><span>Ожидаемая дата цели</span><strong>{weight.forecastDate ? formatDate(weight.forecastDate) : "Недостаточно данных"}</strong></div>
           </div>

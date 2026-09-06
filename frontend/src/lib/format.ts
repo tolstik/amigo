@@ -10,11 +10,12 @@ const integerFormatter = new Intl.NumberFormat("ru-RU", { maximumFractionDigits:
 export function formatNumber(value: number | null | undefined, digits = 1): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   if (digits === 0) return integerFormatter.format(value);
+  if (digits !== 1) return new Intl.NumberFormat("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
   return numberFormatter.format(value);
 }
 
-export function formatKg(value: number | null | undefined): string {
-  const formatted = formatNumber(value);
+export function formatKg(value: number | null | undefined, digits = 1): string {
+  const formatted = formatNumber(value, digits);
   return formatted === "—" ? formatted : `${formatted} кг`;
 }
 
@@ -23,14 +24,14 @@ export function formatMmhg(value: number | null | undefined): string {
   return formatted === "—" ? formatted : `${formatted} мм рт. ст.`;
 }
 
-export function formatDelta(value: number | null | undefined, unit = "кг"): string {
+export function formatDelta(value: number | null | undefined, unit = "кг", digits = 1): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   const sign = value > 0 ? "+" : value < 0 ? "−" : "";
-  return `${sign}${formatNumber(Math.abs(value))} ${unit}`;
+  return `${sign}${formatNumber(Math.abs(value), digits)} ${unit}`;
 }
 
-export function formatPercent(value: number | null | undefined): string {
-  const formatted = formatNumber(value, 0);
+export function formatPercent(value: number | null | undefined, digits = 0): string {
+  const formatted = formatNumber(value, digits);
   return formatted === "—" ? formatted : `${formatted}%`;
 }
 
@@ -57,7 +58,7 @@ export function formatDate(value: string | null | undefined, withYear = true): s
     .replace(" г.", "");
 }
 
-export function formatDateTime(value: string | null | undefined): string {
+export function formatDateTime(value: string | null | undefined, withYear = false): string {
   const date = validDate(value);
   if (!date) return "—";
   return new Intl.DateTimeFormat("ru-RU", {
@@ -65,6 +66,7 @@ export function formatDateTime(value: string | null | undefined): string {
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    ...(withYear ? { year: "numeric" } : {}),
     timeZone: "Europe/Moscow",
   }).format(date);
 }

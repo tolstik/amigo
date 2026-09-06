@@ -269,13 +269,15 @@ internal object XiaomiParsers {
             ?: "workout"
         val safeType = rawType.lowercase().replace(Regex("[^a-z0-9_-]+"), "_")
             .trim('_').take(64).ifBlank { "workout" }
+        val pool = XiaomiSwimming.isPool(value, safeType)
         record(
             XiaomiMetric.EXERCISE,
             start,
             end,
             buildJsonObject {
                 put("duration_seconds", end - start)
-                put("exercise_type", safeType)
+                put("exercise_type", if (pool) "pool_swimming" else safeType.takeUnless { it in setOf("pool_swimming", "swimming_pool", "indoor_swimming") } ?: "workout")
+                if (pool) put("swimming", XiaomiSwimming.details(value, end - start))
                 zoneOffset(value)?.let { put("zone_offset_seconds", it) }
             },
             suffix = "$start-${shortHash(entry.value)}",

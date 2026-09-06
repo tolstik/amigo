@@ -45,6 +45,12 @@ def test_service_payloads_match_frontend_contract(db, add_group):
     summary = overview(db, settings.tz, start + timedelta(days=4, hours=3))
     assert summary["plan"]["start_date"] == "2026-08-15"
     assert summary["weight"]["latest_kg"] == 125.83
+    assert summary["weight"]["change_since_start_kg"] == -1.2
+    assert summary["weight"]["progress_pct"] == 2.4
+    assert summary["plan"]["progress_today_pct"] == 1.0
+    assert summary["weight"]["smoothed_7d_kg"] == 126.43
+    assert summary["weight"]["latest_deviation_from_plan_kg"] == -0.684
+    assert summary["weight"]["deviation_from_plan_kg"] == -0.084
     assert summary["pressure"]["latest_systolic"] == 128
     assert summary["composition"]["fat_pct"] == 34.6
     assert summary["sync"]["status"] == "delayed"

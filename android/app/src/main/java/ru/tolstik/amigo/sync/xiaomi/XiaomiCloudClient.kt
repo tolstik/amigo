@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -123,23 +124,23 @@ internal class XiaomiCloudClient(
         until: Instant,
         nextKey: String?,
     ): XiaomiCloudPage {
-        val payload = buildJsonObject {
-            put("end_time", until.epochSecond)
-            put("limit", 50)
-            nextKey?.takeIf(String::isNotBlank)?.let { put("next_key", it) }
-            put("start_time", from.epochSecond)
-        }
+        val payload = xiaomiSportRequest(from, until, nextKey)
         val response = encryptedPost(
             host = xiaomiHealthHost(credentials.region),
             path = "/app/v1/data/get_sport_records_by_time",
             payload = payload,
         )
-        val result = response.jsonObject["result"]?.jsonObject ?: JsonObject(emptyMap())
-        val elements = result["sport_records"]?.jsonArray.orEmpty()
+        val result = (response as? JsonObject)?.get("result") as? JsonObject
+            ?: throw XiaomiCloudException.InvalidResponse()
+        val elements = result["sport_records"] as? JsonArray
+            ?: throw XiaomiCloudException.InvalidResponse()
         return XiaomiCloudPage(
-            entries = elements.mapNotNull(::rawEntry),
-            nextKey = result["next_key"]?.asString()?.takeIf(String::isNotBlank)
-                ?.takeIf { result["has_more"]?.jsonPrimitive?.content == "true" },
+            entries = elements.mapNotNull { element ->
+                val item = element as? JsonObject ?: throw XiaomiCloudException.InvalidResponse()
+                if ((item["deleted"] as? JsonPrimitive)?.booleanOrNull == true) null
+                else rawEntry(element) ?: throw XiaomiCloudException.InvalidResponse()
+            },
+            nextKey = xiaomiSportNextKey(result, nextKey),
             sourceDataAsOf = maxProviderTime(elements),
         )
     }
@@ -280,3 +281,19 @@ internal class XiaomiCloudClient(
 
 private fun JsonElement.asString(): String? =
     (this as? JsonPrimitive)?.contentOrNull
+
+internal fun xiaomiSportRequest(from: Instant, until: Instant, nextKey: String?): JsonObject = buildJsonObject {
+    put("endTime", until.epochSecond)
+    put("limit", 50)
+    nextKey?.takeIf(String::isNotBlank)?.let { put("next_key", it) }
+    put("reverse", true)
+    put("startTime", from.epochSecond)
+}
+
+internal fun xiaomiSportNextKey(result: JsonObject, previousKey: String?): String? {
+    val more = (result["has_more"] as? JsonPrimitive)?.booleanOrNull
+        ?: throw XiaomiCloudException.InvalidResponse()
+    if (!more) return null
+    return result["next_key"]?.asString()?.takeIf { it.isNotBlank() && it.length <= 4096 && it != previousKey }
+        ?: throw XiaomiCloudException.InvalidResponse()
+}

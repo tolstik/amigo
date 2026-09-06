@@ -120,6 +120,15 @@
   until the user chooses a grouping. Raw heart-rate samples are never persisted.
   Resting heart rate remains a distinct metric and must never be inferred from
   ordinary samples.
+- Overview actual progress and change since program start use the latest Withings
+  measurement. Planned progress uses the current Moscow date and the existing
+  calendar-month plan; trend/forecast/AI evidence keep their smoothed contracts.
+- The swimming section publishes only finalized active Xiaomi pool-swimming
+  exercise summaries. Sport type 9 is pool and 10 is open water; unspecified
+  swimming is excluded. Android 1.5.0 (versionCode 17) rereads only exercise
+  history once while preserving all other cursors and pairing. Swimming details
+  remain optional, use a strict allowlist, and never add GPS, routes or raw
+  heart-rate samples. See `docs/xiaomi-swimming.md` for mappings and units.
 - Identical Withings groups replayed by the overlap window are not updates and
   must not enqueue another AI analysis. Only newly created or structurally
   changed provider groups may trigger measurement-driven regeneration.
@@ -145,7 +154,7 @@
   additionally limited to exact authenticated same-origin GET
   `/amigo/api/v1/reports/doctor/<canonical-lowercase-UUID>.pdf`, no
   query/fragment/redirect, and 25 MiB on the client.
-- Android `1.4.1` (`versionCode 16`) accepts up to 25 dashboard uploads from the
+- Android `1.5.0` (`versionCode 17`) accepts up to 25 dashboard uploads from the
   system picker, refreshes a stale foreground WebView, records allowlisted
   background-sync diagnostics, and schedules immediate, hourly, and bounded
   one-minute backfill continuation work. Its in-app updater may download only
@@ -289,10 +298,7 @@
 - The authenticated data-quality center covers 30 or 90 completed days and
   exposes only aggregate source/metric states (`available`, `confirmed_empty`,
   `missing`, or partial summary), never device/account identity or provider
-  payloads. Laboratory comparison accepts exactly two or three complete panels,
-  matches only persisted `analyte_id`, and calculates a delta only for compatible
-  singleton numeric values with identical unit, specimen, and method; never add
-  fuzzy matching or implicit conversion.
+  payloads. Laboratory panel comparison has been removed; the archive and individual analyte history remain available.
 - Health tasks use `once`, `daily`, `weekly`, or calendar-month recurrence.
   A task created from AI freezes the selected recommendation and evidence IDs;
   reminder delivery is unique per task/occurrence/channel. Telegram receives

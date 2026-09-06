@@ -11,6 +11,7 @@ from .config import Settings, get_settings
 from .data_quality import DataQualityRange, data_quality
 from .db import get_db
 from .health_analytics import activity_series, recovery_series
+from .swimming import swimming_series
 from .health_ingest import (
     HealthIngestError,
     get_device_status,
@@ -57,6 +58,16 @@ def get_recovery_series(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     return recovery_series(db, settings.tz, range)
+
+
+@public_router.get("/series/swimming")
+def get_swimming_series(
+    range: HealthRangeParam = "90d",
+    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    return swimming_series(db, settings.tz, range, offset=offset)
 
 
 @public_router.get("/data-quality")

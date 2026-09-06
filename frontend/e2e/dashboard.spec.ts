@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 
 const overview = {
   generated_at: "2026-09-02T08:00:00Z",
-  plan: { start_date: "2026-08-15", start_weight_kg: 127.03, target_weight_kg: 76.5, target_date: "2027-09-04", planned_today_kg: 124.707 },
-  weight: { latest_kg: 125.5, latest_at: "2026-09-01T05:00:00Z", smoothed_7d_kg: 125.8, change_since_start_kg: -1.53, deviation_from_plan_kg: 0.793, progress_pct: 3.0, trend_28d_kg: -1.5, measurement_days_30d: 6 },
+  plan: { start_date: "2026-08-15", start_weight_kg: 127.03, target_weight_kg: 76.5, target_date: "2027-09-04", planned_today_kg: 124.707, progress_today_pct: 4.6 },
+  weight: { latest_kg: 125.5, latest_at: "2026-09-01T05:00:00Z", smoothed_7d_kg: 125.8, change_since_start_kg: -1.53, deviation_from_plan_kg: 0.793, progress_pct: 3.0, latest_deviation_from_plan_kg: 0.793, is_stale: false, trend_28d_kg: -1.5, measurement_days_30d: 6 },
   pressure: { latest_systolic: 122, latest_diastolic: 78, latest_pulse: 64, latest_at: "2026-08-18T18:00:00Z" },
   composition: { fat_pct: 31.2, fat_mass_kg: 39.4, lean_mass_kg: 86.8, measured_at: "2026-08-19T05:00:00Z" },
   sync: { status: "ok", last_success_at: "2026-09-02T08:00:00Z", source: "Withings Cloud" },
@@ -58,6 +58,22 @@ const recoverySeries = {
     { metric: "resting_heart_rate_bpm", target: "weight_kg", coefficient: 0.3, full_overlapping_weeks: 8, disclaimer: "Корреляция не доказывает причинность." },
   ],
   meta: { range: "90d", count: 2 },
+};
+
+const swimmingSessions = Array.from({ length: 51 }, (_, index) => ({
+  id: `pool-${index}`, start_time: new Date(Date.UTC(2026, 8, 2, 9) - index * 86400000).toISOString(),
+  end_time: new Date(Date.UTC(2026, 8, 2, 9, 30) - index * 86400000).toISOString(),
+  duration_seconds: 1800, active_duration_seconds: index === 1 ? null : 1500,
+  distance_meters: index === 1 ? null : 1000, pace_seconds_per_100m: index === 1 ? null : 150,
+  kilocalories: 240, minimum_bpm: 80, average_bpm: 110, maximum_bpm: 130,
+  pool_length_meters: 25, pool_lengths: null, stroke_style: "breaststroke",
+}));
+const swimmingSeries = {
+  range: "90d", summary: { workouts: 51, duration_seconds: 91800, duration_seconds_count: 51,
+    distance_meters: 50000, distance_meters_count: 50, kilocalories: 12240, kilocalories_count: 51 },
+  points: [...swimmingSessions].reverse().map(({ start_time, duration_seconds, distance_meters }) => ({ start_time, duration_seconds, distance_meters })),
+  sessions: swimmingSessions.slice(0, 50), next_offset: 50,
+  coverage: { status: "partial", from: "2026-06-06T21:00:00Z", to: "2026-09-02T08:00:00Z", data_as_of: "2026-09-02T08:00:00Z", covered_days: 51, total_days: 90 },
 };
 
 const session = { authenticated: true, username: "amigo", expires_at: "2026-12-01T00:00:00Z" };
@@ -198,13 +214,6 @@ test.beforeEach(async ({ page }) => {
       taskItems = [{ ...taskItems[0], status: "cancelled", next_due_at: null, cancelled_at: "2026-09-02T08:10:00Z" }];
       return route.fulfill({ json: taskItems[0] });
     }
-    if (path.endsWith("/labs/compare") && method === "POST") {
-      expect(route.request().postDataJSON()).toEqual({ document_ids: [labDocument.id, secondLabDocument.id] });
-      return route.fulfill({ json: {
-        panels: [{ document_id: labDocument.id, observed_on: "2026-08-28", verified: true, result_count: 1 }, { document_id: secondLabDocument.id, observed_on: "2026-09-01", verified: false, result_count: 1 }],
-        rows: [{ analyte_id: "ferritin", analyte_name: "Ферритин", cells: [[labResult], [secondLabResult]], comparable: true, incompatibility: null, deltas: [{ from_document_id: labDocument.id, to_document_id: secondLabDocument.id, absolute: 6, percent: 14.29 }], missing: false, status_changed: false, value_changed: true }],
-      } });
-    }
     if (path.endsWith("/reports/doctor") && method === "POST") {
       const payload = route.request().postDataJSON();
       expect(payload.period).toBe("90d");
@@ -304,6 +313,10 @@ test.beforeEach(async ({ page }) => {
         { measured_at: "2026-08-18T18:00:00Z", systolic: 122, diastolic: 78, pulse: 64, pulse_pressure: 44, session_size: 2, period_of_day: "evening" },
       ], meta: { range: "90d", count: 2 } } });
     }
+    if (path.endsWith("/series/swimming")) {
+      const offset = Number(new URL(route.request().url()).searchParams.get("offset") ?? "0");
+      return route.fulfill({ json: { ...swimmingSeries, sessions: swimmingSessions.slice(offset, offset + 50), next_offset: offset === 0 ? 50 : null } });
+    }
     if (path.endsWith("/series/activity")) return route.fulfill({ json: activitySeries });
     if (path.endsWith("/series/recovery")) return route.fulfill({ json: recoverySeries });
     if (path.endsWith("/series/weight")) return route.fulfill({ json: weightSeries });
@@ -314,7 +327,7 @@ test.beforeEach(async ({ page }) => {
 test("renders the overview and navigates to pressure", async ({ page }) => {
   await page.goto("./");
   await expect(page.getByRole("heading", { name: "Добрый день! Вот как идут дела" })).toBeVisible();
-  await expect(page.getByLabel("Главные показатели").getByText("125,5 кг")).toBeVisible();
+  await expect(page.getByLabel("Главные показатели").getByText("125,50 кг")).toBeVisible();
   await page.getByRole("link", { name: "Давление", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Статистика давления" })).toBeVisible();
   await expect(page.getByText("122 / 78").first()).toBeVisible();
@@ -591,18 +604,6 @@ test("shows Xiaomi-only coverage without page overflow on mobile", async ({ page
   expect(hasOverflow).toBe(false);
 });
 
-test("compares two laboratory panels in stable order", async ({ page }) => {
-  await page.goto("./labs/compare");
-  await page.getByLabel("Базовая панель").selectOption(labDocument.id);
-  await page.getByLabel("Сравниваемая панель").selectOption(secondLabDocument.id);
-  await page.getByRole("button", { name: "Сравнить", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Сопоставленные показатели" })).toBeVisible();
-  const ferritin = page.getByRole("row").filter({ hasText: "Ферритин" });
-  await expect(ferritin).toContainText("42,0 нг/мл");
-  await expect(ferritin).toContainText("48,0 нг/мл");
-  await expect(ferritin).toContainText("+6,0");
-});
-
 test("builds, downloads HTML and explicitly deletes a doctor package on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("./reports/doctor");
@@ -634,4 +635,87 @@ test("records daily waist and hip measurements", async ({ page }) => {
   await page.getByLabel("Бёдра, см").fill("107");
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByRole("status")).toHaveText("Измерение сохранено.");
+});
+
+
+test("overview compares actual and planned progress on equal tracks", async ({ page }) => {
+  await page.route("**/api/v1/overview", (route) => route.fulfill({ json: { ...overview, weight: { ...overview.weight, latest_kg: 125.83, change_since_start_kg: -1.2, progress_pct: 2.4 } } }));
+  await page.goto("./");
+  const actual = page.getByRole("progressbar", { name: "Факт по последнему весу" });
+  const planned = page.getByRole("progressbar", { name: "План на сегодня" });
+  await expect(actual).toHaveAttribute("aria-valuenow", "2.4");
+  await expect(page.getByText("−1,20 кг", { exact: true })).toBeVisible();
+  await expect(page.getByText("2,4%", { exact: true })).toBeVisible();
+  await expect(page.getByText("4,6%", { exact: true })).toBeVisible();
+  await expect(planned).toHaveAttribute("aria-valuenow", "4.6");
+  expect((await actual.boundingBox())!.width).toBe((await planned.boundingBox())!.width);
+  await expect(page.getByRole("link", { name: "Сравнить анализы", exact: true })).toHaveCount(0);
+});
+
+test("overview preserves missing actual and stale measurement labels", async ({ page }) => {
+  await page.route("**/api/v1/overview", (route) => route.fulfill({ json: { ...overview, weight: { ...overview.weight, latest_kg: null, latest_at: null, progress_pct: null, change_since_start_kg: null } } }));
+  await page.goto("./");
+  const actual = page.getByRole("progressbar", { name: "Факт по последнему весу" });
+  await expect(actual).toHaveAttribute("aria-valuetext", "Нет данных");
+  await expect(actual).not.toHaveAttribute("aria-valuenow");
+  await expect(page.getByRole("progressbar", { name: "План на сегодня" })).toHaveAttribute("aria-valuenow", "4.6");
+  await page.route("**/api/v1/overview", (route) => route.fulfill({ json: { ...overview, weight: { ...overview.weight, is_stale: true, latest_deviation_from_plan_kg: null } } }));
+  await page.reload();
+  await expect(page.getByText("Нужен свежий замер: последнему больше 14 дней")).toBeVisible();
+});
+
+test("pool history shows partial totals details and bounded pages", async ({ page }) => {
+  await page.goto("./swimming");
+  await expect(page.getByRole("heading", { name: "Бассейн", exact: true })).toBeVisible();
+  await expect(page.getByText("Данные у 50 из 51 тренировок")).toBeVisible();
+  await expect(page.getByText(/История загружена частично/)).toBeVisible();
+  const first = page.locator(".swimming-session").first();
+  await first.locator("summary").click();
+  await expect(first).toContainText("Брасс");
+  await expect(first).toContainText("2:30 / 100 м");
+  await expect(first).toContainText("110 уд/мин");
+  await expect(first.locator(".swimming-details > div").filter({ has: page.getByText("Дорожки", { exact: true }) })).toContainText("—");
+  await expect(page.locator(".swimming-session")).toHaveCount(50);
+  await page.getByRole("button", { name: "Более ранние" }).click();
+  await expect(page.locator(".swimming-session")).toHaveCount(1);
+  await expect(page.getByText("51–51 из 51")).toBeVisible();
+  await page.getByRole("button", { name: "Более новые" }).click();
+  await expect(page.locator(".swimming-session")).toHaveCount(50);
+  await page.getByRole("group", { name: "Период графика" }).getByRole("button", { name: "Год", exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Год", exact: true })).toHaveAttribute("aria-pressed", "true");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
+
+test("pool distinguishes missing from provider-confirmed empty history", async ({ page }) => {
+  const empty = { ...swimmingSeries, points: [], sessions: [], next_offset: null, summary: { workouts: 0, duration_seconds: null, duration_seconds_count: 0, distance_meters: null, distance_meters_count: 0, kilocalories: null, kilocalories_count: 0 } };
+  await page.route("**/api/v1/series/swimming?*", (route) => route.fulfill({ json: { ...empty, coverage: { ...empty.coverage, status: "missing" } } }));
+  await page.goto("./swimming");
+  await expect(page.getByText("История Xiaomi за этот период ещё не загружена.", { exact: false })).toBeVisible();
+  await page.route("**/api/v1/series/swimming?*", (route) => route.fulfill({ json: { ...empty, coverage: { ...empty.coverage, status: "confirmed_empty" } } }));
+  await page.reload();
+  await expect(page.getByText("Тренировок в бассейне за этот период нет", { exact: true })).toBeVisible();
+});
+
+test("pool and overview remain readable in all themes on a narrow screen", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 320, height: 780 });
+  for (const path of ["./swimming", "./"]) {
+    await page.goto(path);
+    await expect(page.getByRole("link", { name: "Сравнение анализов", exact: true })).toHaveCount(0);
+    if (path === "./swimming") {
+      await expect(page.getByRole("button", { name: "90 дней", exact: true })).toHaveAttribute("aria-pressed", "true");
+      await page.locator(".swimming-session summary").first().click();
+    } else {
+      await expect(page.getByRole("progressbar", { name: "Факт по последнему весу" })).toBeVisible();
+    }
+    for (const theme of ["light", "dark", "ocean", "sunset"]) {
+      await page.getByRole("combobox", { name: "Тема оформления" }).selectOption(theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+      if (path === "./swimming") {
+        await expect(page.getByRole("img", { name: "Дистанция плавания в метрах по тренировкам" })).toBeVisible();
+      }
+      await page.screenshot({ path: testInfo.outputPath(`${path === "./" ? "overview" : "pool"}-${theme}.png`), fullPage: true });
+    }
+  }
 });

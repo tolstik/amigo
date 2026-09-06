@@ -430,14 +430,23 @@ def overview(db: Session, tz: ZoneInfo, now: datetime | None = None) -> dict[str
     current = _aware(now or datetime.now(timezone.utc))
     today = current.astimezone(tz).date()
     plan = active_plan(db)
-    daily = weight_daily(db, tz, plan.start_date)
-    latest_raw = value_points(db, "weight", tz, plan.start_date)[-1:] or [None]
+    program_weights = [point for point in value_points(db, "weight", tz, plan.start_date) if _aware(point.measured_at) <= current]
+    daily = daily_medians(program_weights, tz, since=plan.start_date, until=today)
+    latest_raw = program_weights[-1:] or [None]
     latest_daily = daily[-1] if daily else None
     forecast = theil_sen_forecast(daily, plan.target_weight_kg, as_of=today)
     current_trend = latest_daily.rolling_7d if latest_daily else None
     latest_age_days = max(0, (today - latest_daily.day).days) if latest_daily else None
     weight_is_stale = latest_age_days is not None and latest_age_days > 14
     planned = plan_weight(today, plan)
+    latest_weight = latest_raw[0].value if latest_raw[0] else None
+    goal_distance = plan.start_weight_kg - plan.target_weight_kg
+
+    def progress_pct(value: float | None) -> float | None:
+        if value is None or goal_distance <= 0:
+            return None
+        return round(max(0.0, min(100.0, (plan.start_weight_kg - value) / goal_distance * 100)), 1)
+
     measured_days_14 = len([item for item in daily if item.day >= today - timedelta(days=13)])
     measured_days_30 = len([item for item in daily if item.day >= today - timedelta(days=29)])
     state = db.get(SyncState, "withings")
@@ -460,22 +469,24 @@ def overview(db: Session, tz: ZoneInfo, now: datetime | None = None) -> dict[str
         "target_date": planned_target_date(plan).isoformat(),
         "planned_target_date": planned_target_date(plan).isoformat(),
         "planned_today_kg": planned,
+        "progress_today_pct": progress_pct(planned),
     }
     nested_weight = {
         "latest_kg": round(latest_raw[0].value, 3) if latest_raw[0] else None,
         "latest_at": _iso(latest_raw[0].measured_at) if latest_raw[0] else None,
         "smoothed_7d_kg": current_trend,
-        "change_since_start_kg": round(current_trend - plan.start_weight_kg, 3) if current_trend is not None else None,
+        "change_since_start_kg": round(latest_weight - plan.start_weight_kg, 3) if latest_weight is not None else None,
+        "latest_deviation_from_plan_kg": (
+            round(latest_weight - planned, 3)
+            if latest_weight is not None and planned is not None and not weight_is_stale
+            else None
+        ),
         "deviation_from_plan_kg": (
             round(current_trend - planned, 3)
             if current_trend is not None and planned is not None and not weight_is_stale
             else None
         ),
-        "progress_pct": (
-            round(max(0.0, min(100.0, (plan.start_weight_kg - current_trend) / (plan.start_weight_kg - plan.target_weight_kg) * 100)), 1)
-            if current_trend is not None
-            else None
-        ),
+        "progress_pct": progress_pct(latest_weight),
         "trend_28d_kg": trend_change(daily, 28),
         "trend_42d_kg": trend_change(daily, 42),
         "forecast_date": forecast.target_date.isoformat() if forecast.reliable and forecast.target_date else None,

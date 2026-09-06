@@ -1,11 +1,56 @@
 export type Period = "program" | "30d" | "90d" | "1y" | "all";
 
+export interface SwimmingPoint {
+  start_time: string;
+  duration_seconds: number | null;
+  distance_meters: number | null;
+}
+
+export interface SwimmingSession extends SwimmingPoint {
+  id: string;
+  end_time: string;
+  active_duration_seconds: number | null;
+  pace_seconds_per_100m: number | null;
+  kilocalories: number | null;
+  average_bpm: number | null;
+  minimum_bpm: number | null;
+  maximum_bpm: number | null;
+  pool_length_meters: number | null;
+  pool_lengths: number | null;
+  stroke_style: "freestyle" | "breaststroke" | "backstroke" | "butterfly" | "medley" | null;
+}
+
+export interface SwimmingSeries {
+  range: Period;
+  summary: {
+    workouts: number;
+    duration_seconds: number | null;
+    duration_seconds_count: number;
+    distance_meters: number | null;
+    distance_meters_count: number;
+    kilocalories: number | null;
+    kilocalories_count: number;
+  };
+  points: SwimmingPoint[];
+  sessions: SwimmingSession[];
+  next_offset: number | null;
+  coverage: {
+    status: "missing" | "partial" | "available" | "confirmed_empty";
+    from: string | null;
+    to: string;
+    data_as_of: string | null;
+    covered_days: number;
+    total_days: number;
+  };
+}
+
 export interface PlanSummary {
   startDate: string;
   startWeightKg: number;
   targetWeightKg: number;
   targetDate: string | null;
   plannedTodayKg: number | null;
+  progressTodayPct: number | null;
 }
 
 export interface WeightSummary {
@@ -14,6 +59,8 @@ export interface WeightSummary {
   smoothed7dKg: number | null;
   changeSinceStartKg: number | null;
   deviationFromPlanKg: number | null;
+  latestDeviationFromPlanKg: number | null;
+  isStale: boolean;
   progressPct: number | null;
   trend28dKg: number | null;
   trend42dKg: number | null;
@@ -558,47 +605,6 @@ export interface HealthTaskPatch {
 export interface HealthTaskList {
   items: HealthTask[];
   openCount: number;
-}
-
-export interface LabComparePanel {
-  documentId: string;
-  observedOn: string | null;
-  verified: boolean;
-  resultCount: number;
-}
-
-export type LabCompareIncompatibility =
-  | "missing_result"
-  | "multiple_results"
-  | "non_numeric_value"
-  | "qualified_value"
-  | "different_unit"
-  | "different_specimen"
-  | "different_method"
-  | null;
-
-export interface LabCompareDelta {
-  fromDocumentId: string;
-  toDocumentId: string;
-  absolute: number;
-  percent: number | null;
-}
-
-export interface LabCompareRow {
-  analyteId: string | null;
-  analyteName: string;
-  cells: LabResult[][];
-  comparable: boolean;
-  incompatibility: LabCompareIncompatibility;
-  deltas: LabCompareDelta[];
-  missing: boolean;
-  statusChanged: boolean;
-  valueChanged: boolean;
-}
-
-export interface LabCompareResponse {
-  panels: LabComparePanel[];
-  rows: LabCompareRow[];
 }
 
 export type DoctorReportPeriod = "30d" | "90d" | "1y";

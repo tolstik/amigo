@@ -431,7 +431,7 @@ parser_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destinati
     || amigo_die "isolated parser unexpectedly mounts laboratory originals"
 amigo_log "PASS root-only laboratory originals and least-privilege mounts"
 
-readonly EXPECTED_ANDROID_APK_SHA256="fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5"
+readonly EXPECTED_ANDROID_APK_SHA256="4ac0cf4035eb8b5b29df30de0c2bbe6b78c2d4e1caef1ee7fc348e994922ce2c"
 readonly EXPECTED_ANDROID_APK_SIZE_BYTES=3520750
 [[ -f "${AMIGO_ANDROID_APK}" && ! -L "${AMIGO_ANDROID_APK}" ]] \
     || amigo_die "signed Android update is missing or is a symlink"
@@ -441,9 +441,9 @@ readonly EXPECTED_ANDROID_APK_SIZE_BYTES=3520750
     || amigo_die "signed Android update is not owned by root:root"
 [[ "$(sha256sum "${AMIGO_ANDROID_APK}" | awk '{ print $1 }')" \
     == "${EXPECTED_ANDROID_APK_SHA256}" ]] \
-    || amigo_die "installed Android update hash differs from signed 1.4.1"
+    || amigo_die "installed Android update hash differs from signed 1.5.0"
 [[ "$(stat -c '%s' "${AMIGO_ANDROID_APK}")" -eq "${EXPECTED_ANDROID_APK_SIZE_BYTES}" ]] \
-    || amigo_die "installed Android update size differs from signed 1.4.1"
+    || amigo_die "installed Android update size differs from signed 1.5.0"
 web_android_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/android"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${web_container}")"
 [[ "${web_android_mount}" == "$(dirname -- "${AMIGO_ANDROID_APK}")|false" ]] \
     || amigo_die "web Android update mount is missing, writable, or sourced unexpectedly"
@@ -522,7 +522,7 @@ with SessionLocal() as db:
 done
 [[ ${ANALYTE_GUIDES_READY} -eq 1 ]] \
     || amigo_die "analyte guide backfill made no verified progress within three minutes"
-amigo_log "PASS database-owned originals, repaired laboratory dates, bounded analyte-guide backfill progress, and signed Android 1.4.1 artifact"
+amigo_log "PASS database-owned originals, repaired laboratory dates, bounded analyte-guide backfill progress, and signed Android 1.5.0 artifact"
 
 check_loopback_listener() {
     local port=$1
@@ -671,6 +671,7 @@ amigo_log "PASS hashed frontend assets retain immutable caching"
 for protected_path in \
     api/v1/auth/session \
     api/v1/overview \
+    api/v1/series/swimming \
     'api/v1/data-quality?range=30d' \
     api/v1/export/weight.csv \
     api/v1/export/circumference.csv \
@@ -694,7 +695,6 @@ readonly LAB_RESULT_CREATE_PATH="api/v1/labs/documents/00000000-0000-0000-0000-0
 [[ "$(public_status 'api/v1/studies/uploads' POST)" == "401" ]] \
     || amigo_die "unauthenticated study upload route did not return 401"
 for protected_post_path in \
-    api/v1/labs/compare \
     api/v1/tasks \
     api/v1/reports/doctor; do
     [[ "$(public_status "${protected_post_path}" POST)" == "401" ]] \
@@ -709,7 +709,11 @@ CIRCUMFERENCE_PUT_STATUS="$(curl --silent --show-error --max-time 20 \
     "${AMIGO_PUBLIC_URL}api/v1/body-measurements/2026-08-28")"
 [[ "${CIRCUMFERENCE_PUT_STATUS}" == "401" ]] \
     || amigo_die "unauthenticated circumference PUT route did not return 401"
-amigo_log "PASS dashboard JSON, CSV, quality, laboratory comparison, tasks, doctor reports, updater, and assistant require authentication"
+for removed_method in GET POST; do
+    [[ "$(public_status 'api/v1/labs/compare' "${removed_method}")" == "404" ]] \
+        || amigo_die "removed laboratory comparison route did not return 404"
+done
+amigo_log "PASS dashboard JSON, CSV, quality, swimming, tasks, doctor reports, updater, and assistant require authentication; removed comparison returns 404"
 
 amigo_compose run --rm --no-deps --user 0 \
     --volume "${VERIFICATION_DIR}:/verification" \
@@ -783,6 +787,35 @@ elif contract == "profile":
 elif contract == "overview":
     if not isinstance(payload.get("weight"), dict) or not isinstance(payload.get("pressure"), dict):
         raise SystemExit("overview contract is incomplete")
+    plan, weight = payload.get("plan", {}), payload["weight"]
+    if "progress_today_pct" not in plan or "latest_deviation_from_plan_kg" not in weight:
+        raise SystemExit("overview plan/actual progress contract is incomplete")
+    expected_plan = round(max(0, min(100, (plan["start_weight_kg"] - plan["planned_today_kg"]) / (plan["start_weight_kg"] - plan["target_weight_kg"]) * 100)), 1)
+    if abs(plan["progress_today_pct"] - expected_plan) > 0.1:
+        raise SystemExit("overview planned progress does not follow the calendar plan")
+    latest = weight.get("latest_kg")
+    if latest is not None:
+        if abs(weight["change_since_start_kg"] - round(latest - plan["start_weight_kg"], 3)) > 0.001:
+            raise SystemExit("overview change does not use the latest measurement")
+        expected = round(max(0, min(100, (plan["start_weight_kg"] - latest) / (plan["start_weight_kg"] - plan["target_weight_kg"]) * 100)), 1)
+        if abs(weight["progress_pct"] - expected) > 0.1:
+            raise SystemExit("overview actual progress does not use the latest measurement")
+    elif weight.get("progress_pct") is not None or weight.get("change_since_start_kg") is not None:
+        raise SystemExit("overview substituted an actual value without measurements")
+elif contract == "swimming":
+    if not isinstance(payload.get("sessions"), list) or len(payload["sessions"]) > 50:
+        raise SystemExit("swimming history is not bounded")
+    if not isinstance(payload.get("summary"), dict) or not isinstance(payload.get("points"), list):
+        raise SystemExit("swimming summary/points contract is incomplete")
+    if payload.get("coverage", {}).get("status") not in {"missing", "partial", "available", "confirmed_empty"}:
+        raise SystemExit("swimming coverage state is missing")
+    forbidden = {"device_id", "account_fingerprint", "external_record_id", "snapshot_id", "data_origin", "route", "samples"}
+    def private_field(value):
+        if isinstance(value, dict):
+            return bool(forbidden.intersection(value)) or any(private_field(item) for item in value.values())
+        return isinstance(value, list) and any(private_field(item) for item in value)
+    if private_field(payload):
+        raise SystemExit("swimming API exposes private source data")
 elif contract in {"activity", "recovery"}:
     if not isinstance(payload.get("daily"), list) or not isinstance(payload.get("weekly"), list):
         raise SystemExit(f"{contract} contract is incomplete")
@@ -902,9 +935,9 @@ elif contract == "analyte-guide":
         raise SystemExit("laboratory analyte guide contract is incomplete")
 elif contract == "update":
     if (
-        payload.get("version_code") != 16
-        or payload.get("version_name") != "1.4.1"
-        or payload.get("sha256") != "fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5"
+        payload.get("version_code") != 17
+        or payload.get("version_name") != "1.5.0"
+        or payload.get("sha256") != "4ac0cf4035eb8b5b29df30de0c2bbe6b78c2d4e1caef1ee7fc348e994922ce2c"
         or payload.get("download_url") != "/amigo/api/v1/app-update/apk"
         or payload.get("size_bytes") != 3520750
     ):
@@ -917,6 +950,7 @@ PY
 check_authenticated_json_api "api/v1/auth/session" session
 check_authenticated_json_api "api/v1/profile" profile
 check_authenticated_json_api "api/v1/overview" overview
+check_authenticated_json_api "api/v1/series/swimming?range=90d" swimming
 check_authenticated_json_api "api/v1/series/activity?range=30d" activity
 check_authenticated_json_api "api/v1/series/recovery?range=30d" recovery
 check_authenticated_json_api "api/v1/series/circumference?range=30d" circumference
@@ -1010,7 +1044,6 @@ LAB_CREATE_ROUTE_STATUS="$(
     || amigo_die "manual laboratory result allowlist returned ${LAB_CREATE_ROUTE_STATUS}, expected safe 404"
 
 for csrf_case in \
-    'api/v1/labs/compare|{"document_ids":["00000000-0000-0000-0000-000000000000","11111111-1111-1111-1111-111111111111"]}' \
     'api/v1/tasks|{"title":"verification","next_due_at":"2099-01-01T09:00:00+03:00"}' \
     'api/v1/reports/doctor|{"period":"30d","sections":["summary"]}'; do
     csrf_path=${csrf_case%%|*}
@@ -1027,18 +1060,6 @@ for csrf_case in \
     [[ "${csrf_status}" == "403" ]] \
         || amigo_die "authenticated mutation without CSRF returned ${csrf_status}: ${csrf_path}"
 done
-
-LAB_COMPARE_ROUTE_STATUS="$(
-    curl --config "${AUTH_CURL_CONFIG}" \
-        --request POST \
-        --header 'Content-Type: application/json' \
-        --data '{"document_ids":["00000000-0000-0000-0000-000000000000","11111111-1111-1111-1111-111111111111"]}' \
-        --output "${UPLOAD_BODY}" \
-        --write-out '%{http_code}' \
-        "${AMIGO_PUBLIC_URL}api/v1/labs/compare"
-)"
-[[ "${LAB_COMPARE_ROUTE_STATUS}" == "404" ]] \
-    || amigo_die "laboratory comparison allowlist returned ${LAB_COMPARE_ROUTE_STATUS}, expected safe 404"
 
 TASK_CREATE_VALIDATION_STATUS="$(
     curl --config "${AUTH_CURL_CONFIG}" \

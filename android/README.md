@@ -7,20 +7,20 @@ Connect as rollback history, and sends only normalized signed/idempotent batches
 to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
-Current signed release `1.4.1` (`versionCode 16`) for project release
-[`v5.2.2`](https://github.com/tolstik/amigo/releases/tag/v5.2.2):
-[`Amigo-1.4.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.2/Amigo-1.4.1.apk),
+Current signed release `1.5.0` (`versionCode 17`) for project release
+[`v5.3.0`](https://github.com/tolstik/amigo/releases/tag/v5.3.0):
+[`Amigo-1.5.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.0/Amigo-1.5.0.apk),
 SHA-256
-`fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5`, size
+`4ac0cf4035eb8b5b29df30de0c2bbe6b78c2d4e1caef1ee7fc348e994922ce2c`, size
 `3,520,750` bytes.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
-The previous published release is `1.4.0` from
-[`v5.2.1`](https://github.com/tolstik/amigo/releases/tag/v5.2.1):
-[`Amigo-1.4.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.1/Amigo-1.4.0.apk),
-SHA-256 `4a3a083c2b5c54482d2393526c0e6775087df53a0d3f6d6f9f568e80db32f995`,
-size `3,504,370` bytes.
+The previous published release is `1.4.1` from
+[`v5.2.2`](https://github.com/tolstik/amigo/releases/tag/v5.2.2):
+[`Amigo-1.4.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.2/Amigo-1.4.1.apk),
+SHA-256 `fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5`,
+size `3,520,750` bytes.
 
 ## Dashboard tab
 
@@ -201,3 +201,12 @@ metric/range. Identical replay/reconciliation is a structural no-op and does not
 request another AI analysis. Authentication expiry remains visible and sends a
 deduplicated server alert; explicit logout disables cloud precedence and clears
 the encrypted local session.
+
+## Pool swimming in 1.5.0
+
+Version 1.5.0 (code 17) adds `/amigo/swimming` to the exact dashboard allowlist
+and removes laboratory panel comparison. The exercise importer recognizes the
+verified Xiaomi pool sport type, uploads bounded optional swimming summaries,
+and rereads exercise history once after upgrade without resetting pairing or
+other metric cursors. See [the swimming contract](../docs/xiaomi-swimming.md)
+for field provenance, units and unavailable-field handling.

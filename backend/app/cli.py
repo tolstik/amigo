@@ -56,6 +56,7 @@ def current_ai_analysis_ready(
         settings.tz,
         current,
         user_height_cm=settings.user_height_cm,
+        routine_context=True,
     )
     state = latest_analysis(db, now=current)
     if (
@@ -88,6 +89,7 @@ def prepare_current_ai_retry(
         settings.tz,
         current,
         user_height_cm=settings.user_height_cm,
+        routine_context=True,
     )
     digest = snapshot_hash(snapshot)
     processing = db.scalar(

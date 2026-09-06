@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import math
 import statistics
 from hashlib import sha256
@@ -17,6 +17,34 @@ from .health_analytics import activity_series, recovery_series
 from .lab_models import LabResult
 from .medication_models import Medication
 from .service import overview, pressure_series, weight_series
+
+
+ROUTINE_SERIES_DAYS = 28
+ROUTINE_LAB_RESULTS = 24
+
+
+def _routine_laboratory_rows(rows: list[LabResult]) -> list[LabResult]:
+    """Select recent distinct results without letting repeated panels fill the context."""
+    if not rows:
+        return []
+    cutoff = max(row.observed_on for row in rows) - timedelta(days=89)
+    latest: dict[tuple, LabResult] = {}
+    for row in rows:  # The query orders by measurement date, creation time, and ID.
+        if row.observed_on < cutoff:
+            continue
+        identity = (
+            row.analyte_id or " ".join(row.analyte_name.casefold().split()),
+            row.specimen,
+            row.method,
+            row.unit,
+        )
+        latest.setdefault(identity, row)
+    attention = {"below_reference", "above_reference", "outside_reference"}
+    candidates = list(latest.values())
+    # Stable sorting retains the newest-first query order within each group.
+    candidates.sort(key=lambda row: row.status not in attention)
+    selected = {row.id for row in candidates[:ROUTINE_LAB_RESULTS]}
+    return [row for row in rows if row.id in selected]
 
 
 def _number(value: Any) -> float | int | None:
@@ -124,6 +152,7 @@ def build_analysis_snapshot(
     now: datetime | None = None,
     *,
     user_height_cm: float = 176.0,
+    routine_context: bool = False,
 ) -> AnalysisSnapshot:
     current = now or datetime.now(timezone.utc)
     current = current.replace(tzinfo=timezone.utc) if current.tzinfo is None else current
@@ -281,6 +310,20 @@ def build_analysis_snapshot(
         ),
     ]
 
+    if routine_context:
+        cutoff = today - timedelta(days=ROUTINE_SERIES_DAYS - 1)
+        recent_series = []
+        for item in series_candidates:
+            if item is None:
+                continue
+            points = [point for point in item.points if cutoff <= point.day <= today]
+            if points:
+                recent_series.append(item.model_copy(update={
+                    "key": item.key.removesuffix("90d") + "28d",
+                    "points": points,
+                }))
+        series_candidates = recent_series
+
     source_candidates = [
         _timestamp(weight.get("latest_at")),
         _timestamp(pressure.get("latest_at")),
@@ -308,10 +351,19 @@ def build_analysis_snapshot(
         db.scalars(
             select(LabResult)
             .where(LabResult.deleted.is_(False), LabResult.observed_on.is_not(None))
-            .order_by(LabResult.observed_on.desc(), LabResult.created_at.desc())
+            .order_by(LabResult.observed_on.desc(), LabResult.created_at.desc(), LabResult.id.desc())
             .limit(240)
         )
     )
+    # Preserve the full input watermark so narrowing evidence cannot move the
+    # current cache behind an older result with the same prompt contract.
+    source_candidates.extend(
+        row.updated_at.astimezone(timezone.utc)
+        for row in laboratory_rows
+        if row.updated_at is not None
+    )
+    if routine_context:
+        laboratory_rows = _routine_laboratory_rows(laboratory_rows)
     laboratory = [
         SnapshotLabResult(
             key=f"lab.{sha256(row.id.encode()).hexdigest()[:20]}",
@@ -330,11 +382,6 @@ def build_analysis_snapshot(
         )
         for row in reversed(laboratory_rows)
     ]
-    source_candidates.extend(
-        row.updated_at.astimezone(timezone.utc)
-        for row in laboratory_rows
-        if row.updated_at is not None
-    )
     source_through = max((value for value in source_candidates if value is not None), default=current)
     if not facts and not any(series_candidates) and not laboratory:
         facts.append(
@@ -374,6 +421,7 @@ def enqueue_current_analysis(
         settings.tz,
         now,
         user_height_cm=settings.user_height_cm,
+        routine_context=True,
     )
     return enqueue_analysis(
         db,

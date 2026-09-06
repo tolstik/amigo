@@ -20,6 +20,7 @@ from app.ai_contracts import (
     SnapshotLabResult,
     SnapshotPoint,
     SnapshotSeries,
+    canonical_snapshot_payload,
     snapshot_hash,
 )
 from app.ai_gateway import (
@@ -37,6 +38,7 @@ from app.ai_gateway import (
     create_app,
 )
 from app.lab_contracts import AnalyteGuideQuery, GatewayAnalyteGuideRequest, GatewayChatRequest
+from app.ai_smoke import synthetic_request
 
 
 NOW = datetime(2026, 8, 19, 18, 0, tzinfo=timezone.utc)
@@ -462,3 +464,26 @@ def test_gateway_normalizes_unknown_execution_code_before_http_and_logs(
     assert response.json() == {"detail": "internal"}
     assert "private generated output" not in caplog.text
     assert "code=internal" in caplog.text
+
+
+@pytest.mark.parametrize("analysis_request", [request_payload(), synthetic_request(NOW)])
+def test_analysis_prompt_tables_preserve_every_snapshot_value_and_hash(analysis_request):
+    before = analysis_request.snapshot.model_dump(mode="json")
+    original_hash = snapshot_hash(analysis_request.snapshot)
+    prompt = build_analysis_prompt(analysis_request)
+    payload = json.loads(prompt.split("Snapshot JSON:\n", 1)[1])
+
+    def expand(table):
+        if not table:
+            return []
+        return [dict(zip(table["columns"], row, strict=True)) for row in table["rows"]]
+
+    payload["facts"] = expand(payload["facts"])
+    payload["labs"] = expand(payload["labs"])
+    for series in payload["series"]:
+        series["points"] = expand(series["points"])
+
+    assert payload == canonical_snapshot_payload(analysis_request.snapshot)
+    assert analysis_request.snapshot.model_dump(mode="json") == before
+    assert snapshot_hash(analysis_request.snapshot) == original_hash == analysis_request.snapshot_hash
+    assert len(prompt.encode("utf-8")) < 40_000

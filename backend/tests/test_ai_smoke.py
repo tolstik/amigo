@@ -27,19 +27,37 @@ def _response_payload(snapshot_hash: str) -> dict:
         analysis={
             "headline": "Проверка контура выполнена",
             "summary": "Синтетический сигнал обработан.",
-            "observations": [],
-            "recommendations": [],
+            "observations": [{
+                "title": "Проверить синтетический результат",
+                "text": "Непроверенный маркер 3 находится вне указанного интервала 0–2.",
+                "scope": "laboratory", "tone": "neutral",
+                "evidence_keys": ["labs.synthetic0"],
+            }],
+            "recommendations": [{
+                "title": "Повторить измерение",
+                "text": "Повторите измерение в течение недели и ведите дневник.",
+                "scope": "measurement", "evidence_keys": ["pressure.systolic_latest"],
+            }, {
+                "title": "Повторно сверить результат",
+                "text": "В течение недели повторно сверьте непроверенный результат с бланком.",
+                "scope": "laboratory", "evidence_keys": ["labs.synthetic0"],
+            }],
             "confidence": "low",
             "limitations": ["Это техническая проверка без данных о здоровье."],
         },
     ).model_dump(mode="json")
 
 
-def test_synthetic_request_contains_no_health_observations() -> None:
+def test_synthetic_request_exercises_routine_sized_manufactured_context() -> None:
     request = synthetic_request(datetime(2026, 8, 19, 8, tzinfo=timezone.utc))
 
-    assert [fact.key for fact in request.snapshot.facts] == ["quality.runtime_smoke"]
-    assert request.snapshot.series == []
+    assert len(request.snapshot.facts) == 31
+    assert len(request.snapshot.series) == 10
+    assert all(len(series.points) == 28 for series in request.snapshot.series)
+    assert len(request.snapshot.labs) == 24
+    assert all("Синтетический" in result.analyte for result in request.snapshot.labs)
+    assert all(not result.verified for result in request.snapshot.labs)
+    assert any(result.status == "above_reference" for result in request.snapshot.labs)
 
 
 def test_synthetic_lab_and_chat_requests_contain_only_contract_fixtures() -> None:

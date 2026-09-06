@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 
@@ -13,7 +13,11 @@ from .ai_contracts import (
     GatewayAnalyzeRequest,
     GatewayAnalyzeResponse,
     SnapshotFact,
+    SnapshotLabResult,
+    SnapshotPoint,
+    SnapshotSeries,
     snapshot_hash,
+    validate_analysis_evidence,
 )
 from .config import get_settings
 from .lab_contracts import (
@@ -35,20 +39,56 @@ ASSISTANT_SMOKE_ATTEMPTS = 2
 
 
 def synthetic_request(now: datetime | None = None) -> GatewayAnalyzeRequest:
-    """Build a contract-only probe that never contains personal health data."""
+    """Exercise a bounded routine-sized context using only manufactured fixtures."""
 
     current = now or datetime.now(timezone.utc)
+    facts = [
+        SnapshotFact(
+            key=f"quality.synthetic{index}", scope="quality", period="current",
+            value=True, unit="boolean", observed_on=current.date(),
+        )
+        for index in range(26)
+    ]
+    for key, scope, value, unit in (
+        ("weight.latest", "weight", 90, "kg"),
+        ("pressure.systolic_latest", "pressure", 125, "mmhg"),
+        ("pressure.diastolic_latest", "pressure", 80, "mmhg"),
+        ("heart.average_latest", "heart", 72, "bpm"),
+        ("activity.steps_7d", "activity", 7000, "steps"),
+    ):
+        facts.append(SnapshotFact(
+            key=key, scope=scope, period="current", value=value, unit=unit,
+            observed_on=current.date(),
+        ))
     snapshot = AnalysisSnapshot(
         source_through=current,
-        facts=[
-            SnapshotFact(
-                key="quality.runtime_smoke",
-                scope="quality",
-                period="current",
-                value=True,
-                unit="boolean",
-                observed_on=current.date(),
+        facts=facts,
+        series=[
+            SnapshotSeries(
+                key=f"activity.synthetic{index}", scope="activity", unit="steps",
+                points=[
+                    SnapshotPoint(
+                        day=current.date() - timedelta(days=offset),
+                        value=6000 + ((offset + index) % 7) * 100,
+                    )
+                    for offset in range(28)
+                ],
             )
+            for index in range(10)
+        ],
+        labs=[
+            SnapshotLabResult(
+                key=f"labs.synthetic{index}",
+                analyte="Синтетический лабораторный маркер качества",
+                value_numeric=3 if index % 20 == 0 else 1,
+                unit="unit", observed_on=current.date() - timedelta(days=index // 10),
+                reference_low=0, reference_high=2,
+                reference_text="Синтетический диапазон качества 0–2; не данные пациента",
+                reference_source="laboratory",
+                status="above_reference" if index % 20 == 0 else "within_reference",
+                verified=False,
+            )
+            for index in range(24)
         ],
     )
     return GatewayAnalyzeRequest(
@@ -166,6 +206,7 @@ def run_smoke() -> GatewayAnalyzeResponse:
     )
     try:
         parsed = GatewayAnalyzeResponse.model_validate(response.json())
+        validate_analysis_evidence(parsed.analysis, request.snapshot)
     except (ValueError, TypeError) as exc:
         raise RuntimeError("AI gateway smoke response failed schema validation") from exc
     if parsed.snapshot_hash != request.snapshot_hash:

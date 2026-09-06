@@ -77,7 +77,7 @@ def test_current_ai_analysis_ready_requires_exact_current_sol_v2_result(db, monk
 def test_current_ai_analysis_ready_fails_closed_when_empty_snapshot_time_changes(
     db, monkeypatch
 ):
-    def empty_snapshot(_db, _tz, now, *, user_height_cm):
+    def empty_snapshot(_db, _tz, now, *, user_height_cm, routine_context=False):
         return AnalysisSnapshot(
             source_through=now,
             facts=[

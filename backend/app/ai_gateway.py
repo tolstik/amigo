@@ -34,7 +34,7 @@ from .ai_contracts import (
     AnalysisSnapshot,
     GatewayAnalyzeRequest,
     GatewayAnalyzeResponse,
-    canonical_snapshot_json,
+    canonical_snapshot_payload,
     snapshot_evidence_keys,
     snapshot_attention_laboratory_evidence_keys,
     snapshot_laboratory_evidence_keys,
@@ -193,8 +193,25 @@ def build_chat_output_schema(request: GatewayChatRequest) -> dict[str, Any]:
     return schema
 
 
+def _prompt_table(rows: list[dict[str, Any]]) -> list | dict[str, Any]:
+    if not rows:
+        return []
+    columns = sorted(rows[0])
+    return {"columns": columns, "rows": [[row[key] for key in columns] for row in rows]}
+
+
+def _analysis_prompt_snapshot(snapshot: AnalysisSnapshot) -> str:
+    """Remove repeated field names only; the immutable snapshot/hash stay unchanged."""
+    payload = canonical_snapshot_payload(snapshot)
+    payload["facts"] = _prompt_table(payload["facts"])
+    payload["labs"] = _prompt_table(payload["labs"])
+    for series in payload["series"]:
+        series["points"] = _prompt_table(series["points"])
+    return json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+
+
 def build_analysis_prompt(request: GatewayAnalyzeRequest) -> str:
-    snapshot = canonical_snapshot_json(request.snapshot)
+    snapshot = _analysis_prompt_snapshot(request.snapshot)
     evidence_keys = json.dumps(
         sorted(snapshot_evidence_keys(request.snapshot)),
         ensure_ascii=False,
@@ -262,6 +279,8 @@ Evidence and medical boundaries:
   `laboratory`, `measurement`, or `medical` recommendation with a concrete verification, repeat
   testing, or clinician-discussion step and a realistic review period. Never assert a cause from
   one result and never use a generic population range in place of the supplied report range.
+- Laboratory context is a bounded recent selection, not the full archive. Never infer that other
+  results do not exist. Daily series include only their supplied dates; do not extend their ranges.
 - `observed_on` is the actual measurement date. Describe a latest/current fact as "last
   available" when it has `observed_on`; never imply that it is fresher than that date or carry an
   older value forward as today's measurement. Do not infer freshness by comparing unrelated
@@ -314,6 +333,9 @@ Attention laboratory evidence keys: {attention_laboratory_evidence_keys}
 Contract version: {AI_PROMPT_VERSION}
 Model: {AI_MODEL}
 Snapshot SHA-256: {request.snapshot_hash}
+Some arrays below use lossless tables: {{"columns": [...], "rows": [...]}}. Each row cell maps
+to the column at the same index; null remains an absent value. The key column contains the exact
+evidence key. This representation omits no values or dates from the supplied immutable snapshot.
 Snapshot JSON:
 {snapshot}
 """

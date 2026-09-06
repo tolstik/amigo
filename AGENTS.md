@@ -227,7 +227,16 @@
   deep-link target available or unavailable.
 - The routine health-analysis boundary sends minimized, identifier-free derived
   facts and bounded daily aggregate series to the pinned Codex CLI using the
-  fixed `gpt-5.6-sol` model. With explicit `amigo-ai-data-v1` consent, laboratory
+  fixed `gpt-5.6-sol` model. Routine context keeps all existing derived facts,
+  daily points from the latest 28 Moscow calendar days, and at most 24 latest
+  distinct laboratory results from the 90 days ending on the latest available
+  laboratory date. It selects within the existing 240-row candidate bound,
+  prefers supplied reference deviations, and distinguishes analyte, specimen,
+  method, and unit. The complete source freshness watermark, full assistant
+  context, and immutable historical snapshots retain their existing contracts.
+  Prompt-only tables remove repeated field names losslessly; stored/API snapshots
+  and their hashes keep the canonical object representation. With explicit
+  `amigo-ai-data-v1` consent, laboratory
   extraction and assistant turns may also send full OCR text, the question, and
   locally selected relevant chunks to OpenAI inference. AI runs asynchronously;
   authenticated GET handlers only read PostgreSQL and never call Codex or enqueue
@@ -249,6 +258,9 @@
   invalid/error assistant result may be attempted exactly once more with
   `attempt=2`, and the second result must validate fully. Gateway/parser health
   alone is not release readiness.
+  The analysis fixture must exercise a routine-sized manufactured context with
+  laboratory deviations and medical evidence, and validate citations and bounded
+  recommendations; a lone boolean probe does not establish analysis readiness.
 - AI prompt contract `amigo-health-v4` requires concrete actions, a cadence or
   review period, and cited metric evidence; recommendations are shown before
   general observations in Telegram and on the overview dashboard. When any

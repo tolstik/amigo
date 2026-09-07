@@ -341,12 +341,12 @@ test("renders the overview and navigates to pressure", async ({ page }) => {
   const candleChart = page.getByRole("img", { name: /^Свечной график дневных изменений веса/ });
   await expect(candleChart.locator("canvas").first()).toBeVisible();
   await expect(page.locator(".chart-card").last()).toContainText("Дневные изменения веса");
-  await page.getByText("Показать дневные изменения (3)").click();
+  await page.getByText("Показать дневные изменения (4)").click();
   const candleTable = page.getByRole("table", { name: "Дневные свечи веса по московскому времени" });
   await expect(candleTable).toContainText("−0,30 кг");
   await expect(candleTable).toContainText("+0,20 кг");
   await expect(candleTable).toContainText("−0,20 кг");
-  await expect(page.locator(".chart-card").last()).toContainText("Последние 7 дней");
+  await expect(page.locator(".chart-card").last()).toContainText("Последние 90 дней");
   await page.getByRole("link", { name: "Давление", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Статистика давления" })).toBeVisible();
   await expect(page.getByText("122 / 78").first()).toBeVisible();

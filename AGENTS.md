@@ -123,11 +123,11 @@
 - Overview actual progress and change since program start use the latest Withings
   measurement. Planned progress uses the current Moscow date and the existing
   calendar-month plan; trend/forecast/AI evidence keep their smoothed contracts.
-- The overview weight-candle chart shows exactly the latest seven Moscow
+- The overview weight-candle chart shows exactly the latest 90 Moscow
   calendar days, including today. Each candle body spans the last weight of the
   previous measured day to the last weight of the current day, including when
   there is only one weighing per day. Calculate the preceding weight before
-  trimming the visible week. Missing days stay empty; after a gap, identify the
+  trimming the visible period. Missing days stay empty; after a gap, identify the
   actual comparison date rather than implying a one-day change.
 - The swimming section publishes only finalized active Xiaomi pool-swimming
   exercise summaries. Sport type 9 is pool and 10 is open water; unspecified

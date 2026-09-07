@@ -14,9 +14,11 @@ const moscowDay = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit",
 });
 
+export const WEIGHT_CANDLE_DAYS = 90;
+
 export function weightCandleDates(asOf: string): string[] {
   const today = Date.parse(moscowDay.format(new Date(asOf)));
-  return Array.from({ length: 7 }, (_, index) => new Date(today - (6 - index) * 86_400_000).toISOString().slice(0, 10));
+  return Array.from({ length: WEIGHT_CANDLE_DAYS }, (_, index) => new Date(today - (WEIGHT_CANDLE_DAYS - 1 - index) * 86_400_000).toISOString().slice(0, 10));
 }
 
 export function dailyWeightCandles(points: WeightRawPoint[], asOf: string): DailyWeightCandle[] {
@@ -40,7 +42,7 @@ export function dailyWeightCandles(points: WeightRawPoint[], asOf: string): Dail
     }
   }
   const orderedDays = [...days.values()];
-  // Establish the previous measured day's close before trimming the visible week.
+  // Establish the previous measured day's close before trimming the visible period.
   // One weighing per day must still produce a body spanning the entire change.
   orderedDays.forEach((day, index) => {
     const previous = orderedDays[index - 1];
@@ -48,7 +50,7 @@ export function dailyWeightCandles(points: WeightRawPoint[], asOf: string): Dail
     day.previousDate = previous?.date ?? null;
   });
   const dates = weightCandleDates(asOf);
-  return orderedDays.filter((day) => day.date >= dates[0] && day.date <= dates[6]);
+  return orderedDays.filter((day) => day.date >= dates[0] && day.date <= dates[WEIGHT_CANDLE_DAYS - 1]);
 }
 
 export function weightCandleChange(point: DailyWeightCandle): number | null {

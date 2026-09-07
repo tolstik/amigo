@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { WeightRawPoint } from "../api/types";
 import { dailyWeightChartOption } from "../charts/options";
-import { dailyWeightCandles } from "../charts/weightCandles";
+import { dailyWeightCandles, WEIGHT_CANDLE_DAYS } from "../charts/weightCandles";
 import { ChartCard } from "./ChartCard";
 import { WeightCandlesTable } from "./DataTables";
 import { EmptyState } from "./AsyncState";
@@ -9,13 +9,13 @@ import { EmptyState } from "./AsyncState";
 export function WeightCandlestickChart({ points, asOf }: { points: WeightRawPoint[]; asOf: string }) {
   const candles = useMemo(() => dailyWeightCandles(points, asOf), [points, asOf]);
   const option = useMemo(() => dailyWeightChartOption(candles, asOf), [candles, asOf]);
-  if (!candles.length) return <EmptyState title="За последние 7 дней нет замеров веса" text="Свечи появятся после следующего взвешивания и синхронизации Withings." />;
+  if (!candles.length) return <EmptyState title={`За последние ${WEIGHT_CANDLE_DAYS} дней нет замеров веса`} text="Свечи появятся после следующего взвешивания и синхронизации Withings." />;
   return (
     <ChartCard
       title="Дневные изменения веса"
-      subtitle="Последние 7 дней · изменение от предыдущего веса к текущему · Withings · МСК"
+      subtitle={`Последние ${WEIGHT_CANDLE_DAYS} дней · изменение от предыдущего веса к текущему · Withings · МСК`}
       option={option}
-      ariaLabel="Свечной график дневных изменений веса за последние 7 дней: от предыдущего веса к текущему в килограммах"
+      ariaLabel={`Свечной график дневных изменений веса за последние ${WEIGHT_CANDLE_DAYS} дней: от предыдущего веса к текущему в килограммах`}
       height={360}
       footer={
         <>

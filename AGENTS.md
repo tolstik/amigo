@@ -403,3 +403,14 @@
 - Previous-release recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh /srv/amigo-rollbacks/20260907T140045Z`
 - Legacy disaster fallback command: `sudo /srv/amigo/deploy/rollback.sh --to-legacy /srv/amigo-rollbacks/20260907T140045Z`
 <!-- END AMIGO PRODUCTION CHECKPOINT -->
+
+## Latest release attempt: candle autoscaling
+
+- Checked at: `2026-09-07T14:24:33Z`.
+- Candidate `ffd5f17de4ea5b0cc06044a117e2ac5d79b9bf40` is **not deployed**. It fits the candle date axis to the first and last remaining measurements within the latest 90 Moscow days and retains the July 31 display exclusion. Local build, 60 frontend tests, desktop/mobile browser checks and all CI jobs passed.
+- Both guarded deployment attempts used `--skip-telegram-test` with automatic recovery enabled. The first assistant smoke exhausted its one permitted retry; the second deployment stopped when the analysis smoke returned HTTP 502. No readiness checks were disabled.
+- Verified attempt snapshots: `/srv/amigo-rollbacks/20260907T141220Z` and `/srv/amigo-rollbacks/20260907T141946Z` (latest).
+- Both attempts automatically restored runtime `3cd082c1427cc90cf7a34803bbf9100e4a734e7f`. Application image ID remains `sha256:8db6367257b4eac04b3da563845121ee90ba67b2b48c34a19e0532459dab5e2a`; PostgreSQL image ID remains `sha256:1bea307dfb3ee30541a7acf7de14b58bcd6948da98e5d31a04c627c4d35ec64b`. The existing PostgreSQL volume was preserved, no dump was restored, and legacy collection stayed disabled.
+- Recovery verification: all seven Amigo services healthy; public `https://amigo.tolstik.ru/amigo/` returns HTTP 200 and the restored `index-tPOb8avT.js` asset; unauthenticated overview returns HTTP 401. This recovery check does not replace the last full production checkpoint above.
+- Latest recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh /srv/amigo-rollbacks/20260907T141946Z`.
+- A future deployment must use the current `origin/main` descendant through the guarded wrapper and pass the complete AI readiness suite. The last successful checkpoint remains the source of verified runtime facts.

@@ -5,6 +5,25 @@ import { dailyWeightCandles, weightCandleChange, weightCandleDates } from "./wei
 const asOf = "2026-09-07T12:00:00Z";
 
 describe("daily weight candles", () => {
+  it("excludes July 31 Moscow measurements from candles and subsequent comparisons without changing source data", () => {
+    const raw = [
+      { measuredAt: "2026-07-30T20:59:59Z", valueKg: 126 },
+      { measuredAt: "2026-07-30T21:00:00Z", valueKg: 124 },
+      { measuredAt: "2026-07-31T20:59:59Z", valueKg: 123 },
+      { measuredAt: "2026-07-31T21:00:00Z", valueKg: 125.5 },
+    ];
+    const original = structuredClone(raw);
+    const candles = dailyWeightCandles(raw, asOf);
+    expect(candles.map(point => point.date)).toEqual(["2026-07-30", "2026-08-01"]);
+    expect(candles[1]).toMatchObject({ previousDate: "2026-07-30", previousKg: 126, lastKg: 125.5 });
+    expect(weightCandleChange(candles[1])).toBe(-0.5);
+    const option = dailyWeightChartOption(candles, asOf) as any;
+    expect(option.series[0].data[option.xAxis.data.indexOf("2026-07-31")]).toEqual(["-", "-", "-", "-"]);
+    expect(option.series[0].data[option.xAxis.data.indexOf("2026-08-01")]).toEqual([126, 125.5, 125.5, 126]);
+    expect(dailyWeightCandles(raw.slice(1), asOf)[0].previousKg).toBeNull();
+    expect(raw).toEqual(original);
+  });
+
   it("spans the full change between single daily weighings, including the anchor outside the period", () => {
     const candles = dailyWeightCandles([
       { measuredAt: "2026-06-09T06:00:00Z", valueKg: 125.9 },

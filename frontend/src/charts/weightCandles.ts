@@ -28,6 +28,8 @@ export function dailyWeightCandles(points: WeightRawPoint[], asOf: string): Dail
   const days = new Map<string, DailyWeightCandle>();
   for (const point of ordered) {
     const date = moscowDay.format(new Date(point.measuredAt));
+    // User-requested exclusion for this chart, including subsequent comparisons.
+    if (date === "2026-07-31") continue;
     const day = days.get(date);
     if (day) {
       day.lastKg = point.valueKg;

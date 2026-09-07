@@ -129,6 +129,9 @@
   there is only one weighing per day. Calculate the preceding weight before
   trimming the visible period. Missing days stay empty; after a gap, identify the
   actual comparison date rather than implying a one-day change.
+  At the user's request, omit measurements on `2026-07-31` (Moscow date) from
+  this chart and its table before computing comparison weights. This display
+  exclusion must not change stored measurements or other weight consumers.
 - The swimming section publishes only finalized active Xiaomi pool-swimming
   exercise summaries. Sport type 9 is pool and 10 is open water; unspecified
   swimming is excluded. Android 1.5.0 (versionCode 17) rereads only exercise

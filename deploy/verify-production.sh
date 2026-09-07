@@ -492,10 +492,8 @@ LAB_DATE_STATE="$(
 [[ "${LAB_DATE_STATE}" == "0|0" ]] \
     || amigo_die "implausible laboratory dates remain after deterministic repair"
 
-ANALYTE_GUIDES_READY=0
-for _guide_wait in {1..36}; do
-    ANALYTE_GUIDE_STATE="$(
-        amigo_compose exec -T ai-worker python -c '
+ANALYTE_GUIDE_STATE="$(
+    amigo_compose exec -T ai-worker python -c '
 from sqlalchemy import func, select
 from app.db import SessionLocal
 from app.lab_contracts import LAB_ANALYTE_GUIDE_PROMPT_VERSION
@@ -509,20 +507,11 @@ with SessionLocal() as db:
     generated = db.scalar(select(func.count()).select_from(LabAnalyteGuide).where(LabAnalyteGuide.contract_version == LAB_ANALYTE_GUIDE_PROMPT_VERSION)) or 0
     print(f"{missing}|{active}|{failed}|{generated}")
 '
-    )"
-    if [[ "${ANALYTE_GUIDE_STATE}" =~ ^0\|0\|0\|[0-9]+$ ]] \
-        || [[ "${ANALYTE_GUIDE_STATE}" =~ ^[0-9]+\|[0-9]+\|0\|[1-9][0-9]*$ ]]; then
-        ANALYTE_GUIDES_READY=1
-        break
-    fi
-    if [[ "${ANALYTE_GUIDE_STATE}" =~ ^[0-9]+\|[0-9]+\|[1-9][0-9]*\|[0-9]+$ ]]; then
-        amigo_die "analyte guide backfill reached a terminal failure"
-    fi
-    sleep 5
-done
-[[ ${ANALYTE_GUIDES_READY} -eq 1 ]] \
-    || amigo_die "analyte guide backfill made no verified progress within three minutes"
-amigo_log "PASS database-owned originals, repaired laboratory dates, bounded analyte-guide backfill progress, and signed Android 1.5.1 artifact"
+)"
+[[ "${ANALYTE_GUIDE_STATE}" =~ ^[0-9]+\|[0-9]+\|[0-9]+\|[0-9]+$ ]] \
+    || amigo_die "analyte guide queue state is malformed"
+amigo_log "INFO analyte guide counts (missing|active|failed|generated): ${ANALYTE_GUIDE_STATE}; generation does not gate deployment"
+amigo_log "PASS database-owned originals, repaired laboratory dates, and signed Android 1.5.1 artifact"
 
 check_loopback_listener() {
     local port=$1
@@ -861,8 +850,22 @@ elif contract == "data-quality":
     ):
         raise SystemExit("data-quality step-day source contract is invalid")
 elif contract == "ai":
-    if payload.get("ai_generated") is not True or payload.get("status") != "fresh":
-        raise SystemExit("AI payload is not a fresh generated result")
+    if payload.get("ai_generated") is not True or payload.get("status") not in {
+        "fresh", "stale", "pending", "unavailable"
+    }:
+        raise SystemExit("AI payload has an invalid generation state")
+    if payload["status"] in {"pending", "unavailable"}:
+        if (
+            any(payload.get(key) is not None for key in (
+                "analysis_id", "headline", "summary", "confidence", "generated_at",
+                "data_as_of", "model", "prompt_version"
+            ))
+            or any(payload.get(key) != [] for key in ("insights", "recommendations", "limitations"))
+            or payload.get("evidence") != {}
+        ):
+            raise SystemExit("AI without a validated result exposes analysis content")
+        print("PASS AI API reports no ready analysis; background generation does not gate deployment")
+        raise SystemExit(0)
     if payload.get("prompt_version") != "amigo-health-v4":
         raise SystemExit("AI payload does not use amigo-health-v4")
     if payload.get("model") != "gpt-5.6-sol":
@@ -873,7 +876,10 @@ elif contract == "ai":
     evidence = payload.get("evidence")
     if not isinstance(evidence, dict) or not evidence:
         raise SystemExit("AI payload has no stable evidence descriptors")
-    for item in [*payload.get("insights", []), *recommendations]:
+    insights = payload.get("insights")
+    if not isinstance(insights, list) or not isinstance(payload.get("analysis_id"), int):
+        raise SystemExit("AI result identity or insights contract is incomplete")
+    for item in [*insights, *recommendations]:
         keys = item.get("evidence_ids") if isinstance(item, dict) else None
         if not isinstance(keys, list) or not keys or any(key not in evidence for key in keys):
             raise SystemExit("AI item does not resolve every evidence ID")
@@ -907,9 +913,12 @@ elif contract in {"documents", "lab-summary", "analytes", "assistant", "tasks"}:
                 raise SystemExit("assistant stable evidence snapshot is inconsistent")
         recommendations = payload["recommendations"]
         evidence = payload.get("evidence")
+        if not recommendations:
+            if payload.get("analysis_id") is not None or evidence != {}:
+                raise SystemExit("assistant without recommendations exposes analysis evidence")
+            raise SystemExit(0)
         if (
-            not recommendations
-            or not isinstance(payload.get("analysis_id"), int)
+            not isinstance(payload.get("analysis_id"), int)
             or not isinstance(evidence, dict)
             or not evidence
         ):
@@ -1005,7 +1014,7 @@ curl --config "${AUTH_CURL_CONFIG}" \
     "${AMIGO_PUBLIC_URL}api/v1/export/weight.csv"
 [[ -s "${CSV_BODY}" ]] || amigo_die "authenticated CSV export is empty"
 require_header '^content-type:[[:space:]]*text/csv' "${CSV_HEADERS}"
-amigo_log "PASS authenticated dashboard, data quality, tasks, lab/study, analyte guide, updater, stable AI evidence, and CSV contracts"
+amigo_log "PASS authenticated dashboard, data quality, tasks, lab/study, analyte guide, updater, AI availability and published evidence, and CSV contracts"
 
 install -o root -g root -m 0600 /dev/null "${UNSUPPORTED_FILE}"
 CSRF_REJECTION_STATUS="$(

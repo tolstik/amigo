@@ -350,23 +350,22 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    TSV не переписывается.
 6. Запуск `web` без workers, direct health на `127.0.0.1:18181` и атомарная
    установка проверенного APK `1.5.1` в root-only Android directory.
-7. Запуск изолированных `ai-gateway` и `lab-parser`; synthetic smoke через
-   `ai-worker` последовательно проверяет live-контракты analysis, laboratory
-   extraction, analyte guide и assistant turn, включая auth, sandbox, model,
-   strict JSON schema и streaming completion, без реальных health data или
-   персонального контекста. Analysis, laboratory extraction и analyte guide
-   выполняются один раз. Только invalid/error assistant
-   result получает ровно одну повторную попытку с `attempt=2`; второй ответ
-   обязан полностью пройти schema, evidence и medical-safety validation.
+7. Запуск изолированных `ai-gateway` и `lab-parser` с проверкой health.
+   Live-генерация ИИ не является условием разработки или deployment.
+   `python -m app.ai_smoke` остаётся отдельной необязательной диагностикой
+   на неперсональных fixtures для analysis, laboratory extraction,
+   analyte guide и assistant turn. При ручном запуске первые три контракта
+   выполняются один раз; только invalid/error assistant result получает
+   одну повторную попытку с `attempt=2` и полной валидацией результата.
    Routine health analysis имеет отдельный bounded Codex deadline 150 секунд и
    worker HTTP timeout 180 секунд; extraction, analyte-guide и assistant
    сохраняют 75-секундный Codex deadline.
 8. При всё ещё остановленном persistent `ai-worker` один
-   `ai-retry-current --worker-stopped` готовит exact current job. `ai-ready`
-   принимает только `0` (готово) или `75` (ещё не готово); любой другой exit
-   fatal. Выполняется не более четырёх foreground one-shot workers, и только
-   между неуспешными попытками 1–3 вызывается `ai-enqueue` для снятия backoff.
-   Тройной gateway smoke/retry не повторяется.
+   `ai-retry-current --worker-stopped` готовит current job для фоновой
+   обработки. Deployment не запускает foreground generation и не ждёт
+   `ai-ready`, свежего анализа или прогресса генерации справок.
+   Состояния AI API `pending`, `unavailable` и `stale` не вызывают откат.
+   Опубликованные результаты и их immutable evidence продолжают проверяться.
 9. Запуск `ingest`, затем атомарная установка nginx route. Общий prefix
    разрешает только `GET`/`HEAD`/`OPTIONS`; exact
    auth/profile/data-quality/labs/studies/tasks/doctor-report/assistant
@@ -450,7 +449,7 @@ AI job создаётся после новых Withings/Health Connect данн
 Это только представление промпта: значения, даты, единицы и evidence keys
 восстанавливаются без потерь; JSON snapshot в PostgreSQL/API и его hash остаются
 каноническими. Дедлайн анализа остаётся 150 секунд, клиентский — 180 секунд,
-release readiness по-прежнему допускает не более четырёх попыток.
+готовность нового результата не блокирует deployment.
 
 При подготовке выпуска 6 сентября 2026 года большой синтетический запрос
 воспроизвёл `Incomplete response returned, reason: max_output_tokens`.
@@ -766,12 +765,11 @@ sudo bash /srv/amigo/deploy/verify-production.sh
   40-page/10-MiB и hours-on-sleep-scale checks, затем удаляется;
 - active finalized Xiaomi-only selector для steps во всех shared analytics
   consumers; data-quality не публикует Health Connect step coverage, но
-  rollback rows остаются в PostgreSQL; AI items разрешают каждый evidence ID в
+  rollback rows остаются в PostgreSQL; опубликованные AI items разрешают каждый evidence ID в
   descriptor из exact saved snapshot;
 - database-owned originals после проверенного backfill, отсутствие implausible
-  laboratory dates после deterministic repair, подтверждённый прогресс
-  ограниченного фонового backfill статей неизвестных analytes без terminal
-  failure текущего контракта и analyte guide contract,
+  laboratory dates после deterministic repair, диагностические агрегированные
+  counts фонового backfill без ожидания генерации и deterministic analyte guide contract,
   root-only dual-write lab storage, web RW/ai-worker RO/parser no-mount и
   внутренний parser health;
 - root-only signed APK `1.5.1`, точные hash/size, read-only web mount,
@@ -988,4 +986,4 @@ Checkpoint атомарно создаёт локальный documentation-only
 - Both attempts automatically restored runtime `3cd082c1427cc90cf7a34803bbf9100e4a734e7f`. Application image ID remains `sha256:8db6367257b4eac04b3da563845121ee90ba67b2b48c34a19e0532459dab5e2a`; PostgreSQL image ID remains `sha256:1bea307dfb3ee30541a7acf7de14b58bcd6948da98e5d31a04c627c4d35ec64b`. The existing PostgreSQL volume was preserved, no dump was restored, and legacy collection stayed disabled.
 - Recovery verification: all seven Amigo services healthy; public `https://amigo.tolstik.ru/amigo/` returns HTTP 200 and the restored `index-tPOb8avT.js` asset; unauthenticated overview returns HTTP 401. This recovery check does not replace the last full production checkpoint above.
 - Latest recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh /srv/amigo-rollbacks/20260907T141946Z`.
-- A future deployment must use the current `origin/main` descendant through the guarded wrapper and pass the complete AI readiness suite. The last successful checkpoint remains the source of verified runtime facts.
+- A future deployment must use the current `origin/main` descendant through the guarded wrapper. Live AI generation is no longer a release gate by explicit owner request; runtime health, isolation, published evidence validation, backups, and recovery remain mandatory. The last successful checkpoint remains the source of verified runtime facts.

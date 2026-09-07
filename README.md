@@ -379,10 +379,11 @@ all seven services, authentication, database-owned originals, the signed update
 artifact, laboratory/AI isolation boundaries, and authenticated
 HTTPS/API/upload/SSE contracts. GitHub Actions builds and publishes the tested
 immutable `ghcr.io/tolstik/amigo:GIT_SHA` image; the weak production server only
-pulls and verifies it. Before cutover the deploy's non-personal
-synthetic smoke exercises live analysis, laboratory-extraction, analyte-guide,
-and assistant-turn Codex contracts, then the release records deployed hashes
-after cutover.
+pulls and verifies it. Live AI generation, analysis freshness, and analyte-guide
+backfill progress do not gate development or deployment. AI runs in the
+background; service health, isolation, and validation of published evidence
+remain required. The non-personal synthetic AI smoke is available as a separate
+optional diagnostic. The release records deployed hashes after cutover.
 
 After the first interactive production cutover, repeat releases use the
 root-owned `/usr/local/sbin/amigo-release GIT_SHA MODE` wrapper. The sudoers

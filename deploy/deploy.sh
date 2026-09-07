@@ -364,58 +364,9 @@ ANDROID_APK_DOWNLOAD=""
 amigo_log "starting isolated Codex gateway and laboratory parser"
 amigo_compose up -d --wait --wait-timeout 180 ai-gateway lab-parser
 EXISTING_LAB_PARSER_STOPPED=0
-amigo_compose run --rm --no-deps ai-worker python -m app.ai_smoke
-
-amigo_log "preparing one exact current AI retry while the persistent AI worker is stopped"
+amigo_log "queuing one current AI retry for background processing; generation does not gate deployment"
 amigo_compose run --rm --no-deps ai-worker \
     python -m app.cli ai-retry-current --worker-stopped
-AI_ANALYSIS_READY=0
-for ai_attempt in {1..4}; do
-    if amigo_compose run --rm --no-deps ai-worker python -m app.cli ai-ready; then
-        ai_ready_status=0
-    else
-        ai_ready_status=$?
-    fi
-    case "${ai_ready_status}" in
-        0)
-            AI_ANALYSIS_READY=1
-            break
-            ;;
-        75)
-            ;;
-        *)
-            amigo_die "AI readiness check returned unexpected status ${ai_ready_status}"
-            ;;
-    esac
-
-    amigo_log "running bounded foreground AI analysis attempt ${ai_attempt}/4"
-    amigo_compose run --rm --no-deps \
-        --env AMIGO_WORKER_ONCE=true \
-        ai-worker python -m app.ai_worker
-
-    if amigo_compose run --rm --no-deps ai-worker python -m app.cli ai-ready; then
-        ai_ready_status=0
-    else
-        ai_ready_status=$?
-    fi
-    case "${ai_ready_status}" in
-        0)
-            AI_ANALYSIS_READY=1
-            break
-            ;;
-        75)
-            ;;
-        *)
-            amigo_die "AI readiness check returned unexpected status ${ai_ready_status}"
-            ;;
-    esac
-    if [[ ${ai_attempt} -lt 4 ]]; then
-        amigo_log "current AI result is not ready; removing retry backoff before the next attempt"
-        amigo_compose run --rm --no-deps ai-worker python -m app.cli ai-enqueue
-    fi
-done
-[[ ${AI_ANALYSIS_READY} -eq 1 ]] \
-    || amigo_die "current validated AI analysis was not ready after four foreground attempts"
 
 amigo_log "starting the signed Health Connect ingestion endpoint"
 amigo_compose up -d --wait --wait-timeout 180 ingest

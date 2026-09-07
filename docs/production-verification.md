@@ -56,10 +56,9 @@
       остановлены до migrations/one-shot jobs и восстановлены при ранней
       ошибке; нет двух процессов, параллельно ротирующих Withings OAuth.
 - [ ] Existing `ai-worker` останавливается с timeout 180 секунд. После остановки
-      ровно один `ai-retry-current --worker-stopped` предшествует AI attempts;
-      `ai-ready` принимает только exit `0/75`, foreground worker запускается не
-      более четырёх раз, а `ai-enqueue` выполняется только между failed attempts
-      1–3. Отдельного gateway retry loop нет.
+      ровно один `ai-retry-current --worker-stopped` готовит фоновую задачу.
+      Deployment не запускает live smoke/foreground generation и не ждёт
+      `ai-ready`. Готовность ИИ не является условием разработки или релиза.
 - [ ] `ai-gateway` использует отдельный 150-секундный deadline только для
       routine analysis; worker client ждёт не более 180 секунд, а laboratory,
       analyte-guide и assistant сохраняют 75-секундный Codex deadline.
@@ -115,9 +114,9 @@
       `http://lab-parser:8085`; override на внешний endpoint отклоняется fail-closed.
 - [ ] Pinned Codex binary на host и read-only mount в `ai-gateway` имеют ожидаемый
       SHA-256. Gateway health сообщает fixed model `gpt-5.6-sol` и
-      `amigo-health-v4`; synthetic `python -m app.ai_smoke` прошёл live analysis,
-      laboratory-extraction, analyte-guide и assistant-turn контракты без real
-      health data или персонального контекста.
+      `amigo-health-v4`. Synthetic `python -m app.ai_smoke` доступен отдельно
+      как необязательная диагностика на неперсональных fixtures;
+      успешная live-генерация не требуется для deployment.
 - [ ] `/srv/amigo/data/import/legacy-weight.tsv` root-owned, закрыт для group/world и
       смонтирован как read-only `/imports`.
 - [ ] `/srv/amigo/data/lab-files` — real root:root directory `0700`; `web` видит
@@ -128,10 +127,10 @@
 - [ ] После idempotent laboratory-date repair нет report/result с годом до
       1900 или более чем на год в будущем; исправление использовало только
       однозначно подписанные OCR-даты и не перезаписало ручные corrections.
-- [ ] Bounded backfill сохранил хотя бы одну статью текущего контракта либо уже
-      не имеет пропусков; текущая версия `lab_analyte_guide_jobs` не содержит
-      terminal failed rows. Остаток исторической очереди может обрабатываться
-      асинхронно пачками не более пяти.
+- [ ] Записаны только агрегированные counts фонового backfill текущего
+      контракта: missing/active/failed/generated. Pending и terminal failed
+      generation не блокируют релиз. Очередь продолжает работать асинхронно
+      пачками не более пяти с прежними ограничениями повторов.
 - [ ] `/srv/amigo/data/android/amigo-sync.apk` — root:root regular file `0600`
       с точными hash/size `1.5.1`; `web` видит `/android` только read-only.
 - [ ] Listener `18181` — только `127.0.0.1:18181` для `web`; listener `18182` —
@@ -164,9 +163,11 @@
       token/cookie. С ней `/amigo/api/v1/overview`, `/amigo/api/v1/series/activity?range=30d`,
       `/amigo/api/v1/series/recovery?range=30d` и
       `/amigo/api/v1/ai-analysis` возвращают `no-store` JSON
-      нужного контракта. Для завершения deployment AI status равен `fresh`,
-      payload помечен `ai_generated`, model равен `gpt-5.6-sol`, prompt contract
-      равен `amigo-health-v4`, а каждая опубликованная рекомендация имеет
+      нужного контракта. AI status может быть `fresh`, `stale`, `pending` или
+      `unavailable`; payload помечен `ai_generated`. В двух последних состояниях
+      нет текста анализа, рекомендаций и evidence. Для опубликованного результата
+      model равен `gpt-5.6-sol`, prompt contract равен `amigo-health-v4`,
+      а каждая опубликованная рекомендация имеет
       evidence IDs, каждый из которых разрешается в descriptor exact saved
       analysis snapshot; descriptor value/date/range не перечитывается из
       изменившихся source rows.

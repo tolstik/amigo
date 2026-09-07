@@ -29,6 +29,7 @@ for script in \
     nginx-control.sh \
     cron-control.sh \
     checkpoint.sh \
+    verify-production.sh \
     install-release-wrapper.sh \
     test-recovery-transitions.sh \
     lib/common.sh; do
@@ -92,10 +93,11 @@ grep --quiet --fixed-strings \
 [[ "$(grep --count --fixed-strings \
     'python -m app.cli ai-retry-current --worker-stopped' "${SCRIPT_DIR}/deploy.sh")" -eq 1 ]] \
     || amigo_die "deploy must prepare exactly one current AI retry"
-grep --quiet --fixed-strings 'for ai_attempt in {1..4}' "${SCRIPT_DIR}/deploy.sh" \
-    || amigo_die "deploy is missing the four-attempt foreground AI bound"
-grep --quiet --fixed-strings "if [[ \${ai_attempt} -lt 4 ]]" "${SCRIPT_DIR}/deploy.sh" \
-    || amigo_die "deploy does not limit backoff removal to attempts before the fourth"
+if grep --quiet --extended-regexp \
+    'python -m app\.(ai_smoke|ai_worker)|python -m app\.cli ai-ready|AI_ANALYSIS_READY|ANALYTE_GUIDES_READY' \
+    "${SCRIPT_DIR}/deploy.sh" "${SCRIPT_DIR}/verify-production.sh"; then
+    amigo_die "production release must not wait for live AI generation or backfill readiness"
+fi
 grep --quiet --fixed-strings 'candidate SHA is already the recorded release' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not reject a mutable same-SHA rebuild"

@@ -262,22 +262,26 @@
   consider only the active model and prompt contract. The explicit deployment
   enqueue may retry a failed/superseded same-key active job; background enqueue
   must not revive terminal history.
-- Deployment AI readiness permits only `ai-ready` exits `0` and `75`, prepares
-  one explicit retry while the persistent worker is stopped, and runs at most
-  four foreground queue attempts. It must never add an unbounded gateway or AI
-  retry loop. Routine health analysis has a separate 150-second Codex deadline
+- Live AI generation is not a development or deployment gate. Deployment
+  queues one current retry while the persistent AI worker is stopped, then
+  leaves generation to the background worker without waiting for `ai-ready`,
+  foreground attempts, or analyte-guide backfill progress. Pending, unavailable,
+  and stale analysis are normal API states and must not trigger release rollback.
+  Service health, enabled AI, the fixed gateway/model, privacy boundaries, and
+  validation of any published results and immutable evidence remain mandatory.
+  Routine health analysis has a separate 150-second Codex deadline
   and 180-second worker client timeout; laboratory extraction, analyte guides,
   and assistant turns retain the fixed 75-second Codex deadline.
-- The pre-cutover synthetic AI smoke must exercise the live analysis,
+- The optional diagnostic synthetic AI smoke exercises the live analysis,
   laboratory-extraction, analyte-guide, and assistant-turn gateway contracts
   with bounded non-personal fixtures. Analysis, laboratory extraction, and
   analyte-guide generation run once; only an
   invalid/error assistant result may be attempted exactly once more with
-  `attempt=2`, and the second result must validate fully. Gateway/parser health
-  alone is not release readiness.
+  `attempt=2`, and the second result must validate fully. It is run separately
+  when diagnosing AI and is never required for development or deployment.
   The analysis fixture must exercise a routine-sized manufactured context with
   laboratory deviations and medical evidence, and validate citations and bounded
-  recommendations; a lone boolean probe does not establish analysis readiness.
+  recommendations. Automated contract tests retain their deterministic fixtures.
 - AI prompt contract `amigo-health-v4` requires concrete actions, a cadence or
   review period, and cited metric evidence; recommendations are shown before
   general observations in Telegram and on the overview dashboard. When any
@@ -315,9 +319,9 @@
   read the persisted guide and never invoke or enqueue inference.
   Backfill never starves interactive assistant or routine analysis work: after
   one guide batch the worker offers foreground AI queues before taking another.
-  Production verification requires current-contract backfill progress and no
-  terminal current-contract job; it never delays cutover until the entire
-  historical backlog drains. The superseded v1 batch of 20 exceeded the pinned
+  Production verification records only aggregate current-contract backfill
+  counts for diagnostics; pending or failed generation never delays cutover.
+  The superseded v1 batch of 20 exceeded the pinned
   Codex deadline and must not be restored.
   Laboratory extraction sends at most 3,000 OCR characters per gateway call.
   A timed-out extraction chunk may be divided at most twice; the document job
@@ -413,4 +417,4 @@
 - Both attempts automatically restored runtime `3cd082c1427cc90cf7a34803bbf9100e4a734e7f`. Application image ID remains `sha256:8db6367257b4eac04b3da563845121ee90ba67b2b48c34a19e0532459dab5e2a`; PostgreSQL image ID remains `sha256:1bea307dfb3ee30541a7acf7de14b58bcd6948da98e5d31a04c627c4d35ec64b`. The existing PostgreSQL volume was preserved, no dump was restored, and legacy collection stayed disabled.
 - Recovery verification: all seven Amigo services healthy; public `https://amigo.tolstik.ru/amigo/` returns HTTP 200 and the restored `index-tPOb8avT.js` asset; unauthenticated overview returns HTTP 401. This recovery check does not replace the last full production checkpoint above.
 - Latest recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh /srv/amigo-rollbacks/20260907T141946Z`.
-- A future deployment must use the current `origin/main` descendant through the guarded wrapper and pass the complete AI readiness suite. The last successful checkpoint remains the source of verified runtime facts.
+- A future deployment must use the current `origin/main` descendant through the guarded wrapper. Live AI generation is no longer a release gate by explicit owner request; runtime health, isolation, published evidence validation, backups, and recovery remain mandatory. The last successful checkpoint remains the source of verified runtime facts.

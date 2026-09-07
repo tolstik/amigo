@@ -959,22 +959,22 @@ Checkpoint атомарно создаёт локальный documentation-only
 <!-- BEGIN AMIGO PRODUCTION CHECKPOINT -->
 - Status: **deployed and verified**
 - Production URL: `https://amigo.tolstik.ru/amigo/`
-- Verified at: `2026-09-06T16:15:38Z` (`2026-09-06 19:15:38 MSK`)
-- Git SHA: `a068455bebdb7396cb5e06d62c5daf02c690b649`
-- Latest rollback snapshot: `/srv/amigo-rollbacks/20260906T160851Z`
-- Installed config SHA-256: Compose `7af44b5528b3ed93879bd11894d3ec5541374cfe51063ae022151e9cf1d03a89`; nginx locations `252a3ad691b7ac0e0d1c352d6d0db43ca5610c2744cc8b83c6215ae82feded69`; nginx rate limit `4c873375261f5f33b8fa55374ebb24ddde16118ecd1e46e974ce389e128080fd`.
+- Verified at: `2026-09-07T09:53:18Z` (`2026-09-07 12:53:18 MSK`)
+- Git SHA: `58dcc9f63f69b85d8a6419aa5a018882d1836cde`
+- Latest rollback snapshot: `/srv/amigo-rollbacks/20260907T094733Z`
+- Installed config SHA-256: Compose `53ef5a61c13cea392e77dac419ad82ecdfd666fd9233088d7f70937bd684a58f`; nginx locations `252a3ad691b7ac0e0d1c352d6d0db43ca5610c2744cc8b83c6215ae82feded69`; nginx rate limit `4c873375261f5f33b8fa55374ebb24ddde16118ecd1e46e974ce389e128080fd`.
 - Pinned Codex: `0.148.0` (`sha256:ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`).
 - Release access SHA-256: wrapper `721eabf3e79806d3b4ffecaaba7d2105632016ba1e4c90ae99f41af361818527`; sudoers policy `c02cd113d07deac89aaac689777fcdb89deafb3f011135a17d04428d25dee8ea`.
 - Verification: all seven Compose services healthy; application services use the release image; PostgreSQL ready; the current worker completed a successful post-start Withings incremental job; web and ingest are bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; overview plan/actual progress, finalized Xiaomi swimming API, removed laboratory comparison returning 404, database-owned originals, repaired laboratory dates, analyte guides, signed Android updater/APK, laboratory and study queues, assistant/queue SSE, authentication, exact Origin/CSRF, authenticated API/CSV/upload checks, root-only laboratory storage, parser/gateway isolation and unpublished ports, container secret boundaries, pinned Codex hash, fixed `gpt-5.6-sol`/`amigo-health-v4` gateway health, root-owned least-privilege release access, signed-ingest rejection, origin proxy, HTTPS login shell, hidden health routes, immutable frontend assets, cron isolation, previous-release auth-floor recovery assets, and the explicit legacy disaster-fallback guard passed.
 - Installed image references and IDs:
 
-- `web`: `amigo:a068455bebdb7396cb5e06d62c5daf02c690b649` (`sha256:21c294f0a2d1b45756272f11ccf8e82ac0ebd50ee7f005a67f1983af7efb83a5`)
-- `worker`: `amigo:a068455bebdb7396cb5e06d62c5daf02c690b649` (`sha256:21c294f0a2d1b45756272f11ccf8e82ac0ebd50ee7f005a67f1983af7efb83a5`)
-- `ingest`: `amigo:a068455bebdb7396cb5e06d62c5daf02c690b649` (`sha256:21c294f0a2d1b45756272f11ccf8e82ac0ebd50ee7f005a67f1983af7efb83a5`)
-- `ai-worker`: `amigo:a068455bebdb7396cb5e06d62c5daf02c690b649` (`sha256:21c294f0a2d1b45756272f11ccf8e82ac0ebd50ee7f005a67f1983af7efb83a5`)
-- `ai-gateway`: `amigo:a068455bebdb7396cb5e06d62c5daf02c690b649` (`sha256:21c294f0a2d1b45756272f11ccf8e82ac0ebd50ee7f005a67f1983af7efb83a5`)
-- `lab-parser`: `amigo:a068455bebdb7396cb5e06d62c5daf02c690b649` (`sha256:21c294f0a2d1b45756272f11ccf8e82ac0ebd50ee7f005a67f1983af7efb83a5`)
+- `web`: `amigo:58dcc9f63f69b85d8a6419aa5a018882d1836cde` (`sha256:ce8ea78a96bae6513cf7f66c7acf424e1972e9795402dcf5190d01a108ba5794`)
+- `worker`: `amigo:58dcc9f63f69b85d8a6419aa5a018882d1836cde` (`sha256:ce8ea78a96bae6513cf7f66c7acf424e1972e9795402dcf5190d01a108ba5794`)
+- `ingest`: `amigo:58dcc9f63f69b85d8a6419aa5a018882d1836cde` (`sha256:ce8ea78a96bae6513cf7f66c7acf424e1972e9795402dcf5190d01a108ba5794`)
+- `ai-worker`: `amigo:58dcc9f63f69b85d8a6419aa5a018882d1836cde` (`sha256:ce8ea78a96bae6513cf7f66c7acf424e1972e9795402dcf5190d01a108ba5794`)
+- `ai-gateway`: `amigo:58dcc9f63f69b85d8a6419aa5a018882d1836cde` (`sha256:ce8ea78a96bae6513cf7f66c7acf424e1972e9795402dcf5190d01a108ba5794`)
+- `lab-parser`: `amigo:58dcc9f63f69b85d8a6419aa5a018882d1836cde` (`sha256:ce8ea78a96bae6513cf7f66c7acf424e1972e9795402dcf5190d01a108ba5794`)
 - `db`: `postgres:17-alpine` (`sha256:1bea307dfb3ee30541a7acf7de14b58bcd6948da98e5d31a04c627c4d35ec64b`)
-- Previous-release recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh /srv/amigo-rollbacks/20260906T160851Z`
-- Legacy disaster fallback command: `sudo /srv/amigo/deploy/rollback.sh --to-legacy /srv/amigo-rollbacks/20260906T160851Z`
+- Previous-release recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh /srv/amigo-rollbacks/20260907T094733Z`
+- Legacy disaster fallback command: `sudo /srv/amigo/deploy/rollback.sh --to-legacy /srv/amigo-rollbacks/20260907T094733Z`
 <!-- END AMIGO PRODUCTION CHECKPOINT -->

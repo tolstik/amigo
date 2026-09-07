@@ -39,6 +39,22 @@ describe("daily weight candles", () => {
     expect(option.tooltip.formatter([{ axisValue: "2026-06-10" }])).toContain("−0,50 кг");
   });
 
+  it("fits the date axis to remaining measurements after exclusions and expands with new data", () => {
+    const raw = [
+      { measuredAt: "2026-07-31T06:00:00Z", valueKg: 124 },
+      { measuredAt: "2026-08-15T06:00:00Z", valueKg: 127 },
+      { measuredAt: "2026-08-17T06:00:00Z", valueKg: 126.5 },
+    ];
+    const option = dailyWeightChartOption(dailyWeightCandles(raw, asOf), asOf) as any;
+    expect(option.xAxis.data).toEqual(["2026-08-15", "2026-08-16", "2026-08-17"]);
+    expect(option.series[0].data).toEqual([[127, 127, 127, 127], ["-", "-", "-", "-"], [127, 126.5, 126.5, 127]]);
+    expect(option.yAxis.scale).toBe(true);
+    const updated = dailyWeightChartOption(dailyWeightCandles([
+      ...raw, { measuredAt: "2026-08-18T06:00:00Z", valueKg: 126.3 },
+    ], asOf), asOf) as any;
+    expect(updated.xAxis.data).toEqual(["2026-08-15", "2026-08-16", "2026-08-17", "2026-08-18"]);
+  });
+
   it("orders mixed timezone timestamps and keeps daily extremes across Moscow midnight", () => {
     const raw = [
       { measuredAt: "2026-09-01T20:30:00Z", valueKg: 125.4 },
@@ -58,7 +74,7 @@ describe("daily weight candles", () => {
     ]);
     expect(raw).toEqual(original);
     const option = dailyWeightChartOption(candles, asOf) as any;
-    expect(option.series[0].data.at(-7)).toEqual([126, 125.4, 125.2, 126.1]);
+    expect(option.series[0].data[1]).toEqual([126, 125.4, 125.2, 126.1]);
     const tooltip = option.tooltip.formatter([{ axisValue: "2026-09-01" }]);
     for (const text of ["Вес 31 авг.", "Последний замер", "Минимум за день", "Максимум за день", "−0,60 кг", "МСК"]) {
       expect(tooltip).toContain(text);
@@ -72,7 +88,7 @@ describe("daily weight candles", () => {
       { measuredAt: "2026-09-03T06:00:00Z", valueKg: 125.5 },
     ], asOf);
     const option = dailyWeightChartOption(candles, asOf) as any;
-    expect(option.series[0].data.slice(-7, -4)).toEqual([["-", "-", "-", "-"], [126, 125.5, 125.5, 126], [125.5, 125.5, 125.5, 125.5]]);
+    expect(option.series[0].data.slice(1)).toEqual([["-", "-", "-", "-"], [126, 125.5, 125.5, 126], [125.5, 125.5, 125.5, 125.5]]);
     const tooltip = (date: string) => option.tooltip.formatter([{ axisValue: date }]);
     expect(tooltip("2026-09-01")).toContain("Нет замеров");
     expect(tooltip("2026-09-02")).toContain("Вес 31 авг.");
@@ -80,21 +96,21 @@ describe("daily weight candles", () => {
     expect(tooltip("2026-09-03")).toContain("0,00 кг");
   });
 
-  it("shows exactly 90 Moscow calendar days ending today, regardless of stale or future measurements", () => {
+  it("selects the latest 90 Moscow calendar days without plotting stale or future measurements", () => {
     const midnight = "2026-09-06T21:00:00Z";
     const candles = dailyWeightCandles([
       { measuredAt: "2026-06-09T06:00:00Z", valueKg: 126 },
       { measuredAt: "2026-09-08T06:00:00Z", valueKg: 125 },
     ], midnight);
     const option = dailyWeightChartOption(candles, midnight) as any;
-    expect(option.xAxis.data).toHaveLength(90);
-    expect(option.xAxis.data[0]).toBe("2026-06-10");
-    expect(option.xAxis.data.at(-1)).toBe("2026-09-07");
+    expect(weightCandleDates(midnight)).toHaveLength(90);
+    expect(weightCandleDates(midnight)[0]).toBe("2026-06-10");
+    expect(weightCandleDates(midnight).at(-1)).toBe("2026-09-07");
     expect(weightCandleDates("2026-09-06T20:59:59Z").at(-1)).toBe("2026-09-06");
     expect(candles).toEqual([]);
     expect(option.dataZoom).toBeUndefined();
-    expect(option.series[0].data).toHaveLength(90);
-    expect(option.series[0].data.every((values: string[]) => values.every(value => value === "-"))).toBe(true);
+    expect(option.xAxis.data).toEqual([]);
+    expect(option.series[0].data).toEqual([]);
   });
 
   it("does not invent a change when there is no previous weighing", () => {
@@ -106,7 +122,8 @@ describe("daily weight candles", () => {
     expect(candles).toHaveLength(1);
     expect(weightCandleChange(candles[0])).toBeNull();
     const option = dailyWeightChartOption(candles, asOf) as any;
-    expect(option.series[0].data.at(-7)).toEqual([125.5, 125.5, 125.5, 125.5]);
+    expect(option.xAxis.data).toEqual(["2026-09-01"]);
+    expect(option.series[0].data).toEqual([[125.5, 125.5, 125.5, 125.5]]);
     expect(option.tooltip.formatter([{ axisValue: "2026-09-01" }])).toContain("Нет предыдущего замера для сравнения");
     expect(dailyWeightCandles([], asOf)).toEqual([]);
   });

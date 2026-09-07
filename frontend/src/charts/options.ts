@@ -705,7 +705,10 @@ export function weightChartOption(
 
 export function dailyWeightChartOption(points: DailyWeightCandle[], asOf: string): EChartsOption {
   const byDate = new Map(points.map((point) => [point.date, point]));
-  const dates = weightCandleDates(asOf);
+  const measuredDates = [...byDate.keys()].sort();
+  const firstDate = measuredDates[0];
+  const lastDate = measuredDates.at(-1);
+  const dates = weightCandleDates(asOf).filter((date) => firstDate !== undefined && lastDate !== undefined && date >= firstDate && date <= lastDate);
   return {
     animationDuration: 450,
     grid: { ...sharedGrid, top: 30, bottom: 32 },

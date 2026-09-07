@@ -185,7 +185,7 @@ export function OverviewPage() {
       ) : preview.loading ? <LoadingState compact /> : preview.error ? (
         <ErrorState message={preview.error.message} onRetry={preview.reload} />
       ) : null}
-      {preview.data && <WeightCandlestickChart points={preview.data.raw} />}
+      {preview.data && <WeightCandlestickChart points={preview.data.raw} asOf={overview.data.generatedAt ?? new Date().toISOString()} />}
       <div className="sr-status" aria-live="polite">{taskNotice}</div>
       {taskSource && <TaskDialog initial={{ title: taskSource.title, note: taskSource.text }} source={taskSource} onSubmit={async (input) => { await api.createTask(input); setTaskNotice("Задача создана и доступна в разделе «Задачи»."); }} onClose={() => setTaskSource(null)} />}
     </>

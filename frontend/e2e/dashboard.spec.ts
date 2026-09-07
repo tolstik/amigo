@@ -13,6 +13,7 @@ const overview = {
 const weightSeries = {
   points: [{ measured_at: "2026-09-01T05:00:00Z", weight_kg: 125.5, smoothed_7d_kg: 125.8, planned_kg: 124.9 }],
   raw: [
+    { measured_at: "2026-08-26T05:00:00Z", value: 125.8 },
     { measured_at: "2026-08-29T05:00:00Z", value: 125.8 },
     { measured_at: "2026-08-29T11:00:00Z", value: 125.3 },
     { measured_at: "2026-08-29T14:00:00Z", value: 125.9 },
@@ -344,7 +345,8 @@ test("renders the overview and navigates to pressure", async ({ page }) => {
   const candleTable = page.getByRole("table", { name: "Дневные свечи веса по московскому времени" });
   await expect(candleTable).toContainText("−0,30 кг");
   await expect(candleTable).toContainText("+0,20 кг");
-  await expect(candleTable).toContainText("Один замер");
+  await expect(candleTable).toContainText("−0,20 кг");
+  await expect(page.locator(".chart-card").last()).toContainText("Последние 7 дней");
   await page.getByRole("link", { name: "Давление", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Статистика давления" })).toBeVisible();
   await expect(page.getByText("122 / 78").first()).toBeVisible();

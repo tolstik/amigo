@@ -588,6 +588,13 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 
 .chart-card { margin-bottom: 22px; padding: 23px 24px 16px; }
 .chart-card .panel__head { margin-bottom: 8px; }
+.weight-candle-legend { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 0 0 10px; padding: 0; list-style: none; color: var(--text-soft); font-size: 11px; }
+.weight-candle-legend li { display: flex; align-items: center; gap: 7px; }
+.weight-candle-swatch { width: 10px; height: 14px; flex: 0 0 auto; border: 2px solid currentColor; border-radius: 2px; background: currentColor; }
+.weight-candle-swatch--down { color: var(--green); }
+.weight-candle-swatch--up { color: var(--coral); }
+.weight-candle-swatch--flat { height: 2px; color: var(--text-faint); }
+.weight-candle-help { margin: 0 0 14px; color: var(--text-faint); font-size: 11px; line-height: 1.6; }
 .heart-rate-aggregation { min-width: max-content; margin: 0 0 0 auto; padding: 0; border: 0; }
 .heart-rate-aggregation legend { margin: 0 0 5px; padding: 0; color: var(--text-faint); font-size: 10px; font-weight: 650; }
 .heart-rate-aggregation .segmented { padding: 3px; background: var(--surface-soft); }

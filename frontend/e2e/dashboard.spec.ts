@@ -12,6 +12,15 @@ const overview = {
 
 const weightSeries = {
   points: [{ measured_at: "2026-09-01T05:00:00Z", weight_kg: 125.5, smoothed_7d_kg: 125.8, planned_kg: 124.9 }],
+  raw: [
+    { measured_at: "2026-08-29T05:00:00Z", value: 125.8 },
+    { measured_at: "2026-08-29T11:00:00Z", value: 125.3 },
+    { measured_at: "2026-08-29T14:00:00Z", value: 125.9 },
+    { measured_at: "2026-08-29T18:00:00Z", value: 125.5 },
+    { measured_at: "2026-08-30T05:00:00Z", value: 125.5 },
+    { measured_at: "2026-08-30T18:00:00Z", value: 125.7 },
+    { measured_at: "2026-09-01T05:00:00Z", value: 125.5 },
+  ],
   weekly: [
     { start_date: "2026-08-15", end_date: "2026-08-16", actual_avg_kg: 127, actual_min_kg: 126.9, planned_avg_kg: 126.97, actual_change_kg: null, planned_change_kg: null, deviation_from_plan_kg: 0.03, measurement_days: 2, sample_count: 3, outlier_days: 0, is_partial: true },
     { start_date: "2026-08-17", end_date: "2026-08-23", actual_avg_kg: 126.25, actual_min_kg: 126, planned_avg_kg: 126.55, actual_change_kg: -0.75, planned_change_kg: -0.42, deviation_from_plan_kg: -0.3, measurement_days: 3, sample_count: 4, outlier_days: 1, is_partial: false },
@@ -328,6 +337,14 @@ test("renders the overview and navigates to pressure", async ({ page }) => {
   await page.goto("./");
   await expect(page.getByRole("heading", { name: "Добрый день! Вот как идут дела" })).toBeVisible();
   await expect(page.getByLabel("Главные показатели").getByText("125,50 кг")).toBeVisible();
+  const candleChart = page.getByRole("img", { name: /^Свечной график дневных изменений веса/ });
+  await expect(candleChart.locator("canvas").first()).toBeVisible();
+  await expect(page.locator(".chart-card").last()).toContainText("Дневные изменения веса");
+  await page.getByText("Показать дневные изменения (3)").click();
+  const candleTable = page.getByRole("table", { name: "Дневные свечи веса по московскому времени" });
+  await expect(candleTable).toContainText("−0,30 кг");
+  await expect(candleTable).toContainText("+0,20 кг");
+  await expect(candleTable).toContainText("Один замер");
   await page.getByRole("link", { name: "Давление", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Статистика давления" })).toBeVisible();
   await expect(page.getByText("122 / 78").first()).toBeVisible();
@@ -714,6 +731,8 @@ test("pool and overview remain readable in all themes on a narrow screen", async
       expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
       if (path === "./swimming") {
         await expect(page.getByRole("img", { name: "Дистанция плавания в метрах по тренировкам" })).toBeVisible();
+      } else {
+        await expect(page.getByRole("img", { name: /^Свечной график дневных изменений веса/ }).locator("canvas").first()).toBeVisible();
       }
       await page.screenshot({ path: testInfo.outputPath(`${path === "./" ? "overview" : "pool"}-${theme}.png`), fullPage: true });
     }

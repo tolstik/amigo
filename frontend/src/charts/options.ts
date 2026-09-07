@@ -19,6 +19,7 @@ import { formatDate, formatDateTime, formatDelta, formatKg, formatNumber, format
 import { heartRateLineData, type HeartRateAggregationHours } from "./heartRate";
 import type { DailyPressureCategory, PressureCategory } from "../lib/pressureCategories";
 import { PRESSURE_CATEGORY_DEFINITIONS } from "../lib/pressureCategories";
+import { weightCandleChange, type DailyWeightCandle } from "./weightCandles";
 
 const colors = {
   green: "#2d9365",
@@ -699,6 +700,71 @@ export function weightChartOption(
     yAxis: { ...sharedAxis, type: "value", scale: true, name: "кг", nameTextStyle: { color: colors.muted } },
     dataZoom: detailed ? [{ type: "inside", filterMode: "none" }] : undefined,
     series,
+  };
+}
+
+export function dailyWeightChartOption(points: DailyWeightCandle[]): EChartsOption {
+  const byDate = new Map(points.map((point) => [point.date, point]));
+  const dates: string[] = [];
+  if (points.length) {
+    const end = Date.parse(points.at(-1)!.date);
+    for (let day = Date.parse(points[0].date); day <= end; day += 86_400_000) {
+      dates.push(new Date(day).toISOString().slice(0, 10));
+    }
+  }
+  const zoomRange = { startValue: Math.max(0, dates.length - 30), endValue: Math.max(0, dates.length - 1) };
+  return {
+    animationDuration: 450,
+    grid: { ...sharedGrid, top: 30, bottom: 78 },
+    tooltip: {
+      trigger: "axis", confine: true,
+      backgroundColor: "rgba(22,31,25,.95)", borderWidth: 0, textStyle: { color: "#fff" },
+      formatter: (params: any) => {
+        const entry = Array.isArray(params) ? params[0] : params;
+        const date = String(entry?.axisValue ?? "");
+        const point = byDate.get(date);
+        const title = `<strong>${formatDate(date)} · МСК</strong>`;
+        if (!point) return `<div class="chart-tooltip">${title}<div>Нет замеров</div></div>`;
+        const rows = [
+          ["Первый замер", formatKg(point.firstKg, 2)],
+          ["Последний замер", formatKg(point.lastKg, 2)],
+          ["Минимум", formatKg(point.minimumKg, 2)],
+          ["Максимум", formatKg(point.maximumKg, 2)],
+          ["Изменение за день", formatDelta(weightCandleChange(point), "кг", 2)],
+          ["Всего замеров", formatNumber(point.sampleCount, 0)],
+        ].map(([label, value]) => `<div class="chart-tooltip-row"><span>${label}</span><b>${value}</b></div>`).join("");
+        return `<div class="chart-tooltip">${title}${rows}${point.sampleCount === 1 ? "<div>Один замер — изменение неизвестно</div>" : ""}</div>`;
+      },
+    },
+    xAxis: {
+      ...sharedAxis, type: "category", data: dates, boundaryGap: true,
+      splitLine: { show: false },
+      axisLabel: { ...sharedAxis.axisLabel, formatter: (value: string) => formatShortDate(value) },
+    },
+    yAxis: { ...sharedAxis, type: "value", scale: true, name: "кг", nameTextStyle: { color: colors.muted } },
+    dataZoom: [
+      { type: "inside", filterMode: "filter", ...zoomRange },
+      {
+        type: "slider", filterMode: "filter", height: 20, bottom: 8, showDataShadow: false,
+        brushSelect: false, borderColor: colors.grid, backgroundColor: "transparent",
+        handleStyle: { color: colors.blue, borderColor: colors.blue },
+        textStyle: { color: colors.muted }, ...zoomRange,
+      },
+    ],
+    series: [{
+      name: "Вес в течение дня", type: "candlestick", barMaxWidth: 22,
+      itemStyle: {
+        color: colors.coral, color0: colors.green,
+        borderColor: colors.coral, borderColor0: colors.green,
+        borderColorDoji: colors.muted, borderWidth: 2,
+      },
+      data: dates.map((date) => {
+        const point = byDate.get(date);
+        return point
+          ? [point.firstKg, point.lastKg, point.minimumKg, point.maximumKg]
+          : ["-", "-", "-", "-"];
+      }),
+    }],
   };
 }
 

@@ -9,6 +9,7 @@ import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { WeightTable } from "../components/DataTables";
+import { WeightCandlestickChart } from "../components/WeightCandlestickChart";
 import { EvidenceChips } from "../components/EvidenceChips";
 import { TaskDialog, type TaskDialogSource } from "../components/TaskDialog";
 import { useApi } from "../hooks/useApi";
@@ -184,6 +185,7 @@ export function OverviewPage() {
       ) : preview.loading ? <LoadingState compact /> : preview.error ? (
         <ErrorState message={preview.error.message} onRetry={preview.reload} />
       ) : null}
+      {preview.data && <WeightCandlestickChart points={preview.data.raw} />}
       <div className="sr-status" aria-live="polite">{taskNotice}</div>
       {taskSource && <TaskDialog initial={{ title: taskSource.title, note: taskSource.text }} source={taskSource} onSubmit={async (input) => { await api.createTask(input); setTaskNotice("Задача создана и доступна в разделе «Задачи»."); }} onClose={() => setTaskSource(null)} />}
     </>

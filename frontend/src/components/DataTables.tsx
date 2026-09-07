@@ -1,5 +1,6 @@
 import type { CompositionPoint, PressurePoint, WeeklyWeightPoint, WeightPoint } from "../api/types";
 import { formatDate, formatDateTime, formatDelta, formatKg, formatNumber } from "../lib/format";
+import { weightCandleChange, type DailyWeightCandle } from "../charts/weightCandles";
 
 function TableFrame({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -7,6 +8,30 @@ function TableFrame({ title, children }: { title: string; children: React.ReactN
       <summary>{title}</summary>
       <div className="data-table-scroll">{children}</div>
     </details>
+  );
+}
+
+export function WeightCandlesTable({ points }: { points: DailyWeightCandle[] }) {
+  return (
+    <TableFrame title={`Показать дневные изменения (${points.length})`}>
+      <table className="data-table">
+        <caption className="sr-only">Дневные свечи веса по московскому времени</caption>
+        <thead><tr><th>Дата</th><th>Первый</th><th>Последний</th><th>Минимум</th><th>Максимум</th><th>Изменение за день</th><th>Замеров</th></tr></thead>
+        <tbody>
+          {[...points].reverse().map((point) => (
+            <tr key={point.date}>
+              <td>{formatDate(point.date)}</td>
+              <td>{formatKg(point.firstKg, 2)}</td>
+              <td>{formatKg(point.lastKg, 2)}</td>
+              <td>{formatKg(point.minimumKg, 2)}</td>
+              <td>{formatKg(point.maximumKg, 2)}</td>
+              <td>{point.sampleCount === 1 ? "Один замер" : formatDelta(weightCandleChange(point), "кг", 2)}</td>
+              <td>{point.sampleCount}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableFrame>
   );
 }
 

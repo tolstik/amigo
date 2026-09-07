@@ -27,7 +27,7 @@ internal class XiaomiSyncCoordinator(
         credentialsStore.saveSealed(sealed)
         val credentials = credentialsStore.load() ?: error("Сессия Xiaomi недоступна")
         preferences.enable(credentials.accountFingerprint, credentials.region)
-        return sync(maxPages = 4, mode = XiaomiSyncMode.FORCE_REFRESH)
+        return sync(maxPages = 40, mode = XiaomiSyncMode.FORCE_REFRESH)
     }
 
     suspend fun disable() {
@@ -68,55 +68,43 @@ internal class XiaomiSyncCoordinator(
             if (!preferences.regionDiscoveredFor(credentials.accountFingerprint)) {
                 credentials = discoverRegionWithOneRefresh(credentials)
             }
-            // Persist one immutable target before fetching any metric. All ten dedicated
-            // refresh cursors are then materialised up front, so bounded continuations resume
-            // this round without either moving its activation window or starving backfill.
             preferences.prepareExerciseDetailsUpgrade(requestedRefreshTarget)
-            val refreshRound = prepareRefreshRound(
-                requestedTarget = requestedRefreshTarget,
-                requestedDays = refreshDays,
-                mode = mode,
-            )
-            var remaining = maxPages
+            val queue = XiaomiSyncQueue(preferences, historyFloor)
+            queue.prepare(requestedRefreshTarget, refreshDays, mode)
+            val budget = XiaomiPageBudget(maxPages)
+            val blocked = mutableSetOf<XiaomiPageWork>()
             var uploaded = 0
             var firstFailure: Exception? = null
-            var index = preferences.nextMetricIndex()
-            var visited = 0
-            while (remaining > 0 && visited < XiaomiMetric.entries.size) {
-                val metric = XiaomiMetric.entries[index]
-                val lane = nextLane(metric)
-                if (lane != null) {
-                    try {
-                        val result = syncOnePageWithRecovery(
-                            metric,
-                            lane,
-                            credentials,
-                        )
-                        uploaded += result
-                        remaining -= 1
-                    } catch (error: CancellationException) {
-                        throw error
+            var authRefreshed = false
+            while (budget.available()) {
+                val work = queue.next(blocked) ?: break
+                try {
+                    uploaded += try {
+                        syncOnePageWithRecovery(work.metric, work.lane, credentials, budget)
                     } catch (error: XiaomiCloudException.AuthRequired) {
+                        if (authRefreshed) throw error
+                        authRefreshed = true
                         credentials = refreshOnce(credentials)
-                        try {
-                            uploaded += syncOnePageWithRecovery(
-                                metric,
-                                lane,
-                                credentials,
-                            )
-                            remaining -= 1
-                        } catch (second: XiaomiCloudException.AuthRequired) {
-                            report("auth_required", credentials, "auth_required")
-                            throw second
-                        }
-                    } catch (error: Exception) {
-                        if (firstFailure == null) firstFailure = error
+                        syncOnePageWithRecovery(work.metric, work.lane, credentials, budget)
                     }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: XiaomiPageBudgetExhausted) {
+                    break
+                } catch (error: XiaomiCloudException.AuthRequired) {
+                    throw error
+                } catch (error: XiaomiCloudException.RateLimited) {
+                    // A provider-wide limit applies to every metric and lane.
+                    report("rate_limited", credentials, "rate_limited")
+                    throw error
+                } catch (error: Exception) {
+                    // Consume the failed attempt and try other work, without revisiting
+                    // this exact metric/lane in the same bounded run.
+                    blocked += work
+                    if (firstFailure == null) firstFailure = error
                 }
-                index = (index + 1) % XiaomiMetric.entries.size
-                preferences.setNextMetricIndex(index)
-                visited += 1
             }
+            queue.finishRounds()
             if (firstFailure != null) {
                 val code = xiaomiSyncErrorCode(firstFailure)
                 report(
@@ -132,28 +120,11 @@ internal class XiaomiSyncCoordinator(
             val complete = XiaomiMetric.entries.count {
                 preferences.historyEnd(it)?.let { end -> end <= historyFloor } == true
             }
-            val refreshPending = refreshRound?.let { round ->
-                XiaomiMetric.entries.any { metric ->
-                    preferences.refreshCursor(metric) != null ||
-                        !xiaomiRefreshCovers(
-                            preferences.refreshStart(metric),
-                            preferences.refreshEnd(metric),
-                            round,
-                        )
-                }
-            } == true
-            if (refreshRound != null && !refreshPending) {
-                preferences.clearRefreshRound(refreshRound)
-            }
-            val historyPending = XiaomiMetric.entries.any {
-                preferences.historyCursor(it) != null ||
-                    preferences.historyEnd(it)?.let { end -> end > historyFloor } != false
-            }
             return XiaomiSyncSummary(
                 uploadedBatches = uploaded,
                 completedTypes = complete,
                 active = response.active,
-                needsContinuation = refreshPending || historyPending,
+                needsContinuation = queue.pending(),
             )
         } catch (error: CancellationException) {
             throw error
@@ -174,22 +145,23 @@ internal class XiaomiSyncCoordinator(
         metric: XiaomiMetric,
         lane: XiaomiCursorLane,
         credentials: XiaomiCredentials,
-    ): Int = try {
-        syncOnePage(metric, lane, credentials)
-    } catch (error: CancellationException) {
-        throw error
-    } catch (error: Exception) {
-        if (!shouldRestartXiaomiSnapshot(error)) throw error
-        val cursor = cursor(metric, lane) ?: throw error
-        setCursor(
-            metric,
-            lane,
-            restartXiaomiCursor(cursor, freshSnapshotId(metric)),
-        )
-        // Exactly one targeted retry. A second conflict is surfaced to the normal bounded
-        // worker retry path instead of creating an unbounded provider/server loop. The other
-        // lane remains byte-for-byte intact.
-        syncOnePage(metric, lane, credentials)
+        budget: XiaomiPageBudget,
+    ): Int {
+        if (!budget.take()) throw XiaomiPageBudgetExhausted()
+        return try {
+            syncOnePage(metric, lane, credentials)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (!shouldRestartXiaomiSnapshot(error)) throw error
+            val cursor = cursor(metric, lane) ?: throw error
+            // Retries share the same request/time budget and never reset saved page
+            // state if the bounded run must yield before the retry can start.
+            if (!budget.take()) throw XiaomiPageBudgetExhausted()
+            setCursor(metric, lane, restartXiaomiCursor(cursor, freshSnapshotId(metric)))
+            // Exactly one targeted retry; other lanes retain their exact cursors.
+            syncOnePage(metric, lane, credentials)
+        }
     }
 
     private suspend fun syncOnePage(
@@ -198,14 +170,14 @@ internal class XiaomiSyncCoordinator(
         credentials: XiaomiCredentials,
     ): Int {
         val cursor = cursor(metric, lane) ?: when (lane) {
-            XiaomiCursorLane.REFRESH -> error("Xiaomi refresh cursor disappeared")
+            XiaomiCursorLane.RECENT, XiaomiCursorLane.REFRESH -> error("Xiaomi refresh cursor disappeared")
             XiaomiCursorLane.HISTORY -> newHistoryCursor(metric)
         }
         val client = XiaomiCloudClient(credentials, http)
         val page = if (metric == XiaomiMetric.EXERCISE) {
             client.sportPage(cursor.rangeStart, cursor.rangeEnd, cursor.nextKey)
         } else if (
-            lane == XiaomiCursorLane.REFRESH &&
+            lane != XiaomiCursorLane.HISTORY &&
             preferences.historyEnd(metric) == null &&
             metric in setOf(
                 XiaomiMetric.RESTING_HEART_RATE,
@@ -244,11 +216,12 @@ internal class XiaomiSyncCoordinator(
         envelopes.forEach { ingest.uploadMiFitness(it) }
         if (page.nextKey == null) {
             when (lane) {
-                XiaomiCursorLane.REFRESH -> preferences.completeRefreshWindow(
+                XiaomiCursorLane.RECENT, XiaomiCursorLane.REFRESH -> preferences.completeRefreshWindow(
                     metric,
                     cursor.rangeStart,
                     cursor.rangeEnd,
                     sourceDataAsOf,
+                    lane,
                 )
                 XiaomiCursorLane.HISTORY -> preferences.completeHistoryWindow(
                     metric,
@@ -281,95 +254,14 @@ internal class XiaomiSyncCoordinator(
         ).also { preferences.setHistoryCursor(metric, it) }
     }
 
-    private fun prepareRefreshRound(
-        requestedTarget: Instant,
-        requestedDays: Long,
-        mode: XiaomiSyncMode,
-    ): XiaomiRefreshRound? {
-        val boundedDays = requestedDays.coerceIn(3, 30)
-        val inheritedCursor = XiaomiMetric.entries
-            .firstNotNullOfOrNull(preferences::refreshCursor)
-        var round = preferences.refreshRound()
-
-        if (round == null && inheritedCursor != null) {
-            // Adopt a resumable pre-round cursor written by an older client. Creating the
-            // remaining per-metric cursors from its exact target keeps the activation window
-            // stable instead of silently restarting the provider page chain.
-            round = XiaomiRefreshRound(
-                target = inheritedCursor.rangeEnd,
-                days = Duration.between(
-                    inheritedCursor.rangeStart,
-                    inheritedCursor.rangeEnd,
-                ).toDays().coerceIn(3, 30),
-            )
-        }
-
-        val initialRoundMissing = XiaomiMetric.entries.any {
-            preferences.historyEnd(it) == null
-        }
-        val routineRoundDue = mode != XiaomiSyncMode.BACKFILL_CONTINUATION &&
-            XiaomiMetric.entries.any { metric ->
-                shouldStartXiaomiRefresh(
-                    lastRangeStart = preferences.refreshStart(metric),
-                    lastRangeEnd = preferences.refreshEnd(metric),
-                    target = requestedTarget,
-                    refreshDays = boundedDays,
-                    mode = mode,
-                )
-            }
-        if (round == null && (initialRoundMissing || routineRoundDue)) {
-            round = XiaomiRefreshRound(requestedTarget, boundedDays)
-        } else if (
-            round != null &&
-            mode != XiaomiSyncMode.BACKFILL_CONTINUATION &&
-            (boundedDays > round.days ||
-                (mode == XiaomiSyncMode.FORCE_REFRESH && requestedTarget > round.target))
-        ) {
-            // A broader weekly request, or an explicit manual request, supersedes the round.
-            // Existing page cursors still finish exactly; their metric is then reconciled once
-            // more against this persisted target instead of being reset mid-snapshot.
-            round = XiaomiRefreshRound(requestedTarget, maxOf(round.days, boundedDays))
-        }
-
-        val activeRound = round ?: return null
-        preferences.setRefreshRound(activeRound)
-        XiaomiMetric.entries.forEach { metric ->
-            if (
-                preferences.refreshCursor(metric) == null &&
-                !xiaomiRefreshCovers(
-                    preferences.refreshStart(metric),
-                    preferences.refreshEnd(metric),
-                    activeRound,
-                )
-            ) {
-                preferences.setRefreshCursor(
-                    metric,
-                    XiaomiCursor(
-                        snapshotId = freshSnapshotId(metric),
-                        rangeStart = activeRound.target.minus(Duration.ofDays(activeRound.days)),
-                        rangeEnd = activeRound.target,
-                    ),
-                )
-            }
-        }
-        return activeRound
-    }
-
-    private fun nextLane(metric: XiaomiMetric): XiaomiCursorLane? = selectXiaomiCursorLane(
-        hasRefreshCursor = preferences.refreshCursor(metric) != null,
-        hasHistoryCursor = preferences.historyCursor(metric) != null,
-        historyEnd = preferences.historyEnd(metric),
-        historyFloor = historyFloor,
-    )
-
     private fun cursor(metric: XiaomiMetric, lane: XiaomiCursorLane): XiaomiCursor? = when (lane) {
-        XiaomiCursorLane.REFRESH -> preferences.refreshCursor(metric)
+        XiaomiCursorLane.RECENT, XiaomiCursorLane.REFRESH -> preferences.refreshCursor(metric, lane)
         XiaomiCursorLane.HISTORY -> preferences.historyCursor(metric)
     }
 
     private fun setCursor(metric: XiaomiMetric, lane: XiaomiCursorLane, cursor: XiaomiCursor) {
         when (lane) {
-            XiaomiCursorLane.REFRESH -> preferences.setRefreshCursor(metric, cursor)
+            XiaomiCursorLane.RECENT, XiaomiCursorLane.REFRESH -> preferences.setRefreshCursor(metric, cursor, lane)
             XiaomiCursorLane.HISTORY -> preferences.setHistoryCursor(metric, cursor)
         }
     }
@@ -442,18 +334,6 @@ internal fun xiaomiRefreshCovers(
     rangeEnd != null &&
     rangeStart <= round.target.minus(Duration.ofDays(round.days)) &&
     rangeEnd >= round.target
-
-internal fun selectXiaomiCursorLane(
-    hasRefreshCursor: Boolean,
-    hasHistoryCursor: Boolean,
-    historyEnd: Instant?,
-    historyFloor: Instant,
-): XiaomiCursorLane? = when {
-    hasRefreshCursor -> XiaomiCursorLane.REFRESH
-    hasHistoryCursor -> XiaomiCursorLane.HISTORY
-    historyEnd?.let { it > historyFloor } == true -> XiaomiCursorLane.HISTORY
-    else -> null
-}
 
 internal fun shouldStartXiaomiRefresh(
     lastRangeStart: Instant?,

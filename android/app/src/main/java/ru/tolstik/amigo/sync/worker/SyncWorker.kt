@@ -43,7 +43,7 @@ class SyncWorker(
                 didWork = true
                 try {
                     val cloud = container.syncXiaomi(
-                        maxPages = 4,
+                        maxPages = 40,
                         refreshDays = inputData.getLong(SyncScheduler.INPUT_XIAOMI_REFRESH_DAYS, 3),
                         mode = if (
                             inputData.getBoolean(SyncScheduler.INPUT_XIAOMI_BACKFILL_CONTINUATION, false)

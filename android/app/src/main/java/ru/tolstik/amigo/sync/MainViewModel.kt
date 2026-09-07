@@ -141,7 +141,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val messages = mutableListOf<String>()
         if (container.xiaomiPreferences.enabled()) {
             val cloud = container.syncXiaomi(
-                maxPages = 12,
+                maxPages = 40,
                 mode = XiaomiSyncMode.FORCE_REFRESH,
             )
             if (cloud.needsContinuation) SyncScheduler.continueBackfill(getApplication())

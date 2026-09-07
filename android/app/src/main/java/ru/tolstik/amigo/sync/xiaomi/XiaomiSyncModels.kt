@@ -73,7 +73,7 @@ internal enum class XiaomiSyncMode {
     /** Start a recent reconciliation when the previous one is stale or too narrow. */
     ROUTINE,
 
-    /** Finish required recent work, but otherwise spend the run on historical backfill. */
+    /** Resume all lanes and check whether recent coverage became stale while Android slept. */
     BACKFILL_CONTINUATION,
 
     /** Reconcile the requested recent window even when the last routine run is still fresh. */

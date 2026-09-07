@@ -51,50 +51,6 @@ class XiaomiRefreshLaneTest {
     }
 
     @Test
-    fun recentPageTakesPriorityWithoutDestroyingTheHistoricalPage() {
-        assertEquals(
-            XiaomiCursorLane.REFRESH,
-            selectXiaomiCursorLane(
-                hasRefreshCursor = true,
-                hasHistoryCursor = true,
-                historyEnd = historicalEnd,
-                historyFloor = floor,
-            ),
-        )
-        assertEquals(
-            XiaomiCursorLane.HISTORY,
-            selectXiaomiCursorLane(
-                hasRefreshCursor = false,
-                hasHistoryCursor = true,
-                historyEnd = historicalEnd,
-                historyFloor = floor,
-            ),
-        )
-    }
-
-    @Test
-    fun historicalWatermarkCreatesBackfillOnlyUntilTheFloor() {
-        assertEquals(
-            XiaomiCursorLane.HISTORY,
-            selectXiaomiCursorLane(
-                hasRefreshCursor = false,
-                hasHistoryCursor = false,
-                historyEnd = historicalEnd,
-                historyFloor = floor,
-            ),
-        )
-        assertEquals(
-            null,
-            selectXiaomiCursorLane(
-                hasRefreshCursor = false,
-                hasHistoryCursor = false,
-                historyEnd = floor,
-                historyFloor = floor,
-            ),
-        )
-    }
-
-    @Test
     fun completedRangeMustCoverTheExactPersistedRefreshRound() {
         val round = XiaomiRefreshRound(target = recentEnd, days = 3)
 

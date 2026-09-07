@@ -470,7 +470,11 @@ def _currently_published_record(
             MiFitnessCoverage.range_end > start,
             MiFitnessCoverage.range_start < end,
         )
-        .order_by(MiFitnessCoverage.finalised_at.desc(), MiFitnessCoverage.id.desc())
+        .order_by(
+            MiFitnessCoverage.range_end.desc(),
+            MiFitnessCoverage.finalised_at.desc(),
+            MiFitnessCoverage.id.desc(),
+        )
         .limit(1)
     )
     if coverage is None:

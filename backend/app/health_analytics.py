@@ -160,7 +160,12 @@ def _records(
         ]
         if not candidates:
             continue
-        winner = max(candidates, key=lambda item: (_aware(item.finalised_at), item.id))
+        # An older monthly/history snapshot may finish after a newer recent
+        # snapshot. Its delayed final page must not replace fresher coverage.
+        winner = max(
+            candidates,
+            key=lambda item: (_aware(item.range_end), _aware(item.finalised_at), item.id),
+        )
         if winner.snapshot_id == row.snapshot_id:
             cloud.append(row)
     combined: list[HealthConnectRecord | MiFitnessRecord] = [*health_connect, *cloud]

@@ -78,12 +78,12 @@
 - [ ] До первого Withings API request legacy collector переведён в единственный
       disabled-marker; после incremental sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.
-- [ ] Android `1.5.0` (`versionCode 17`) получен как
-      [`Amigo-1.5.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.0/Amigo-1.5.0.apk)
-      из release [`v5.3.0`](https://github.com/tolstik/amigo/releases/tag/v5.3.0);
+- [ ] Android `1.5.1` (`versionCode 18`) получен как
+      [`Amigo-1.5.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.1/Amigo-1.5.1.apk)
+      из release [`v5.3.1`](https://github.com/tolstik/amigo/releases/tag/v5.3.1);
       его SHA-256 равен
-      `4ac0cf4035eb8b5b29df30de0c2bbe6b78c2d4e1caef1ee7fc348e994922ce2c`, размер
-      равен `3 520 750` bytes, а
+      `0d171cdcc49a7e340f42bbc2c2c0f6fa4c095d1c70ce47eb1413b28f95a40f44`, размер
+      равен `3 530 505` bytes, а
       signing certificate SHA-256 равен
       `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
       Signing keystore и пароли не попали в checkout или документы.
@@ -133,7 +133,7 @@
       terminal failed rows. Остаток исторической очереди может обрабатываться
       асинхронно пачками не более пяти.
 - [ ] `/srv/amigo/data/android/amigo-sync.apk` — root:root regular file `0600`
-      с точными hash/size `1.5.0`; `web` видит `/android` только read-only.
+      с точными hash/size `1.5.1`; `web` видит `/android` только read-only.
 - [ ] Listener `18181` — только `127.0.0.1:18181` для `web`; listener `18182` —
       только `127.0.0.1:18182` для `ingest`. `ai-gateway:8090` и
       `lab-parser:8085` не опубликованы в Docker и не слушают host.
@@ -356,7 +356,7 @@
       bounded medical/measurement рекомендацию. В AI output отсутствуют диагноз,
       лечение, назначение или изменение лекарства/дозировки и фиксированная цель
       по калориям.
-- [ ] Signed APK `1.5.0` установлен через `adb install -r`; прежние pairing
+- [ ] Signed APK `1.5.1` установлен через `adb install -r`; прежние pairing
       state, non-exportable Keystore key, выбранный Mi Fitness origin и cursors
       сохранены. Amigo имеет только read-only Health Connect permissions;
       location и exercise routes не запрошены.
@@ -464,8 +464,8 @@
       services, SHA-256 установленных Compose/nginx/Codex, результаты
       verification, exact previous-release recovery command и отдельную
       `rollback.sh --to-legacy` disaster command без секретов.
-- [ ] Release `v5.3.0` указывает на deployed fix-forward commit; asset
-      `Amigo-1.5.0.apk` скачивается, повторно даёт ожидаемые APK SHA-256/size и
+- [ ] Release `v5.3.1` указывает на deployed fix-forward commit; asset
+      `Amigo-1.5.1.apk` скачивается, повторно даёт ожидаемые APK SHA-256/size и
       signing certificate, а verified App Link association остаётся доступна.
 - [ ] Изменения `AGENTS.md`, runbook и `production-checkpoint.md` перенесены в
       канонический Git и закоммичены.

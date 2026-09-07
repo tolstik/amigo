@@ -868,6 +868,10 @@ private fun SyncScreen(
                 Text("История: ${cloud?.completedTypes ?: 0}/10 типов")
                 Text("Последняя cloud-синхронизация: ${formatInstant(cloud?.lastSync)}")
                 Text("Cloud-данные актуальны на: ${formatInstant(cloud?.dataAsOf)}")
+                Text("Шаги: сверка завершена по ${formatInstant(cloud?.stepsAsOf)}")
+                if (cloud?.stepsPending == true) {
+                    Text("Шаги догружаются. Новые значения появятся после завершения сверки диапазона.")
+                }
                 cloud?.lastErrorCode?.let {
                     Text("Код ошибки: $it", color = MaterialTheme.colorScheme.error)
                 }

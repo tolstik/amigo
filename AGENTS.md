@@ -154,7 +154,7 @@
   additionally limited to exact authenticated same-origin GET
   `/amigo/api/v1/reports/doctor/<canonical-lowercase-UUID>.pdf`, no
   query/fragment/redirect, and 25 MiB on the client.
-- Android `1.5.0` (`versionCode 17`) accepts up to 25 dashboard uploads from the
+- Android `1.5.1` (`versionCode 18`) accepts up to 25 dashboard uploads from the
   system picker, refreshes a stale foreground WebView, records allowlisted
   background-sync diagnostics, and schedules immediate, hourly, and bounded
   one-minute backfill continuation work. Its in-app updater may download only
@@ -181,12 +181,18 @@
   uses bounded regional discovery and passToken refresh. Every cloud run first
   reasserts the signed server-side source status before fetching or uploading,
   so a missed initial status request cannot leave all batches rejected as
-  `mi_fitness_not_enabled`. The three-day routine reconciliation and 30-day
-  weekly reconciliation run in a dedicated resumable lane while the historical
-  30-day backfill continues. One persisted target and width apply to all ten
-  metrics in a reconciliation round, including one-minute continuations, so
-  bounded pagination cannot move the activation window or let historical
-  backfill starve current data. Cloud batch identity binds the full canonical
+  `mi_fitness_not_enabled`. Three-day routine reconciliation, 30-day weekly
+  reconciliation, and historical backfill use independent resumable lanes.
+  One immutable target and width apply to all ten metrics in each reconciliation
+  round; manual/weekly requests never move an unfinished round. Preserve old
+  cursor IDs, page state, hashes, pairing, and historical watermarks on upgrade.
+  A run attempts at most 40 provider pages and starts no new page after 90
+  seconds; persisted scheduling offers eight recent, one weekly, and one history
+  page per ten attempts, reusing idle shares. Delayed continuations recheck
+  recent freshness. Published overlapping Xiaomi coverage prefers the later
+  range end, then finalisation time and ID, so an older monthly snapshot that
+  finishes late cannot replace newer recent data or confirmed-empty coverage.
+  Cloud batch identity binds the full canonical
   normalized body and its retry timestamp is fixed to the persisted range end.
   The cursor keeps only bounded SHA-256 record-ID hashes to remove Xiaomi's
   cross-page overlap. A legacy batch/sequence conflict restarts exactly the

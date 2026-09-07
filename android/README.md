@@ -7,19 +7,25 @@ Connect as rollback history, and sends only normalized signed/idempotent batches
 to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
-Current signed release `1.5.0` (`versionCode 17`) for project release
-[`v5.3.0`](https://github.com/tolstik/amigo/releases/tag/v5.3.0):
-[`Amigo-1.5.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.0/Amigo-1.5.0.apk),
+Current signed release `1.5.1` (`versionCode 18`) for project release
+[`v5.3.1`](https://github.com/tolstik/amigo/releases/tag/v5.3.1):
+[`Amigo-1.5.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.1/Amigo-1.5.1.apk),
 SHA-256
-`4ac0cf4035eb8b5b29df30de0c2bbe6b78c2d4e1caef1ee7fc348e994922ce2c`, size
-`3,520,750` bytes.
+`0d171cdcc49a7e340f42bbc2c2c0f6fa4c095d1c70ce47eb1413b28f95a40f44`, size
+`3,530,505` bytes.
 The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
-The previous published release is `1.4.1` from
-[`v5.2.2`](https://github.com/tolstik/amigo/releases/tag/v5.2.2):
-[`Amigo-1.4.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.2.2/Amigo-1.4.1.apk),
-SHA-256 `fd5a13cf89440a80d8ee44444607077bce9f5466f3653372c26cd153add965e5`,
+Version `1.5.1` separates recent three-day synchronization from monthly
+reconciliation and increases each run's budget to 40 provider pages, starting
+no new page after 90 seconds. Deploy the accompanying server coverage selector
+before installing the new APK: an older monthly snapshot must not overwrite a
+newer recent snapshot just because its final page arrived later.
+
+The previous published release is `1.5.0` from
+[`v5.3.0`](https://github.com/tolstik/amigo/releases/tag/v5.3.0):
+[`Amigo-1.5.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.0/Amigo-1.5.0.apk),
+SHA-256 `4ac0cf4035eb8b5b29df30de0c2bbe6b78c2d4e1caef1ee7fc348e994922ce2c`,
 size `3,520,750` bytes.
 
 ## Dashboard tab
@@ -125,12 +131,21 @@ The direct-cloud activation window is fixed by the first qualifying recent
 three-day snapshot in the current enablement episode. All ten allowlisted types
 must finalize coverage for that same window, even when bounded pagination takes
 longer than the normal freshness tolerance, and cloud heart rate must be newer
-than the retained Health Connect watermark. The hourly three-day refresh and
-weekly 30-day reconciliation use a dedicated resumable recent lane with one
-persisted target and width for all ten metrics. That lane runs while the exact
-historical cursor independently descends in 30-day windows to `2000-01-01`, so
-current steps do not wait for historical backfill and a recent continuation
-cannot reset historical progress. If Xiaomi Cloud is not fresher, it remains
+than the retained Health Connect watermark. The hourly three-day refresh,
+weekly 30-day reconciliation, and descending historical backfill have independent
+resumable lanes. Each reconciliation round keeps one immutable target and width
+for all ten metrics; manual or weekly requests never move an unfinished round.
+Old 3/30-day refresh cursors finish in their existing lane, preserving their
+snapshot IDs, provider page state and record hashes. The new recent lane can
+finish fresh steps before those old snapshots finish. Scheduling offers eight
+recent pages, one monthly page, and one historical page per ten attempts, using
+otherwise idle shares for available work. The per-lane metric order and shares
+survive process restarts. Multiple pages of a metric may finish in one bounded
+run, and delayed continuations check recent freshness again when Android wakes.
+Historical cursors still descend to `2000-01-01`. Signed upload pacing remains
+at least 1.1 seconds. The screen shows the last completed steps range separately
+from the source's aggregate freshness and indicates unfinished step downloads.
+If Xiaomi Cloud is not fresher, it remains
 pending instead of silently replacing Health Connect. The independent Health
 Connect backfill still skips provider-confirmed empty prefixes and uses its
 existing bounded snapshot/changes-token contract.

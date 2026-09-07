@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -14,6 +15,7 @@ from app.health_analytics import activity_series
 from app.health_models import HealthConnectDevice, HealthConnectRecord
 from app.main import app
 from app.mi_fitness_models import MiFitnessCoverage, MiFitnessRecord, MiFitnessSource
+from app.mi_fitness_ingest import _currently_published_record
 
 
 NOW = datetime(2026, 8, 24, 12, tzinfo=timezone.utc)
@@ -88,6 +90,46 @@ def _coverage(db, *, day: int, snapshot_id: str, empty: bool) -> None:
             finalised_at=NOW,
         )
     )
+
+
+@pytest.mark.parametrize("recent_empty", [False, True])
+def test_delayed_monthly_snapshot_cannot_replace_newer_recent_steps(db, recent_empty):
+    _seed_sources(db)
+    source = db.get(MiFitnessSource, DEVICE_ID)
+    # Recent data was captured later but finished before an older monthly round.
+    for snapshot_id, days, end, finished in (
+        ("recent", 3, NOW, NOW),
+        ("monthly", 30, NOW - timedelta(hours=1), NOW + timedelta(hours=2)),
+    ):
+        db.add(MiFitnessCoverage(
+            device_id=DEVICE_ID,
+            snapshot_id=snapshot_id,
+            record_type="steps",
+            account_fingerprint=FINGERPRINT,
+            range_start=end - timedelta(days=days),
+            range_end=end,
+            finalised_at=finished,
+            confirmed_empty=snapshot_id == "recent" and recent_empty,
+        ))
+    _mi_record(db, day=23, snapshot_id="monthly", value=123)
+    if not recent_empty:
+        _mi_record(db, day=23, snapshot_id="recent", value=456)
+    # Monthly coverage must still publish days outside the recent window.
+    _mi_record(db, day=19, snapshot_id="monthly", value=789)
+    db.commit()
+
+    activity = activity_series(db, TZ, "30d", NOW)
+    points = {row["date"]: row["steps"] for row in activity["daily"]}
+    assert points.get("2026-08-23") == (None if recent_empty else 456)
+    assert points["2026-08-19"] == 789
+    quality = data_quality(db, TZ, "30d", NOW)
+    steps = next(metric for metric in quality["metrics"] if metric["key"] == "steps")
+    day = next(row for row in steps["days"] if row["date"] == "2026-08-23")
+    assert day["state"] == ("confirmed_empty" if recent_empty else "available")
+    published = _currently_published_record(
+        db, source, "steps", "SECRET_RECORD_23", _at(23), _at(23) + timedelta(minutes=1)
+    )
+    assert (published.primary_value if published else None) == (None if recent_empty else 456)
 
 
 def test_steps_are_xiaomi_finalized_only_in_analytics_and_quality(db):

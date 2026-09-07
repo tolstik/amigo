@@ -12,8 +12,8 @@ android {
         applicationId = "ru.tolstik.amigo.sync"
         minSdk = 28
         targetSdk = 36
-        versionCode = 17
-        versionName = "1.5.0"
+        versionCode = 18
+        versionName = "1.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

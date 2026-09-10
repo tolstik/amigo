@@ -805,6 +805,11 @@ elif contract == "weight":
             change = row.get(f"{prefix}_change_kg")
             prior_average = previous.get(f"{prefix}_avg_kg") if previous else None
             if previous is None:
+                if average is None:
+                    if change is not None:
+                        raise SystemExit("first monthly change exists without measurements")
+                elif not isinstance(change, (int, float)):
+                    raise SystemExit("first monthly change from program baseline is missing")
                 continue
             if average is None or prior_average is None:
                 if change is not None:

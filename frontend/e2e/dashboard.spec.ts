@@ -383,7 +383,7 @@ test("renders weekly and monthly plan/fact charts with accessible tables", async
   await monthlyCard.getByText("Показать месячную таблицу (2)").click();
   const monthlyTable = monthlyCard.getByRole("table", { name: "Месячные показатели веса относительно плана" });
   await expect(monthlyTable).toContainText("Неполный месяц");
-  await expect(monthlyTable.getByText("−1,0 кг", { exact: true })).toBeVisible();
+  await expect(monthlyTable.getByText("−1,0 кг", { exact: true }).first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await monthlyCard.getByText("Показать месячную таблицу (2)").click();
   await monthlyCard.screenshot({ path: testInfo.outputPath("monthly-chart.png"), style: ".app-bar, .sidebar { visibility: hidden !important; }" });

@@ -81,15 +81,15 @@ describe("weekly chart options", () => {
 describe("monthly weight change chart", () => {
   it("labels calendar months with years and preserves missing changes", () => {
     const points = [
-      week(0, { startDate: "2026-08-15", endDate: "2026-08-31", isPartial: true }),
+      week(0, { startDate: "2026-08-15", endDate: "2026-08-31", actualChangeKg: -1.03, plannedChangeKg: -0.5, isPartial: true }),
       week(1, { startDate: "2026-09-01", endDate: "2026-09-10", actualChangeKg: -2.4, isPartial: true }),
       week(2, { startDate: "2026-10-01", endDate: "2026-10-31", actualChangeKg: null }),
     ];
     const option = monthlyChangeChartOption(points) as any;
     expect(option.xAxis.data).toEqual(["2026-08-15", "2026-09-01", "2026-10-01"]);
     expect(option.xAxis.axisLabel.formatter("2026-09-01")).toBe("сент. 2026");
-    expect(option.series[0].data).toEqual([null, -2.4, null]);
-    expect(option.series[1].data).toEqual([null, -0.5, -0.5]);
+    expect(option.series[0].data).toEqual([-1.03, -2.4, null]);
+    expect(option.series[1].data).toEqual([-0.5, -0.5, -0.5]);
     const tooltip = option.tooltip.formatter([
       { axisValue: "2026-09-01", value: -2.4, marker: "", seriesName: "Факт" },
     ]);

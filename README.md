@@ -356,8 +356,8 @@ The progress page also shows **«Изменение по месяцам»**, bac
 mean non-outlier daily medians in adjacent Moscow calendar months with the
 change in mean calendar-plan weight. The first month starts on the program
 start date; the current month ends today. Both are marked partial, without
-extrapolation. The first month and months following missing or outlier-only
-months have no actual change. A collapsible table preserves exact ranges,
+extrapolation. The first month is compared with the program baseline; months following
+missing or outlier-only months have no actual change. A collapsible table preserves exact ranges,
 measurement counts, averages, changes, and partial-period notes.
 
 ## Local development

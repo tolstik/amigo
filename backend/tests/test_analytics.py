@@ -120,14 +120,14 @@ def test_monthly_weight_changes_compare_daily_averages_without_filling_gaps():
     assert august["actual_avg_kg"] == 126.0  # Equal day weights, not sample weights.
     assert august["sample_count"] == 6
     assert august["is_partial"] is True
-    assert august["actual_change_kg"] is None
-    assert august["planned_change_kg"] is None
+    assert august["actual_change_kg"] == -1.03
+    august_plan = sum(plan_weight(date(2026, 8, day)) for day in range(15, 32)) / 17
+    assert august["planned_change_kg"] == round(august_plan - plan_weight(date(2026, 8, 15)), 3)
     assert september["actual_avg_kg"] == 122.0
     assert september["actual_min_kg"] == 121.0
     assert september["actual_change_kg"] == -4.0
     assert september["outlier_days"] == 1
     assert september["is_partial"] is False
-    august_plan = sum(plan_weight(date(2026, 8, day)) for day in range(15, 32)) / 17
     september_plan = sum(plan_weight(date(2026, 9, day)) for day in range(1, 31)) / 30
     assert september["planned_change_kg"] == round(september_plan - august_plan, 3)
     assert october["start_date"] == "2026-10-01"

@@ -171,8 +171,8 @@ def _period_weight_points(
     first_bucket = bucket_start(plan.start_date)
     last_bucket = bucket_start(today)
     result: list[dict[str, object]] = []
-    previous_actual_average: float | None = None
-    previous_planned_average: float | None = None
+    previous_actual_average: float | None = plan.start_weight_kg if period == "month" else None
+    previous_planned_average: float | None = plan_weight(plan.start_date, plan) if period == "month" else None
     bucket = first_bucket
     while bucket <= last_bucket:
         next_bucket = add_months(bucket, 1) if period == "month" else bucket + timedelta(days=7)

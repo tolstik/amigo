@@ -804,6 +804,8 @@ elif contract == "weight":
             average = row.get(f"{prefix}_avg_kg")
             change = row.get(f"{prefix}_change_kg")
             prior_average = previous.get(f"{prefix}_avg_kg") if previous else None
+            if previous is None:
+                continue
             if average is None or prior_average is None:
                 if change is not None:
                     raise SystemExit("weight monthly change bridges missing data")

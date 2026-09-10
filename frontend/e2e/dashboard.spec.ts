@@ -29,7 +29,7 @@ const weightSeries = {
     { start_date: "2026-08-31", end_date: "2026-09-02", actual_avg_kg: 125.5, actual_min_kg: 125.5, planned_avg_kg: 124.9, actual_change_kg: null, planned_change_kg: -0.73, deviation_from_plan_kg: 0.6, measurement_days: 1, sample_count: 1, outlier_days: 0, is_partial: true },
   ],
   monthly: [
-    { start_date: "2026-08-15", end_date: "2026-08-31", actual_avg_kg: 126.5, actual_min_kg: 125.5, planned_avg_kg: 126.0, actual_change_kg: null, planned_change_kg: null, deviation_from_plan_kg: 0.5, measurement_days: 10, sample_count: 12, outlier_days: 1, is_partial: true },
+    { start_date: "2026-08-15", end_date: "2026-08-31", actual_avg_kg: 126.5, actual_min_kg: 125.5, planned_avg_kg: 126.0, actual_change_kg: -0.53, planned_change_kg: -1.03, deviation_from_plan_kg: 0.5, measurement_days: 10, sample_count: 12, outlier_days: 1, is_partial: true },
     { start_date: "2026-09-01", end_date: "2026-09-02", actual_avg_kg: 125.5, actual_min_kg: 125.5, planned_avg_kg: 124.8, actual_change_kg: -1.0, planned_change_kg: -1.2, deviation_from_plan_kg: 0.7, measurement_days: 1, sample_count: 1, outlier_days: 0, is_partial: true },
   ],
   projection: [],

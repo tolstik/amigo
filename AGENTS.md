@@ -129,6 +129,8 @@
   ends today and remains marked partial. Preserve empty months and never
   calculate actual change across a missing or outlier-only month, extrapolate a
   partial month, or use pre-program measurements as its comparison baseline.
+  The first program month is compared with the configured baseline weight, so
+  August remains visibly plotted despite being partial.
 - The overview weight-candle chart selects data from the latest 90 Moscow
   calendar days, including today, and automatically fits the date axis to the
   first and last remaining measured days, with no empty leading/trailing days.

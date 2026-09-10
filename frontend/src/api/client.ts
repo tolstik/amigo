@@ -28,7 +28,7 @@ import type {
   WeightPoint,
   WeightSeriesResponse,
   WeeklyActivityPoint,
-  WeeklyWeightPoint,
+  PeriodWeightPoint,
   AssistantMessage,
   AuthSession,
   DataQualityDay,
@@ -297,6 +297,31 @@ function seriesItems(payload: unknown): unknown[] {
   return Array.isArray(body) ? body : list(body, "points", "items", "series");
 }
 
+function normalizeWeightPeriods(values: unknown[]): PeriodWeightPoint[] {
+  return values
+    .map((value): PeriodWeightPoint | null => {
+      const startDate = string(value, "start_date", "startDate");
+      const endDate = string(value, "end_date", "endDate");
+      if (!startDate || !endDate) return null;
+      return {
+        startDate,
+        endDate,
+        actualAvgKg: number(value, "actual_avg_kg", "actualAvgKg"),
+        actualMinKg: number(value, "actual_min_kg", "actualMinKg"),
+        plannedAvgKg: number(value, "planned_avg_kg", "plannedAvgKg"),
+        actualChangeKg: number(value, "actual_change_kg", "actualChangeKg"),
+        plannedChangeKg: number(value, "planned_change_kg", "plannedChangeKg"),
+        deviationFromPlanKg: number(value, "deviation_from_plan_kg", "deviationFromPlanKg"),
+        measurementDays: number(value, "measurement_days", "measurementDays") ?? 0,
+        sampleCount: number(value, "sample_count", "sampleCount") ?? 0,
+        outlierDays: number(value, "outlier_days", "outlierDays") ?? 0,
+        isPartial: boolean(value, "is_partial", "isPartial"),
+      };
+    })
+    .filter((point): point is PeriodWeightPoint => point !== null)
+    .sort((left, right) => left.startDate.localeCompare(right.startDate));
+}
+
 export function normalizeWeightSeries(payload: unknown, range: Period): WeightSeriesResponse {
   const body = unbox(payload);
   const canonical = seriesItems(body);
@@ -349,29 +374,9 @@ export function normalizeWeightSeries(payload: unknown, range: Period): WeightSe
     })
     .filter((point): point is WeightRawPoint => point !== null)
     .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
-  const weekly = list(body, "weekly", "weeks")
-    .map((value): WeeklyWeightPoint | null => {
-      const startDate = string(value, "start_date", "startDate");
-      const endDate = string(value, "end_date", "endDate");
-      if (!startDate || !endDate) return null;
-      return {
-        startDate,
-        endDate,
-        actualAvgKg: number(value, "actual_avg_kg", "actualAvgKg"),
-        actualMinKg: number(value, "actual_min_kg", "actualMinKg"),
-        plannedAvgKg: number(value, "planned_avg_kg", "plannedAvgKg"),
-        actualChangeKg: number(value, "actual_change_kg", "actualChangeKg"),
-        plannedChangeKg: number(value, "planned_change_kg", "plannedChangeKg"),
-        deviationFromPlanKg: number(value, "deviation_from_plan_kg", "deviationFromPlanKg"),
-        measurementDays: number(value, "measurement_days", "measurementDays") ?? 0,
-        sampleCount: number(value, "sample_count", "sampleCount") ?? 0,
-        outlierDays: number(value, "outlier_days", "outlierDays") ?? 0,
-        isPartial: boolean(value, "is_partial", "isPartial"),
-      };
-    })
-    .filter((point): point is WeeklyWeightPoint => point !== null)
-    .sort((left, right) => left.startDate.localeCompare(right.startDate));
-  return { points, raw, projection, planProjection, weekly, meta: metaWithBounds(payload, range, points) };
+  const weekly = normalizeWeightPeriods(list(body, "weekly", "weeks"));
+  const monthly = normalizeWeightPeriods(list(body, "monthly", "months"));
+  return { points, raw, projection, planProjection, weekly, monthly, meta: metaWithBounds(payload, range, points) };
 }
 
 function emptyStats(): PressureStats {

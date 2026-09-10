@@ -102,3 +102,23 @@ def test_assistant_rejects_analysis_metadata_without_recommendations(tmp_path):
     payload = analysis("pending")
     payload.update(items=[], analysis_id=1)
     assert probe(tmp_path, "assistant", payload).returncode != 0
+
+
+def test_weight_probe_checks_monthly_changes_without_exposing_measurements(tmp_path):
+    first = {"start_date": "2026-08-15", "end_date": "2026-08-31", "is_partial": True,
+             "actual_avg_kg": 126.0, "planned_avg_kg": 126.0,
+             "actual_change_kg": None, "planned_change_kg": None}
+    second = {"start_date": "2026-09-01", "end_date": "2026-09-10", "is_partial": True,
+              "actual_avg_kg": 124.0, "planned_avg_kg": 124.5,
+              "actual_change_kg": -2.0, "planned_change_kg": -1.5}
+    payload = {"points": [], "monthly": [first, second]}
+    result = probe(tmp_path, "weight", payload)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    second["actual_change_kg"] = -4.0
+    assert probe(tmp_path, "weight", payload).returncode != 0
+    first["actual_avg_kg"] = None
+    assert probe(tmp_path, "weight", payload).returncode != 0
+    second["actual_change_kg"] = None
+    assert probe(tmp_path, "weight", payload).returncode == 0
+    assert probe(tmp_path, "weight", {"points": []}).returncode != 0

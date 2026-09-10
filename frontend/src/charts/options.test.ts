@@ -1,6 +1,6 @@
 import type { ActivityPoint, CircumferencePoint, HeartRateHourlyPoint, RecoveryPoint, WeeklyWeightPoint, WeightRawPoint } from "../api/types";
 import type { DailyPressureCategory } from "../lib/pressureCategories";
-import { activityDailyChartOption, circumferenceChartOption, doctorPressureChartOption, heartRateChartOption, pressureCategoryChartOption, pressureChartOption, recoveryChartOption, sleepChartOption, watchHeartRateDailyChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightActualChartOption } from "./options";
+import { activityDailyChartOption, monthlyChangeChartOption, circumferenceChartOption, doctorPressureChartOption, heartRateChartOption, pressureCategoryChartOption, pressureChartOption, recoveryChartOption, sleepChartOption, watchHeartRateDailyChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightActualChartOption } from "./options";
 import { chartOptionForTheme, chartPalettes } from "./theme";
 
 function week(index: number, overrides: Partial<WeeklyWeightPoint> = {}): WeeklyWeightPoint {
@@ -75,6 +75,28 @@ describe("weekly chart options", () => {
     expect(series[1].itemStyle.color).toBe(chartPalettes.ocean.blue);
     expect(factColor({ value: -0.7, dataIndex: 1 })).toBe(chartPalettes.ocean.green);
     expect(factColor({ value: 0.1, dataIndex: 1 })).toBe(chartPalettes.ocean.coral);
+  });
+});
+
+describe("monthly weight change chart", () => {
+  it("labels calendar months with years and preserves missing changes", () => {
+    const points = [
+      week(0, { startDate: "2026-08-15", endDate: "2026-08-31", isPartial: true }),
+      week(1, { startDate: "2026-09-01", endDate: "2026-09-10", actualChangeKg: -2.4, isPartial: true }),
+      week(2, { startDate: "2026-10-01", endDate: "2026-10-31", actualChangeKg: null }),
+    ];
+    const option = monthlyChangeChartOption(points) as any;
+    expect(option.xAxis.data).toEqual(["2026-08-15", "2026-09-01", "2026-10-01"]);
+    expect(option.xAxis.axisLabel.formatter("2026-09-01")).toBe("сент. 2026");
+    expect(option.series[0].data).toEqual([null, -2.4, null]);
+    expect(option.series[1].data).toEqual([null, -0.5, -0.5]);
+    const tooltip = option.tooltip.formatter([
+      { axisValue: "2026-09-01", value: -2.4, marker: "", seriesName: "Факт" },
+    ]);
+    expect(tooltip).toContain("неполный месяц");
+    expect(tooltip).not.toContain("неделя");
+    expect(tooltip).toContain("−2,4 кг");
+    expect(tooltip).toContain("Дней с замерами");
   });
 });
 

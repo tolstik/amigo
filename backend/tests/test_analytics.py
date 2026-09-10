@@ -7,10 +7,12 @@ import pytest
 
 from app.analytics import (
     DailyPoint,
+    PlanSpec,
     PressureReading,
     ValuePoint,
     build_insights,
     daily_medians,
+    monthly_weight_points,
     plan_weight,
     planned_target_date,
     pressure_sessions,
@@ -97,6 +99,70 @@ def test_weekly_weight_points_are_empty_before_program_start():
 
 def test_weekly_weight_points_mark_current_week_partial_even_on_sunday():
     assert weekly_weight_points([], as_of=date(2026, 8, 30))[-1]["is_partial"] is True
+
+
+def test_monthly_weight_changes_compare_daily_averages_without_filling_gaps():
+    daily = [
+        DailyPoint(date(2026, 8, 14), 150.0, 1),  # Outside the program.
+        DailyPoint(date(2026, 8, 15), 127.0, 5),
+        DailyPoint(date(2026, 8, 31), 125.0, 1),
+        DailyPoint(date(2026, 9, 1), 123.0, 1),
+        DailyPoint(date(2026, 9, 30), 121.0, 2),
+        DailyPoint(date(2026, 9, 20), 180.0, 1, is_outlier=True),
+        DailyPoint(date(2026, 11, 1), 118.0, 1),
+        DailyPoint(date(2026, 12, 1), 119.0, 1),
+        DailyPoint(date(2027, 1, 1), 100.0, 1),  # Future data.
+    ]
+    months = monthly_weight_points(daily, as_of=date(2026, 12, 10))
+    august, september, october, november, december = months
+    assert august["start_date"] == "2026-08-15"
+    assert august["end_date"] == "2026-08-31"
+    assert august["actual_avg_kg"] == 126.0  # Equal day weights, not sample weights.
+    assert august["sample_count"] == 6
+    assert august["is_partial"] is True
+    assert august["actual_change_kg"] is None
+    assert august["planned_change_kg"] is None
+    assert september["actual_avg_kg"] == 122.0
+    assert september["actual_min_kg"] == 121.0
+    assert september["actual_change_kg"] == -4.0
+    assert september["outlier_days"] == 1
+    assert september["is_partial"] is False
+    august_plan = sum(plan_weight(date(2026, 8, day)) for day in range(15, 32)) / 17
+    september_plan = sum(plan_weight(date(2026, 9, day)) for day in range(1, 31)) / 30
+    assert september["planned_change_kg"] == round(september_plan - august_plan, 3)
+    assert october["start_date"] == "2026-10-01"
+    assert october["end_date"] == "2026-10-31"
+    assert october["actual_avg_kg"] is None
+    assert october["actual_change_kg"] is None
+    assert october["measurement_days"] == 0
+    assert november["actual_change_kg"] is None  # No comparison across October.
+    assert december["actual_change_kg"] == 1.0
+    assert december["end_date"] == "2026-12-10"
+    assert december["is_partial"] is True
+
+
+def test_monthly_weight_handles_year_boundary_leap_february_and_plan_cap():
+    plan = PlanSpec(start_date=date(2027, 12, 31), start_weight_kg=80.0)
+    months = monthly_weight_points([], plan, as_of=date(2028, 3, 31))
+    assert [(row["start_date"], row["end_date"]) for row in months] == [
+        ("2027-12-31", "2027-12-31"), ("2028-01-01", "2028-01-31"),
+        ("2028-02-01", "2028-02-29"), ("2028-03-01", "2028-03-31"),
+    ]
+    assert months[-1]["is_partial"] is True  # Even on the final day, today is incomplete.
+    assert months[-1]["planned_avg_kg"] == 76.5
+    assert months[-1]["planned_change_kg"] == 0.0
+    assert all(row["actual_change_kg"] is None for row in months)
+    assert monthly_weight_points([], as_of=date(2026, 8, 14)) == []
+
+
+def test_monthly_weight_does_not_compare_against_an_outlier_only_month():
+    daily = [
+        DailyPoint(date(2026, 8, 15), 180.0, 1, is_outlier=True),
+        DailyPoint(date(2026, 9, 1), 126.0, 1),
+    ]
+    months = monthly_weight_points(daily, as_of=date(2026, 9, 1))
+    assert months[0]["actual_avg_kg"] is None
+    assert months[1]["actual_change_kg"] is None
 
 
 def test_trend_change_does_not_extrapolate_short_observed_window():

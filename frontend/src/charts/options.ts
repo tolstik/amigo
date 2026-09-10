@@ -9,13 +9,15 @@ import type {
   PressurePoint,
   RecoveryPoint,
   WeeklyActivityPoint,
+  PeriodWeightPoint,
   WeeklyWeightPoint,
+  MonthlyWeightPoint,
   WeightPlanPoint,
   WeightPoint,
   WeightRawPoint,
   WeightProjectionPoint,
 } from "../api/types";
-import { formatDate, formatDateTime, formatDelta, formatKg, formatNumber, formatShortDate } from "../lib/format";
+import { formatDate, formatDateTime, formatDelta, formatKg, formatMonth, formatNumber, formatShortDate } from "../lib/format";
 import { heartRateLineData, type HeartRateAggregationHours } from "./heartRate";
 import type { DailyPressureCategory, PressureCategory } from "../lib/pressureCategories";
 import { PRESSURE_CATEGORY_DEFINITIONS } from "../lib/pressureCategories";
@@ -161,13 +163,14 @@ function withGapBreaks(points: WeightPoint[], selector: (point: WeightPoint) => 
   return result;
 }
 
-function weeklyTooltipFormatter(
-  points: WeeklyWeightPoint[],
+function periodTooltipFormatter(
+  points: PeriodWeightPoint[],
   valueFormatter: (value: number) => string,
   comparison: {
     label: string;
-    value: (point: WeeklyWeightPoint) => number | null;
+    value: (point: PeriodWeightPoint) => number | null;
   },
+  period: "week" | "month" = "week",
 ) {
   const byStartDate = new Map(points.map((point) => [point.startDate, point]));
   return (params: any): string => {
@@ -192,12 +195,12 @@ function weeklyTooltipFormatter(
     const outliers = point.outlierDays
       ? `<div class="chart-tooltip-row"><span>Дней-выбросов</span><b>${point.outlierDays}</b></div>`
       : "";
-    const partial = point.isPartial ? " · неполная неделя" : "";
+    const partial = point.isPartial ? (period === "month" ? " · неполный месяц" : " · неполная неделя") : "";
     return `<div class="chart-tooltip"><strong>${formatDate(point.startDate)} — ${formatDate(point.endDate)}${partial}</strong>${rows}${comparisonRow}${coverage}${outliers}</div>`;
   };
 }
 
-function weeklyDataZoom(points: WeeklyWeightPoint[]): EChartsOption["dataZoom"] {
+function periodDataZoom(points: PeriodWeightPoint[]): EChartsOption["dataZoom"] {
   const longHistory = points.length > 12;
   const common = longHistory
     ? { startValue: Math.max(0, points.length - 12), endValue: points.length - 1 }
@@ -210,7 +213,7 @@ function weeklyDataZoom(points: WeeklyWeightPoint[]): EChartsOption["dataZoom"] 
   ];
 }
 
-function weeklyCategoryAxis(points: WeeklyWeightPoint[]) {
+function periodCategoryAxis(points: PeriodWeightPoint[], period: "week" | "month" = "week") {
   return {
     ...sharedAxis,
     type: "category" as const,
@@ -219,7 +222,7 @@ function weeklyCategoryAxis(points: WeeklyWeightPoint[]) {
     splitLine: { show: false },
     axisLabel: {
       ...sharedAxis.axisLabel,
-      formatter: (value: string) => formatDate(value, false),
+      formatter: (value: string) => period === "month" ? formatMonth(value) : formatDate(value, false),
     },
   };
 }
@@ -260,7 +263,7 @@ export function weeklyWeightChartOption(points: WeeklyWeightPoint[]): EChartsOpt
       trigger: "axis",
       axisPointer: { type: "shadow" },
       confine: true,
-      formatter: weeklyTooltipFormatter(points, formatKg, {
+      formatter: periodTooltipFormatter(points, formatKg, {
         label: "Отклонение факт − план",
         value: (point) => point.deviationFromPlanKg,
       }),
@@ -268,9 +271,9 @@ export function weeklyWeightChartOption(points: WeeklyWeightPoint[]): EChartsOpt
       borderWidth: 0,
       textStyle: { color: "#fff" },
     },
-    xAxis: weeklyCategoryAxis(points),
+    xAxis: periodCategoryAxis(points),
     yAxis: { ...sharedAxis, type: "value", scale: true, name: "кг", nameTextStyle: { color: colors.muted } },
-    dataZoom: weeklyDataZoom(points),
+    dataZoom: periodDataZoom(points),
     series: [
       weeklyBar("Факт", points.map((point) => point.actualAvgKg), colors.green),
       { ...weeklyBar("План", points.map((point) => point.plannedAvgKg), colors.blue), itemStyle: { color: colors.blue, opacity: 0.72, borderRadius: [5, 5, 1, 1] } },
@@ -291,6 +294,14 @@ export function weeklyWeightChartOption(points: WeeklyWeightPoint[]): EChartsOpt
 }
 
 export function weeklyChangeChartOption(points: WeeklyWeightPoint[]): EChartsOption {
+  return weightChangeChartOption(points, "week");
+}
+
+export function monthlyChangeChartOption(points: MonthlyWeightPoint[]): EChartsOption {
+  return weightChangeChartOption(points, "month");
+}
+
+function weightChangeChartOption(points: PeriodWeightPoint[], period: "week" | "month"): EChartsOption {
   const longHistory = points.length > 12;
   const fact = weeklyBar("Факт", points.map((point) => point.actualChangeKg), colors.green);
   fact.itemStyle = {
@@ -311,25 +322,25 @@ export function weeklyChangeChartOption(points: WeeklyWeightPoint[]): EChartsOpt
       trigger: "axis",
       axisPointer: { type: "shadow" },
       confine: true,
-      formatter: weeklyTooltipFormatter(points, formatDelta, {
+      formatter: periodTooltipFormatter(points, formatDelta, {
         label: "Разница темпа факт − план",
         value: (point) => point.actualChangeKg !== null && point.plannedChangeKg !== null
           ? point.actualChangeKg - point.plannedChangeKg
           : null,
-      }),
+      }, period),
       backgroundColor: "rgba(22,31,25,.95)",
       borderWidth: 0,
       textStyle: { color: "#fff" },
     },
-    xAxis: weeklyCategoryAxis(points),
+    xAxis: periodCategoryAxis(points, period),
     yAxis: {
       ...sharedAxis,
       type: "value",
-      name: "кг · снижение ниже 0",
+      name: period === "month" ? "кг" : "кг · снижение ниже 0",
       nameTextStyle: { color: colors.muted },
       axisLabel: { ...sharedAxis.axisLabel, formatter: (value: number) => formatNumber(value) },
     },
-    dataZoom: weeklyDataZoom(points),
+    dataZoom: periodDataZoom(points),
     series: [
       fact,
       { ...weeklyBar("План", points.map((point) => point.plannedChangeKg), colors.blue), itemStyle: { color: colors.blue, opacity: 0.72, borderRadius: [4, 4, 4, 4] } },

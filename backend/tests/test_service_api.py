@@ -66,11 +66,32 @@ def test_service_payloads_match_frontend_contract(db, add_group):
     assert weights["weekly"][0]["is_partial"] is True
     assert weights["weekly"][1]["actual_change_kg"] == -0.75
     assert weights["weekly"][1]["measurement_days"] == 3
+    assert len(weights["monthly"]) == 1
+    assert weights["monthly"][0]["start_date"] == "2026-08-15"
+    assert weights["monthly"][0]["end_date"] == "2026-08-19"
+    assert weights["monthly"][0]["actual_avg_kg"] == 126.43
+    assert weights["monthly"][0]["actual_change_kg"] is None
+    assert weights["monthly"][0]["is_partial"] is True
     pressures = pressure_series(db, settings.tz, "all", start + timedelta(days=4, hours=3))
     assert pressures["points"][0]["session_size"] == 1
     assert pressures["stats_7d"]["avg_systolic"] == 128
     composition = composition_series(db, settings.tz, "all", start + timedelta(days=4))
     assert composition["points"][-1]["lean_mass_kg"] == 82.6
+
+
+def test_monthly_weight_series_uses_moscow_month_boundaries(db, add_group):
+    ensure_default_plan(db)
+    add_group("august", datetime(2026, 8, 31, 20, 30, tzinfo=timezone.utc), {"weight": (126.0, "kg")})
+    add_group("september", datetime(2026, 8, 31, 21, 30, tzinfo=timezone.utc), {"weight": (125.0, "kg")})
+    db.commit()
+    settings = Settings(database_url="sqlite+pysqlite:///:memory:")
+    payload = weight_series(db, settings.tz, "program", datetime(2026, 8, 31, 22, tzinfo=timezone.utc))
+    august, september = payload["monthly"]
+    assert august["actual_avg_kg"] == 126.0
+    assert september["start_date"] == september["end_date"] == "2026-09-01"
+    assert september["actual_avg_kg"] == 125.0
+    assert september["actual_change_kg"] == -1.0
+    assert september["is_partial"] is True
 
 
 def test_circumference_series_filters_range_and_keeps_independent_values(db):
@@ -100,7 +121,7 @@ def test_fastapi_is_read_only_and_returns_csv(db, add_group):
             assert response.headers["cache-control"] == "no-store"
             series = client.get("/api/v1/series/weight?range=program")
             assert series.status_code == 200
-            assert {"points", "weekly", "meta"} <= series.json().keys()
+            assert {"points", "weekly", "monthly", "meta"} <= series.json().keys()
             csv_response = client.get("/api/v1/export/weight.csv?range=all")
             assert csv_response.status_code == 200
             assert csv_response.text.startswith("measured_at,value,unit")

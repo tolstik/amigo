@@ -791,6 +791,25 @@ elif contract == "overview":
             raise SystemExit("overview actual progress does not use the latest measurement")
     elif weight.get("progress_pct") is not None or weight.get("change_since_start_kg") is not None:
         raise SystemExit("overview substituted an actual value without measurements")
+elif contract == "weight":
+    if not isinstance(payload.get("points"), list) or not isinstance(payload.get("monthly"), list):
+        raise SystemExit("weight monthly contract is incomplete")
+    previous = None
+    for row in payload["monthly"]:
+        if not isinstance(row, dict) or not isinstance(row.get("is_partial"), bool):
+            raise SystemExit("weight monthly row is invalid")
+        if not all(isinstance(row.get(key), str) for key in ("start_date", "end_date")):
+            raise SystemExit("weight monthly dates are missing")
+        for prefix in ("actual", "planned"):
+            average = row.get(f"{prefix}_avg_kg")
+            change = row.get(f"{prefix}_change_kg")
+            prior_average = previous.get(f"{prefix}_avg_kg") if previous else None
+            if average is None or prior_average is None:
+                if change is not None:
+                    raise SystemExit("weight monthly change bridges missing data")
+            elif not isinstance(change, (int, float)) or abs(change - (average - prior_average)) > 0.002:
+                raise SystemExit("weight monthly change differs from adjacent averages")
+        previous = row
 elif contract == "swimming":
     if not isinstance(payload.get("sessions"), list) or len(payload["sessions"]) > 50:
         raise SystemExit("swimming history is not bounded")
@@ -959,6 +978,7 @@ PY
 check_authenticated_json_api "api/v1/auth/session" session
 check_authenticated_json_api "api/v1/profile" profile
 check_authenticated_json_api "api/v1/overview" overview
+check_authenticated_json_api "api/v1/series/weight?range=program" weight
 check_authenticated_json_api "api/v1/series/swimming?range=90d" swimming
 check_authenticated_json_api "api/v1/series/activity?range=30d" activity
 check_authenticated_json_api "api/v1/series/recovery?range=30d" recovery

@@ -47,6 +47,7 @@ describe("API normalization", () => {
     expect(result.projection).toEqual([]);
     expect(result.planProjection).toEqual([]);
     expect(result.weekly).toEqual([]);
+    expect(result.monthly).toEqual([]);
   });
 
   it("normalizes independent forecast and plan projections", () => {
@@ -59,10 +60,10 @@ describe("API normalization", () => {
     expect(result.planProjection[0].plannedKg).toBe(124.84);
   });
 
-  it("normalizes continuous weekly plan and fact buckets including gaps", () => {
+  it.each(["weekly", "monthly"] as const)("normalizes continuous %s plan and fact buckets including gaps", (period) => {
     const result = normalizeWeightSeries({
       points: [{ measured_at: "2026-08-31", weight_kg: 125.5 }],
-      weekly: [
+      [period]: [
         {
           start_date: "2026-08-24",
           end_date: "2026-08-30",
@@ -94,8 +95,8 @@ describe("API normalization", () => {
       ],
     }, "program");
 
-    expect(result.weekly).toHaveLength(2);
-    expect(result.weekly[0]).toMatchObject({
+    expect(result[period]).toHaveLength(2);
+    expect(result[period][0]).toMatchObject({
       startDate: "2026-08-17",
       actualAvgKg: 126.25,
       actualChangeKg: -0.75,
@@ -104,7 +105,7 @@ describe("API normalization", () => {
       outlierDays: 1,
       isPartial: false,
     });
-    expect(result.weekly[1]).toMatchObject({
+    expect(result[period][1]).toMatchObject({
       startDate: "2026-08-24",
       actualAvgKg: null,
       actualChangeKg: null,

@@ -1,4 +1,4 @@
-import type { CompositionPoint, PressurePoint, WeeklyWeightPoint, WeightPoint } from "../api/types";
+import type { CompositionPoint, PressurePoint, PeriodWeightPoint, MonthlyWeightPoint, WeeklyWeightPoint, WeightPoint } from "../api/types";
 import { formatDate, formatDateTime, formatDelta, formatKg, formatNumber } from "../lib/format";
 import { weightCandleChange, type DailyWeightCandle } from "../charts/weightCandles";
 
@@ -59,23 +59,31 @@ export function WeightTable({ points }: { points: WeightPoint[] }) {
   );
 }
 
-function weeklyNote(point: WeeklyWeightPoint): string {
+function periodNote(point: PeriodWeightPoint, monthly: boolean): string {
   const notes: string[] = [];
   if (point.measurementDays === 0) notes.push("Нет замеров");
-  if (point.isPartial) notes.push("Неполная неделя");
+  if (point.isPartial) notes.push(monthly ? "Неполный месяц" : "Неполная неделя");
   if (point.outlierDays > 0) notes.push(`Дней-выбросов: ${point.outlierDays}`);
   return notes.join(" · ") || "—";
 }
 
 export function WeeklyWeightTable({ points }: { points: WeeklyWeightPoint[] }) {
+  return <WeightPeriodTable points={points} monthly={false} />;
+}
+
+export function MonthlyWeightTable({ points }: { points: MonthlyWeightPoint[] }) {
+  return <WeightPeriodTable points={points} monthly />;
+}
+
+function WeightPeriodTable({ points, monthly }: { points: PeriodWeightPoint[]; monthly: boolean }) {
   const rows = [...points].reverse();
   return (
-    <TableFrame title={`Показать недельную таблицу (${points.length})`}>
+    <TableFrame title={`Показать ${monthly ? "месячную" : "недельную"} таблицу (${points.length})`}>
       <table className="data-table">
-        <caption className="sr-only">Недельные показатели веса относительно плана</caption>
+        <caption className="sr-only">{monthly ? "Месячные" : "Недельные"} показатели веса относительно плана</caption>
         <thead>
           <tr>
-            <th scope="col">Неделя</th>
+            <th scope="col">{monthly ? "Месяц" : "Неделя"}</th>
             <th scope="col">Факт, средний</th>
             <th scope="col">План, средний</th>
             <th scope="col">Минимум</th>
@@ -97,7 +105,7 @@ export function WeeklyWeightTable({ points }: { points: WeeklyWeightPoint[] }) {
               <td>{formatDelta(point.plannedChangeKg)}</td>
               <td>{formatDelta(point.deviationFromPlanKg)}</td>
               <td>{point.measurementDays} / {point.sampleCount}</td>
-              <td>{weeklyNote(point)}</td>
+              <td>{periodNote(point, monthly)}</td>
             </tr>
           ))}
         </tbody>

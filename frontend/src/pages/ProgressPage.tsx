@@ -2,10 +2,10 @@ import { useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
 import type { OverviewContext } from "../App";
 import { api, csvUrl } from "../api/client";
-import { weeklyChangeChartOption, weeklyWeightChartOption, weightChartOption } from "../charts/options";
+import { monthlyChangeChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightChartOption } from "../charts/options";
 import { ErrorState, EmptyState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
-import { WeeklyWeightTable, WeightTable } from "../components/DataTables";
+import { MonthlyWeightTable, WeeklyWeightTable, WeightTable } from "../components/DataTables";
 import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
@@ -70,6 +70,20 @@ export function ProgressPage() {
             </>
           ) : series.data.points.length ? (
             <EmptyState title="Недельная сводка пока не готова" text="Она появится после обновления аналитики программы." />
+          ) : null}
+
+          {series.data.monthly.length ? (
+            <ChartCard
+              title="Изменение по месяцам"
+              subtitle="Изменение среднего веса к предыдущему календарному месяцу · факт и план · снижение ниже нуля"
+              option={monthlyChangeChartOption(series.data.monthly)}
+              ariaLabel="Месячный график фактического и планового изменения среднего веса; снижение показано ниже нуля"
+              height={390}
+              footer={<>
+                <p className="chart-note">Среднее дневных медиан без выбросов. Первый месяц — с начала программы, текущий — по сегодня; план усреднён за те же дни. Для первого месяца и после месяца без замеров изменение не рассчитывается. Зелёный — план выполнен, жёлтый — темп ниже плана, коралловый — снижения нет.</p>
+                <MonthlyWeightTable points={series.data.monthly} />
+              </>}
+            />
           ) : null}
         </>
       ) : null}

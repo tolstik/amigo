@@ -28,6 +28,10 @@ const weightSeries = {
     { start_date: "2026-08-24", end_date: "2026-08-30", actual_avg_kg: null, actual_min_kg: null, planned_avg_kg: 125.63, actual_change_kg: null, planned_change_kg: -0.92, deviation_from_plan_kg: null, measurement_days: 0, sample_count: 0, outlier_days: 0, is_partial: false },
     { start_date: "2026-08-31", end_date: "2026-09-02", actual_avg_kg: 125.5, actual_min_kg: 125.5, planned_avg_kg: 124.9, actual_change_kg: null, planned_change_kg: -0.73, deviation_from_plan_kg: 0.6, measurement_days: 1, sample_count: 1, outlier_days: 0, is_partial: true },
   ],
+  monthly: [
+    { start_date: "2026-08-15", end_date: "2026-08-31", actual_avg_kg: 126.5, actual_min_kg: 125.5, planned_avg_kg: 126.0, actual_change_kg: null, planned_change_kg: null, deviation_from_plan_kg: 0.5, measurement_days: 10, sample_count: 12, outlier_days: 1, is_partial: true },
+    { start_date: "2026-09-01", end_date: "2026-09-02", actual_avg_kg: 125.5, actual_min_kg: 125.5, planned_avg_kg: 124.8, actual_change_kg: -1.0, planned_change_kg: -1.2, deviation_from_plan_kg: 0.7, measurement_days: 1, sample_count: 1, outlier_days: 0, is_partial: true },
+  ],
   projection: [],
   plan_projection: [],
   meta: { range: "program", count: 1 },
@@ -358,7 +362,7 @@ test("renders the overview and navigates to pressure", async ({ page }) => {
   await expect(page.getByRole("table", { name: "Дневные категории давления и диапазоны сессий" })).toContainText("Критически высокое");
 });
 
-test("renders weekly plan/fact charts and their accessible table", async ({ page }) => {
+test("renders weekly and monthly plan/fact charts with accessible tables", async ({ page }, testInfo) => {
   await page.goto("./");
   await page.getByRole("link", { name: "Прогресс", exact: true }).click();
 
@@ -372,6 +376,17 @@ test("renders weekly plan/fact charts and their accessible table", async ({ page
   await expect(table).toBeVisible();
   await expect(table.getByRole("columnheader", { name: "Факт, средний" })).toBeVisible();
   await expect(table.getByText("Нет замеров")).toBeVisible();
+
+  const monthlyCard = page.locator(".chart-card").filter({ has: page.getByRole("heading", { name: "Изменение по месяцам", exact: true }) });
+  await expect(monthlyCard.getByRole("img", { name: /Месячный график/ })).toBeVisible();
+  await expect(monthlyCard.getByText(/предыдущему календарному месяцу/)).toBeVisible();
+  await monthlyCard.getByText("Показать месячную таблицу (2)").click();
+  const monthlyTable = monthlyCard.getByRole("table", { name: "Месячные показатели веса относительно плана" });
+  await expect(monthlyTable).toContainText("Неполный месяц");
+  await expect(monthlyTable.getByText("−1,0 кг", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await monthlyCard.getByText("Показать месячную таблицу (2)").click();
+  await monthlyCard.screenshot({ path: testInfo.outputPath("monthly-chart.png"), style: ".app-bar, .sidebar { visibility: hidden !important; }" });
 });
 
 test("renders AI analysis, activity baseline and recovery", async ({ page }) => {

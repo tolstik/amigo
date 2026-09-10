@@ -71,6 +71,16 @@ export function formatDateTime(value: string | null | undefined, withYear = fals
   }).format(date);
 }
 
+export function formatMonth(value: string): string {
+  const date = validDate(value);
+  if (!date) return "—";
+  return new Intl.DateTimeFormat("ru-RU", {
+    month: "short",
+    year: "numeric",
+    timeZone: "Europe/Moscow",
+  }).format(date).replace(" г.", "");
+}
+
 export function formatShortDate(value: string): string {
   const date = validDate(value);
   if (!date) return value;

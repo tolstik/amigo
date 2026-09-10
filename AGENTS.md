@@ -123,6 +123,12 @@
 - Overview actual progress and change since program start use the latest Withings
   measurement. Planned progress uses the current Moscow date and the existing
   calendar-month plan; trend/forecast/AI evidence keep their smoothed contracts.
+- The progress page's monthly change chart compares mean non-outlier daily
+  weight medians in adjacent Moscow calendar months against mean calendar-plan
+  changes. The first month starts at the program boundary; the current month
+  ends today and remains marked partial. Preserve empty months and never
+  calculate actual change across a missing or outlier-only month, extrapolate a
+  partial month, or use pre-program measurements as its comparison baseline.
 - The overview weight-candle chart selects data from the latest 90 Moscow
   calendar days, including today, and automatically fits the date axis to the
   first and last remaining measured days, with no empty leading/trailing days.

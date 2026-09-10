@@ -151,7 +151,7 @@ export interface WeightPlanPoint {
   plannedKg: number;
 }
 
-export interface WeeklyWeightPoint {
+export interface PeriodWeightPoint {
   startDate: string;
   endDate: string;
   actualAvgKg: number | null;
@@ -165,6 +165,9 @@ export interface WeeklyWeightPoint {
   outlierDays: number;
   isPartial: boolean;
 }
+
+export type WeeklyWeightPoint = PeriodWeightPoint;
+export type MonthlyWeightPoint = PeriodWeightPoint;
 
 export interface PressurePoint {
   measuredAt: string;
@@ -203,6 +206,7 @@ export interface WeightSeriesResponse extends SeriesResponse<WeightPoint> {
   projection: WeightProjectionPoint[];
   planProjection: WeightPlanPoint[];
   weekly: WeeklyWeightPoint[];
+  monthly: MonthlyWeightPoint[];
 }
 
 export interface PressureStats {

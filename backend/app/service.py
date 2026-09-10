@@ -24,6 +24,7 @@ from .analytics import (
     theil_sen_forecast,
     trend_change,
     weekly_weight_points,
+    monthly_weight_points,
     weekly_weight_pressure_correlation,
 )
 from .body_measurements_models import BodyCircumference
@@ -291,6 +292,7 @@ def weight_series(db: Session, tz: ZoneInfo, range_name: RangeName, now: datetim
         "unit": "kg",
         "points": points,
         "weekly": weekly_weight_points(program_daily, plan, today),
+        "monthly": monthly_weight_points(program_daily, plan, today),
         "projection": projection,
         "plan_projection": plan_projection,
         "meta": series_meta(range_name, points, tz),

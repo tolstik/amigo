@@ -326,7 +326,7 @@ are present. Validated AI can turn a repeated pattern into
 measurement/logging or clinician-discussion guidance, but never diagnosis,
 treatment, medication changes, or fixed calorie prescriptions.
 
-## Weekly plan/fact analytics
+## Weekly and monthly plan/fact analytics
 
 The program progress view includes two weekly charts backed by the `weekly`
 array in `GET /api/v1/series/weight?range=program`:
@@ -350,6 +350,15 @@ observed change and never scales it into a hypothetical full-period result.
 
 Activity has a separate weekly fact-versus-personal-baseline chart. Its baseline
 uses corresponding weekdays from the previous 28 complete days.
+
+The progress page also shows **«Изменение по месяцам»**, backed by the
+`monthly` array in the same authenticated weight response. It compares the
+mean non-outlier daily medians in adjacent Moscow calendar months with the
+change in mean calendar-plan weight. The first month starts on the program
+start date; the current month ends today. Both are marked partial, without
+extrapolation. The first month and months following missing or outlier-only
+months have no actual change. A collapsible table preserves exact ranges,
+measurement counts, averages, changes, and partial-period notes.
 
 ## Local development
 

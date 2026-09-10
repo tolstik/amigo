@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 import math
 import statistics
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Literal, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 
@@ -131,33 +131,54 @@ def weekly_weight_points(
     plan: PlanSpec = PlanSpec(),
     as_of: date | None = None,
 ) -> list[dict[str, object]]:
-    """Aggregate program daily medians into continuous ISO-week buckets.
+    """Aggregate program daily medians into continuous ISO-week buckets."""
+    return _period_weight_points(daily, plan, as_of, "week")
 
-    The first program week and the current week are clipped to the program and
-    reporting boundaries. Empty weeks remain in the result so an actual change
+
+def monthly_weight_points(
+    daily: Sequence[DailyPoint],
+    plan: PlanSpec = PlanSpec(),
+    as_of: date | None = None,
+) -> list[dict[str, object]]:
+    """Compare average daily medians in adjacent calendar months."""
+    return _period_weight_points(daily, plan, as_of, "month")
+
+
+def _period_weight_points(
+    daily: Sequence[DailyPoint],
+    plan: PlanSpec,
+    as_of: date | None,
+    period: Literal["week", "month"],
+) -> list[dict[str, object]]:
+    """Keep partial and empty periods without extrapolating measurements.
+
+    The first and current periods are clipped to the program and reporting
+    boundaries. Empty periods remain in the result so an actual change
     is never calculated across a gap in measurements.
     """
     today = as_of or date.today()
     if today < plan.start_date:
         return []
 
-    program = [point for point in daily if plan.start_date <= point.day <= today]
-    by_week: dict[date, list[DailyPoint]] = defaultdict(list)
-    for point in program:
-        monday = point.day - timedelta(days=point.day.weekday())
-        by_week[monday].append(point)
+    def bucket_start(day: date) -> date:
+        return day.replace(day=1) if period == "month" else day - timedelta(days=day.weekday())
 
-    first_monday = plan.start_date - timedelta(days=plan.start_date.weekday())
-    last_monday = today - timedelta(days=today.weekday())
+    program = [point for point in daily if plan.start_date <= point.day <= today]
+    by_period: dict[date, list[DailyPoint]] = defaultdict(list)
+    for point in program:
+        by_period[bucket_start(point.day)].append(point)
+
+    first_bucket = bucket_start(plan.start_date)
+    last_bucket = bucket_start(today)
     result: list[dict[str, object]] = []
     previous_actual_average: float | None = None
     previous_planned_average: float | None = None
-    monday = first_monday
-    while monday <= last_monday:
-        sunday = monday + timedelta(days=6)
-        period_start = max(monday, plan.start_date)
-        period_end = min(sunday, today)
-        measured = sorted(by_week.get(monday, []), key=lambda point: point.day)
+    bucket = first_bucket
+    while bucket <= last_bucket:
+        next_bucket = add_months(bucket, 1) if period == "month" else bucket + timedelta(days=7)
+        period_start = max(bucket, plan.start_date)
+        period_end = min(next_bucket - timedelta(days=1), today)
+        measured = sorted(by_period.get(bucket, []), key=lambda point: point.day)
         clean = [point for point in measured if not point.is_outlier]
         planned: list[float] = []
         cursor = period_start
@@ -196,12 +217,12 @@ def weekly_weight_points(
                 "measurement_days": len(measured),
                 "sample_count": sum(point.sample_count for point in measured),
                 "outlier_days": sum(point.is_outlier for point in measured),
-                "is_partial": period_start != monday or monday == last_monday,
+                "is_partial": period_start != bucket or bucket == last_bucket,
             }
         )
         previous_actual_average = actual_average
         previous_planned_average = planned_average
-        monday += timedelta(days=7)
+        bucket = next_bucket
     return result
 
 

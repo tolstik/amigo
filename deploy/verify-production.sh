@@ -792,31 +792,54 @@ elif contract == "overview":
     elif weight.get("progress_pct") is not None or weight.get("change_since_start_kg") is not None:
         raise SystemExit("overview substituted an actual value without measurements")
 elif contract == "weight":
-    if not isinstance(payload.get("points"), list) or not isinstance(payload.get("monthly"), list):
-        raise SystemExit("weight monthly contract is incomplete")
-    previous = None
-    for row in payload["monthly"]:
-        if not isinstance(row, dict) or not isinstance(row.get("is_partial"), bool):
-            raise SystemExit("weight monthly row is invalid")
-        if not all(isinstance(row.get(key), str) for key in ("start_date", "end_date")):
-            raise SystemExit("weight monthly dates are missing")
-        for prefix in ("actual", "planned"):
-            average = row.get(f"{prefix}_avg_kg")
-            change = row.get(f"{prefix}_change_kg")
-            prior_average = previous.get(f"{prefix}_avg_kg") if previous else None
-            if previous is None:
-                if average is None:
-                    if change is not None:
-                        raise SystemExit("first monthly change exists without measurements")
-                elif not isinstance(change, (int, float)):
-                    raise SystemExit("first monthly change from program baseline is missing")
+    from datetime import date
+    import math
+
+    if not isinstance(payload.get("points"), list):
+        raise SystemExit("weight points are missing")
+    def finite(value):
+        return type(value) in (int, float) and math.isfinite(value)
+    for period in ("weekly", "monthly"):
+        if not isinstance(payload.get(period), list):
+            raise SystemExit("weight period contract is incomplete")
+        for row in payload[period]:
+            if not isinstance(row, dict) or not isinstance(row.get("is_partial"), bool):
+                raise SystemExit("weight period row is invalid")
+            dates = {}
+            for key in ("plan_start_date", "start_date", "end_date", "period_end_date"):
+                value = row.get(key)
+                if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+                    raise SystemExit("weight period dates are missing")
+                dates[key] = date.fromisoformat(value)
+            if not dates["plan_start_date"] <= dates["start_date"] <= dates["end_date"] <= dates["period_end_date"]:
+                raise SystemExit("weight period dates are out of order")
+            for change, start, end in (
+                ("planned_full_change_kg", "planned_start_kg", "planned_end_kg"),
+                ("planned_change_kg", "planned_start_kg", "planned_to_date_kg"),
+            ):
+                if not all(finite(row.get(key)) for key in (change, start, end)):
+                    raise SystemExit("weight full/elapsed plan is missing")
+                if abs(row[change] - (row[end] - row[start])) > 0.002:
+                    raise SystemExit("weight plan differs from period endpoints")
+            if row["planned_full_change_kg"] > row["planned_change_kg"] + 0.002 or row["planned_change_kg"] > 0:
+                raise SystemExit("weight elapsed/full plan ordering is invalid")
+            actual = row.get("actual_change_kg")
+            observed_plan = row.get("planned_observed_change_kg")
+            if row.get("actual_end_kg") is None:
+                if any(row.get(key) is not None for key in ("actual_start_kg", "actual_start_date", "actual_end_date", "actual_change_kg", "planned_observed_change_kg")):
+                    raise SystemExit("weight fact exists without measurements")
                 continue
-            if average is None or prior_average is None:
-                if change is not None:
-                    raise SystemExit("weight monthly change bridges missing data")
-            elif not isinstance(change, (int, float)) or abs(change - (average - prior_average)) > 0.002:
-                raise SystemExit("weight monthly change differs from adjacent averages")
-        previous = row
+            if not all(finite(row.get(key)) for key in ("actual_start_kg", "actual_end_kg")):
+                raise SystemExit("weight fact endpoints are missing")
+            observed_start = date.fromisoformat(row["actual_start_date"])
+            observed_end = date.fromisoformat(row["actual_end_date"])
+            if not dates["plan_start_date"] <= observed_start <= observed_end <= dates["end_date"] or observed_end < dates["start_date"]:
+                raise SystemExit("weight fact bridges a missing period boundary")
+            if actual is None:
+                if observed_start != observed_end or observed_plan is not None:
+                    raise SystemExit("weight observed interval has no change")
+            elif not finite(actual) or not finite(observed_plan) or abs(actual - (row["actual_end_kg"] - row["actual_start_kg"])) > 0.002:
+                raise SystemExit("weight change differs from observed endpoints")
 elif contract == "swimming":
     if not isinstance(payload.get("sessions"), list) or len(payload["sessions"]) > 50:
         raise SystemExit("swimming history is not bounded")

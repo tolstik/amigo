@@ -23,14 +23,14 @@ const weightSeries = {
     { measured_at: "2026-09-01T05:00:00Z", value: 125.5 },
   ],
   weekly: [
-    { start_date: "2026-08-15", end_date: "2026-08-16", actual_avg_kg: 127, actual_min_kg: 126.9, planned_avg_kg: 126.97, actual_change_kg: null, planned_change_kg: null, deviation_from_plan_kg: 0.03, measurement_days: 2, sample_count: 3, outlier_days: 0, is_partial: true },
-    { start_date: "2026-08-17", end_date: "2026-08-23", actual_avg_kg: 126.25, actual_min_kg: 126, planned_avg_kg: 126.55, actual_change_kg: -0.75, planned_change_kg: -0.42, deviation_from_plan_kg: -0.3, measurement_days: 3, sample_count: 4, outlier_days: 1, is_partial: false },
-    { start_date: "2026-08-24", end_date: "2026-08-30", actual_avg_kg: null, actual_min_kg: null, planned_avg_kg: 125.63, actual_change_kg: null, planned_change_kg: -0.92, deviation_from_plan_kg: null, measurement_days: 0, sample_count: 0, outlier_days: 0, is_partial: false },
-    { start_date: "2026-08-31", end_date: "2026-09-02", actual_avg_kg: 125.5, actual_min_kg: 125.5, planned_avg_kg: 124.9, actual_change_kg: null, planned_change_kg: -0.73, deviation_from_plan_kg: 0.6, measurement_days: 1, sample_count: 1, outlier_days: 0, is_partial: true },
+    {"start_date": "2026-08-15", "end_date": "2026-08-16", "period_end_date": "2026-08-16", "plan_start_date": "2026-08-15", "planned_start_kg": 127.03, "planned_end_kg": 126.901, "planned_to_date_kg": 126.901, "planned_full_change_kg": -0.129, "actual_start_date": "2026-08-15", "actual_end_date": "2026-08-16", "actual_start_kg": 127.03, "actual_end_kg": 126.9, "planned_observed_change_kg": -0.129, "actual_avg_kg": 126.95, "actual_min_kg": 126.9, "planned_avg_kg": 126.965, "actual_change_kg": -0.13, "planned_change_kg": -0.129, "deviation_from_plan_kg": -0.015, "measurement_days": 2, "sample_count": 3, "outlier_days": 0, "is_partial": true},
+    {"start_date": "2026-08-17", "end_date": "2026-08-23", "period_end_date": "2026-08-23", "plan_start_date": "2026-08-16", "planned_start_kg": 126.901, "planned_end_kg": 125.998, "planned_to_date_kg": 125.998, "planned_full_change_kg": -0.903, "actual_start_date": "2026-08-16", "actual_end_date": "2026-08-20", "actual_start_kg": 126.9, "actual_end_kg": 126, "planned_observed_change_kg": -0.516, "actual_avg_kg": 126.25, "actual_min_kg": 126, "planned_avg_kg": 126.385, "actual_change_kg": -0.9, "planned_change_kg": -0.903, "deviation_from_plan_kg": -0.135, "measurement_days": 2, "sample_count": 3, "outlier_days": 0, "is_partial": false},
+    {"start_date": "2026-08-24", "end_date": "2026-08-30", "period_end_date": "2026-08-30", "plan_start_date": "2026-08-23", "planned_start_kg": 125.998, "planned_end_kg": 125.095, "planned_to_date_kg": 125.095, "planned_full_change_kg": -0.903, "actual_start_date": null, "actual_end_date": null, "actual_start_kg": null, "actual_end_kg": null, "planned_observed_change_kg": null, "actual_avg_kg": null, "actual_min_kg": null, "planned_avg_kg": 125.482, "actual_change_kg": null, "planned_change_kg": -0.903, "deviation_from_plan_kg": null, "measurement_days": 0, "sample_count": 0, "outlier_days": 0, "is_partial": false},
+    {"start_date": "2026-08-31", "end_date": "2026-09-02", "period_end_date": "2026-09-06", "plan_start_date": "2026-08-30", "planned_start_kg": 125.095, "planned_end_kg": 124.191, "planned_to_date_kg": 124.707, "planned_full_change_kg": -0.904, "actual_start_date": "2026-08-31", "actual_end_date": "2026-09-01", "actual_start_kg": 125.5, "actual_end_kg": 125.4, "planned_observed_change_kg": -0.129, "actual_avg_kg": 125.45, "actual_min_kg": 125.4, "planned_avg_kg": 124.836, "actual_change_kg": -0.1, "planned_change_kg": -0.388, "deviation_from_plan_kg": 0.614, "measurement_days": 2, "sample_count": 2, "outlier_days": 0, "is_partial": true},
   ],
   monthly: [
-    { start_date: "2026-08-15", end_date: "2026-08-31", actual_avg_kg: 126.5, actual_min_kg: 125.5, planned_avg_kg: 126.0, actual_change_kg: -0.53, planned_change_kg: -1.03, deviation_from_plan_kg: 0.5, measurement_days: 10, sample_count: 12, outlier_days: 1, is_partial: true },
-    { start_date: "2026-09-01", end_date: "2026-09-02", actual_avg_kg: 125.5, actual_min_kg: 125.5, planned_avg_kg: 124.8, actual_change_kg: -1.0, planned_change_kg: -1.2, deviation_from_plan_kg: 0.7, measurement_days: 1, sample_count: 1, outlier_days: 0, is_partial: true },
+    {"start_date": "2026-08-15", "end_date": "2026-08-31", "period_end_date": "2026-08-31", "plan_start_date": "2026-08-15", "planned_start_kg": 127.03, "planned_end_kg": 124.965, "planned_to_date_kg": 124.965, "planned_full_change_kg": -2.065, "actual_start_date": "2026-08-15", "actual_end_date": "2026-08-31", "actual_start_kg": 127.03, "actual_end_kg": 125.5, "planned_observed_change_kg": -2.065, "actual_avg_kg": 126.38, "actual_min_kg": 125.5, "planned_avg_kg": 125.998, "actual_change_kg": -1.53, "planned_change_kg": -2.065, "deviation_from_plan_kg": 0.382, "measurement_days": 5, "sample_count": 7, "outlier_days": 0, "is_partial": true},
+    {"start_date": "2026-09-01", "end_date": "2026-09-02", "period_end_date": "2026-09-30", "plan_start_date": "2026-08-31", "planned_start_kg": 124.965, "planned_end_kg": 121.03, "planned_to_date_kg": 124.707, "planned_full_change_kg": -3.935, "actual_start_date": "2026-08-31", "actual_end_date": "2026-09-01", "actual_start_kg": 125.5, "actual_end_kg": 125.4, "planned_observed_change_kg": -0.129, "actual_avg_kg": 125.4, "actual_min_kg": 125.4, "planned_avg_kg": 124.772, "actual_change_kg": -0.1, "planned_change_kg": -0.258, "deviation_from_plan_kg": 0.629, "measurement_days": 1, "sample_count": 1, "outlier_days": 0, "is_partial": true},
   ],
   projection: [],
   plan_projection: [],
@@ -367,29 +367,42 @@ test("renders weekly and monthly plan/fact charts with accessible tables", async
   await page.getByRole("link", { name: "Прогресс", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Вес по неделям" })).toBeVisible();
-  await expect(page.getByRole("img", { name: /Недельный график среднего фактического и планового веса/ })).toBeVisible();
+  await expect(page.getByRole("img", { name: /Недельный график последнего веса/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Изменение по неделям" })).toBeVisible();
-  await expect(page.getByText(/Отрицательное — снижение/)).toBeVisible();
+  await expect(page.getByText(/план на всю неделю · снижение ниже нуля/)).toBeVisible();
 
   await page.getByText("Показать недельную таблицу (4)").click();
   const table = page.getByRole("table", { name: "Недельные показатели веса относительно плана" });
   await expect(table).toBeVisible();
-  await expect(table.getByRole("columnheader", { name: "Факт, средний" })).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Последний вес" })).toBeVisible();
   await expect(table.getByText("Нет замеров")).toBeVisible();
 
   const monthlyCard = page.locator(".chart-card").filter({ has: page.getByRole("heading", { name: "Изменение по месяцам", exact: true }) });
   await expect(monthlyCard.getByRole("img", { name: /Месячный график/ })).toBeVisible();
-  await expect(monthlyCard.getByText(/предыдущему календарному месяцу/)).toBeVisible();
+  await expect(monthlyCard.getByText(/план на весь месяц · снижение ниже нуля/)).toBeVisible();
   await monthlyCard.getByText("Показать месячную таблицу (2)").click();
   const monthlyTable = monthlyCard.getByRole("table", { name: "Месячные показатели веса относительно плана" });
   await expect(monthlyTable).toContainText("Неполный месяц");
   const augustRow = monthlyTable.getByRole("row").filter({ hasText: "15 авг." });
-  await expect(augustRow).toContainText("−0,5 кг");
-  await expect(augustRow).toContainText("−1,0 кг");
-  await expect(monthlyCard.getByText(/Первый месяц сравнивается со стартовым весом программы: 127,03 кг/)).toBeVisible();
+  await expect(augustRow).toContainText("−1,5 кг");
+  await expect(augustRow).toContainText("−2,1 кг");
+  await monthlyCard.getByText("Как считаются факт и план", { exact: true }).click();
+  await expect(monthlyCard.getByText(/Первый период считается от 127,03 кг/)).toBeVisible();
+  await monthlyCard.getByText("Как считаются факт и план", { exact: true }).click();
+  const septemberRow = monthlyTable.getByRole("row").filter({ hasText: "30 сент." });
+  await expect(septemberRow).toContainText("−3,9 кг");
+  await expect(septemberRow).toContainText("−0,3 кг");
+  await expect(septemberRow).toContainText("−0,1 кг");
+  await expect(table.getByRole("columnheader", { name: "План на неделю", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await monthlyCard.getByText("Показать месячную таблицу (2)").click();
+  await page.mouse.move(0, 0);
   await monthlyCard.screenshot({ path: testInfo.outputPath("monthly-chart.png"), style: ".app-bar, .sidebar { visibility: hidden !important; }" });
+  await page.getByText("Показать недельную таблицу (4)").click();
+  for (const title of ["Вес по неделям", "Изменение по неделям"]) {
+    const card = page.locator(".chart-card").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+    await card.screenshot({ path: testInfo.outputPath(`${title}.png`), style: ".app-bar, .sidebar { visibility: hidden !important; }" });
+  }
 });
 
 test("renders AI analysis, activity baseline and recovery", async ({ page }) => {

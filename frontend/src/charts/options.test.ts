@@ -9,6 +9,17 @@ function week(index: number, overrides: Partial<WeeklyWeightPoint> = {}): Weekly
   return {
     startDate: start.toISOString().slice(0, 10),
     endDate: end.toISOString().slice(0, 10),
+    periodEndDate: end.toISOString().slice(0, 10),
+    planStartDate: new Date(start.getTime() - 86_400_000).toISOString().slice(0, 10),
+    plannedStartKg: 126.7 - index * 0.5,
+    plannedEndKg: 126.2 - index * 0.5,
+    plannedToDateKg: 126.3 - index * 0.5,
+    plannedFullChangeKg: -0.9,
+    actualStartDate: start.toISOString().slice(0, 10),
+    actualEndDate: end.toISOString().slice(0, 10),
+    actualStartKg: 126.4 - index * 0.4,
+    actualEndKg: 126 - index * 0.4,
+    plannedObservedChangeKg: -0.5,
     actualAvgKg: 126 - index * 0.4,
     actualMinKg: 125.8 - index * 0.4,
     plannedAvgKg: 126.2 - index * 0.5,
@@ -25,24 +36,27 @@ function week(index: number, overrides: Partial<WeeklyWeightPoint> = {}): Weekly
 
 describe("weekly chart options", () => {
   it("renders paired plan/fact bars and preserves a gap in the minimum line", () => {
-    const points = [week(0, { isPartial: true }), week(1, { actualAvgKg: null, actualMinKg: null, measurementDays: 0, sampleCount: 0 })];
+    const points = [week(0, { isPartial: true }), week(1, { actualAvgKg: null, actualEndKg: null, actualMinKg: null, measurementDays: 0, sampleCount: 0 })];
     const option = weeklyWeightChartOption(points);
     const series = option.series as any[];
 
     expect(series.map((item) => [item.name, item.type])).toEqual([
-      ["Факт", "bar"],
-      ["План", "bar"],
+      ["Последний вес", "bar"],
+      ["План на дату", "bar"],
+      ["План на конец недели", "bar"],
       ["Минимум", "line"],
     ]);
     expect(series[0].data).toEqual([126, null]);
-    expect(series[2].data).toEqual([125.8, null]);
-    expect(series[2].connectNulls).toBe(false);
+    expect(series[3].data).toEqual([125.8, null]);
+    expect(series[3].connectNulls).toBe(false);
 
     const tooltip = (option.tooltip as any).formatter([
       { axisValue: points[0].startDate, value: 126, marker: "", seriesName: "Факт" },
     ]);
     expect(tooltip).toContain("неполная неделя");
-    expect(tooltip).toContain("Отклонение факт − план");
+    expect(tooltip).toContain("Даты факта");
+    expect(series[1].data).toEqual([126.3, 125.8]);
+    expect(series[2].data).toEqual([126.2, 125.7]);
     expect(tooltip).toContain("Дней с замерами");
     expect(tooltip).toContain("Всего замеров");
   });
@@ -58,6 +72,9 @@ describe("weekly chart options", () => {
 
     expect(series[0].data[1]).toBe(-0.4);
     expect(series[1].data[1]).toBe(-0.5);
+    expect(series[2].name).toBe("План на неделю");
+    expect(series[2].data[1]).toBe(-0.9);
+    expect(series[0].itemStyle.color({ value: -0.6, dataIndex: 1 })).toBe("#2d9365");
     expect(factColor({ value: -0.4, dataIndex: 1 })).toBe("#d99b35");
     expect(factColor({ value: -0.7, dataIndex: 2 })).toBe("#2d9365");
     expect(factColor({ value: 0.1, dataIndex: 3 })).toBe("#e9785d");
@@ -90,6 +107,9 @@ describe("monthly weight change chart", () => {
     expect(option.xAxis.axisLabel.formatter("2026-09-01")).toBe("сент. 2026");
     expect(option.series[0].data).toEqual([-1.03, -2.4, null]);
     expect(option.series[1].data).toEqual([-0.5, -0.5, -0.5]);
+    expect(option.series[2].name).toBe("План на месяц");
+    expect(option.series[2].data).toEqual([-0.9, -0.9, -0.9]);
+    expect(option.legend.type).toBe("scroll");
     const tooltip = option.tooltip.formatter([
       { axisValue: "2026-09-01", value: -2.4, marker: "", seriesName: "Факт" },
     ]);

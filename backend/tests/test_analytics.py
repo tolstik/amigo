@@ -58,14 +58,18 @@ def test_weekly_weight_points_use_iso_weeks_and_preserve_empty_buckets():
     weekly = weekly_weight_points(daily, as_of=date(2026, 9, 2))
 
     assert len(weekly) == 4
-    assert weekly[0] == {
+    assert {key: weekly[0][key] for key in (
+        "start_date", "end_date", "actual_avg_kg", "actual_min_kg", "planned_avg_kg",
+        "actual_change_kg", "planned_change_kg", "deviation_from_plan_kg",
+        "measurement_days", "sample_count", "outlier_days", "is_partial",
+    )} == {
         "start_date": "2026-08-15",
         "end_date": "2026-08-16",
         "actual_avg_kg": 127.0,
         "actual_min_kg": 127.0,
         "planned_avg_kg": 126.965,
-        "actual_change_kg": None,
-        "planned_change_kg": None,
+        "actual_change_kg": -0.03,
+        "planned_change_kg": -0.129,
         "deviation_from_plan_kg": pytest.approx(
             127.0 - (plan_weight(date(2026, 8, 15)) + plan_weight(date(2026, 8, 16))) / 2,
             abs=0.001,
@@ -79,7 +83,7 @@ def test_weekly_weight_points_use_iso_weeks_and_preserve_empty_buckets():
     assert weekly[1]["end_date"] == "2026-08-23"
     assert weekly[1]["actual_avg_kg"] == 126.25
     assert weekly[1]["actual_min_kg"] == 126.0
-    assert weekly[1]["actual_change_kg"] == -0.75
+    assert weekly[1]["actual_change_kg"] == -0.5
     assert weekly[1]["planned_change_kg"] < 0
     assert weekly[1]["is_partial"] is False
     assert weekly[2]["start_date"] == "2026-08-24"
@@ -101,7 +105,7 @@ def test_weekly_weight_points_mark_current_week_partial_even_on_sunday():
     assert weekly_weight_points([], as_of=date(2026, 8, 30))[-1]["is_partial"] is True
 
 
-def test_monthly_weight_changes_compare_daily_averages_without_filling_gaps():
+def test_monthly_weight_changes_compare_endpoints_without_filling_gaps():
     daily = [
         DailyPoint(date(2026, 8, 14), 150.0, 1),  # Outside the program.
         DailyPoint(date(2026, 8, 15), 127.0, 5),
@@ -120,23 +124,23 @@ def test_monthly_weight_changes_compare_daily_averages_without_filling_gaps():
     assert august["actual_avg_kg"] == 126.0  # Equal day weights, not sample weights.
     assert august["sample_count"] == 6
     assert august["is_partial"] is True
-    assert august["actual_change_kg"] == -1.03
-    august_plan = sum(plan_weight(date(2026, 8, day)) for day in range(15, 32)) / 17
-    assert august["planned_change_kg"] == round(august_plan - plan_weight(date(2026, 8, 15)), 3)
+    assert august["actual_change_kg"] == -2.03
+    assert august["planned_change_kg"] == round(plan_weight(date(2026, 8, 31)) - plan_weight(date(2026, 8, 15)), 3)
     assert september["actual_avg_kg"] == 122.0
     assert september["actual_min_kg"] == 121.0
     assert september["actual_change_kg"] == -4.0
     assert september["outlier_days"] == 1
     assert september["is_partial"] is False
-    september_plan = sum(plan_weight(date(2026, 9, day)) for day in range(1, 31)) / 30
-    assert september["planned_change_kg"] == round(september_plan - august_plan, 3)
+    assert september["planned_change_kg"] == round(plan_weight(date(2026, 9, 30)) - plan_weight(date(2026, 8, 31)), 3)
+    assert september["actual_start_date"] == "2026-08-31"
+    assert september["actual_end_date"] == "2026-09-30"
     assert october["start_date"] == "2026-10-01"
     assert october["end_date"] == "2026-10-31"
     assert october["actual_avg_kg"] is None
     assert october["actual_change_kg"] is None
     assert october["measurement_days"] == 0
     assert november["actual_change_kg"] is None  # No comparison across October.
-    assert december["actual_change_kg"] == 1.0
+    assert december["actual_change_kg"] is None  # One observation, no November boundary sample.
     assert december["end_date"] == "2026-12-10"
     assert december["is_partial"] is True
 
@@ -163,6 +167,45 @@ def test_monthly_weight_does_not_compare_against_an_outlier_only_month():
     months = monthly_weight_points(daily, as_of=date(2026, 9, 1))
     assert months[0]["actual_avg_kg"] is None
     assert months[1]["actual_change_kg"] is None
+
+
+@pytest.mark.parametrize("aggregate,as_of,end", [
+    (monthly_weight_points, date(2026, 9, 11), date(2026, 9, 30)),
+    (weekly_weight_points, date(2026, 9, 11), date(2026, 9, 13)),
+])
+def test_period_full_plan_is_fixed_and_elapsed_plan_uses_calendar_endpoints(aggregate, as_of, end):
+    today_row = aggregate([], as_of=as_of)[-1]
+    later_row = aggregate([], as_of=as_of + timedelta(days=1))[-1]
+    completed_row = aggregate([], as_of=end + timedelta(days=1))[-2]
+    assert today_row["period_end_date"] == end.isoformat()
+    assert today_row["planned_full_change_kg"] == later_row["planned_full_change_kg"]
+    assert today_row["planned_full_change_kg"] == completed_row["planned_change_kg"]
+    assert today_row["planned_change_kg"] > later_row["planned_change_kg"]
+    assert today_row["planned_full_change_kg"] < today_row["planned_change_kg"] < 0
+    assert today_row["actual_change_kg"] is None
+    assert today_row["actual_end_kg"] is None
+    assert today_row["planned_to_date_kg"] == plan_weight(as_of)
+    assert today_row["planned_end_kg"] == plan_weight(end)
+    assert plan_weight(date(2026, 9, 15)) - plan_weight(date(2026, 8, 15)) == -4
+
+
+@pytest.mark.parametrize("aggregate", [monthly_weight_points, weekly_weight_points])
+def test_fact_uses_observed_span_and_never_extrapolates_or_carries_stale_boundary(aggregate):
+    daily = [
+        DailyPoint(date(2026, 8, 15), 127.0, 1),
+        DailyPoint(date(2026, 9, 8), 125.0, 1),
+        DailyPoint(date(2026, 9, 9), 160.0, 1, is_outlier=True),
+        DailyPoint(date(2026, 9, 10), 124.8, 3),
+        DailyPoint(date(2026, 9, 12), 100.0, 1),  # Beyond today.
+    ]
+    row = aggregate(daily, as_of=date(2026, 9, 11))[-1]
+    assert row["actual_start_date"] == "2026-09-08"
+    assert row["actual_end_date"] == "2026-09-10"
+    assert row["actual_start_kg"] == 125.0
+    assert row["actual_end_kg"] == 124.8
+    assert row["actual_change_kg"] == -0.2
+    assert row["planned_observed_change_kg"] == round(plan_weight(date(2026, 9, 10)) - plan_weight(date(2026, 9, 8)), 3)
+    assert row["planned_observed_change_kg"] != row["planned_change_kg"]
 
 
 def test_trend_change_does_not_extrapolate_short_observed_window():

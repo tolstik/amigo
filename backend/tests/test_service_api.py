@@ -64,13 +64,13 @@ def test_service_payloads_match_frontend_contract(db, add_group):
     assert weights["weekly"][0]["end_date"] == "2026-08-16"
     assert weights["weekly"][0]["actual_avg_kg"] == 126.88
     assert weights["weekly"][0]["is_partial"] is True
-    assert weights["weekly"][1]["actual_change_kg"] == -0.75
+    assert weights["weekly"][1]["actual_change_kg"] == -0.9
     assert weights["weekly"][1]["measurement_days"] == 3
     assert len(weights["monthly"]) == 1
     assert weights["monthly"][0]["start_date"] == "2026-08-15"
     assert weights["monthly"][0]["end_date"] == "2026-08-19"
     assert weights["monthly"][0]["actual_avg_kg"] == 126.43
-    assert weights["monthly"][0]["actual_change_kg"] == -0.6
+    assert weights["monthly"][0]["actual_change_kg"] == -1.2
     assert weights["monthly"][0]["is_partial"] is True
     pressures = pressure_series(db, settings.tz, "all", start + timedelta(days=4, hours=3))
     assert pressures["points"][0]["session_size"] == 1

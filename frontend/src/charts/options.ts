@@ -196,7 +196,11 @@ function periodTooltipFormatter(
       ? `<div class="chart-tooltip-row"><span>Дней-выбросов</span><b>${point.outlierDays}</b></div>`
       : "";
     const partial = point.isPartial ? (period === "month" ? " · неполный месяц" : " · неполная неделя") : "";
-    return `<div class="chart-tooltip"><strong>${formatDate(point.startDate)} — ${formatDate(point.endDate)}${partial}</strong>${rows}${comparisonRow}${coverage}${outliers}</div>`;
+    const bounds = `<div class="chart-tooltip-row"><span>План на дату</span><b>${formatDate(point.endDate)}</b></div>`;
+    const observed = point.actualEndDate
+      ? `<div class="chart-tooltip-row"><span>Даты факта</span><b>${formatDate(point.actualStartDate)} — ${formatDate(point.actualEndDate)}</b></div><div class="chart-tooltip-row"><span>Вес для сравнения</span><b>${formatKg(point.actualStartKg, 2)} → ${formatKg(point.actualEndKg, 2)}</b></div><div class="chart-tooltip-row"><span>План за даты факта</span><b>${formatDelta(point.plannedObservedChangeKg)}</b></div>`
+      : "<div>Нет замеров</div>";
+    return `<div class="chart-tooltip"><strong>${formatDate(point.startDate)} — ${formatDate(point.periodEndDate)}${partial}</strong>${rows}${bounds}${observed}${comparisonRow}${coverage}${outliers}</div>`;
   };
 }
 
@@ -256,16 +260,17 @@ export function weeklyWeightChartOption(points: WeeklyWeightPoint[]): EChartsOpt
   const longHistory = points.length > 12;
   return {
     animationDuration: 500,
-    color: [colors.green, colors.blue, colors.amber],
-    grid: { ...sharedGrid, bottom: longHistory ? 76 : sharedGrid.bottom },
-    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    color: [colors.green, colors.blue, colors.violet, colors.amber],
+    grid: { ...sharedGrid, top: 75, bottom: longHistory ? 76 : sharedGrid.bottom },
+    legend: { type: "scroll", top: 6, left: 0, right: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "shadow" },
       confine: true,
       formatter: periodTooltipFormatter(points, formatKg, {
-        label: "Отклонение факт − план",
-        value: (point) => point.deviationFromPlanKg,
+        label: "Отклонение изменения за даты факта",
+        value: (point) => point.actualChangeKg !== null && point.plannedObservedChangeKg !== null
+          ? point.actualChangeKg - point.plannedObservedChangeKg : null,
       }),
       backgroundColor: "rgba(22,31,25,.95)",
       borderWidth: 0,
@@ -275,8 +280,9 @@ export function weeklyWeightChartOption(points: WeeklyWeightPoint[]): EChartsOpt
     yAxis: { ...sharedAxis, type: "value", scale: true, name: "кг", nameTextStyle: { color: colors.muted } },
     dataZoom: periodDataZoom(points),
     series: [
-      weeklyBar("Факт", points.map((point) => point.actualAvgKg), colors.green),
-      { ...weeklyBar("План", points.map((point) => point.plannedAvgKg), colors.blue), itemStyle: { color: colors.blue, opacity: 0.72, borderRadius: [5, 5, 1, 1] } },
+      weeklyBar("Последний вес", points.map((point) => point.actualEndKg), colors.green),
+      weeklyBar("План на дату", points.map((point) => point.plannedToDateKg), colors.blue),
+      weeklyBar("План на конец недели", points.map((point) => point.plannedEndKg), colors.violet),
       {
         name: "Минимум",
         type: "line",
@@ -308,24 +314,25 @@ function weightChangeChartOption(points: PeriodWeightPoint[], period: "week" | "
     borderRadius: [4, 4, 4, 4],
     color: (params: any) => {
       const value = Number(params.value);
-      const planned = points[Number(params.dataIndex)]?.plannedChangeKg;
-      if (planned !== null && planned !== undefined && value <= planned) return colors.green;
+      const planned = points[Number(params.dataIndex)]?.plannedObservedChangeKg;
+      if (planned === null || planned === undefined) return colors.muted;
+      if (value <= planned) return colors.green;
       return value < 0 ? colors.amber : colors.coral;
     },
   };
   return {
     animationDuration: 500,
-    color: [colors.green, colors.blue],
-    grid: { ...sharedGrid, bottom: longHistory ? 76 : sharedGrid.bottom },
-    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    color: [colors.green, colors.blue, colors.violet],
+    grid: { ...sharedGrid, top: 75, bottom: longHistory ? 76 : sharedGrid.bottom },
+    legend: { type: "scroll", top: 6, left: 0, right: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "shadow" },
       confine: true,
       formatter: periodTooltipFormatter(points, formatDelta, {
-        label: "Разница темпа факт − план",
-        value: (point) => point.actualChangeKg !== null && point.plannedChangeKg !== null
-          ? point.actualChangeKg - point.plannedChangeKg
+        label: "Отклонение изменения за даты факта",
+        value: (point) => point.actualChangeKg !== null && point.plannedObservedChangeKg !== null
+          ? point.actualChangeKg - point.plannedObservedChangeKg
           : null,
       }, period),
       backgroundColor: "rgba(22,31,25,.95)",
@@ -336,14 +343,15 @@ function weightChangeChartOption(points: PeriodWeightPoint[], period: "week" | "
     yAxis: {
       ...sharedAxis,
       type: "value",
-      name: period === "month" ? "кг" : "кг · снижение ниже 0",
+      name: "кг",
       nameTextStyle: { color: colors.muted },
       axisLabel: { ...sharedAxis.axisLabel, formatter: (value: number) => formatNumber(value) },
     },
     dataZoom: periodDataZoom(points),
     series: [
       fact,
-      { ...weeklyBar("План", points.map((point) => point.plannedChangeKg), colors.blue), itemStyle: { color: colors.blue, opacity: 0.72, borderRadius: [4, 4, 4, 4] } },
+      { ...weeklyBar("План на дату", points.map((point) => point.plannedChangeKg), colors.blue), itemStyle: { color: colors.blue, borderRadius: 4 } },
+      { ...weeklyBar(period === "month" ? "План на месяц" : "План на неделю", points.map((point) => point.plannedFullChangeKg), colors.violet), itemStyle: { color: colors.violet, opacity: 0.72, borderRadius: 4 } },
     ],
   };
 }

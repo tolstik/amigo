@@ -140,7 +140,7 @@ def monthly_weight_points(
     plan: PlanSpec = PlanSpec(),
     as_of: date | None = None,
 ) -> list[dict[str, object]]:
-    """Compare average daily medians in adjacent calendar months."""
+    """Show endpoint changes and separate full/elapsed calendar-month plans."""
     return _period_weight_points(daily, plan, as_of, "month")
 
 
@@ -152,9 +152,11 @@ def _period_weight_points(
 ) -> list[dict[str, object]]:
     """Keep partial and empty periods without extrapolating measurements.
 
-    The first and current periods are clipped to the program and reporting
-    boundaries. Empty periods remain in the result so an actual change
-    is never calculated across a gap in measurements.
+    Full plans use the preceding calendar day through the period end; the
+    first period starts at the program baseline. Observations use that boundary
+    only when a non-outlier median exists there, otherwise their first day in
+    the period. Never carry a stale measurement across a missing boundary.
+    Retain legacy mean fields for existing immutable report consumers.
     """
     today = as_of or date.today()
     if today < plan.start_date:
@@ -171,8 +173,7 @@ def _period_weight_points(
     first_bucket = bucket_start(plan.start_date)
     last_bucket = bucket_start(today)
     result: list[dict[str, object]] = []
-    previous_actual_average: float | None = plan.start_weight_kg if period == "month" else None
-    previous_planned_average: float | None = plan_weight(plan.start_date, plan) if period == "month" else None
+    clean_by_day = {point.day: point for point in program if not point.is_outlier}
     bucket = first_bucket
     while bucket <= last_bucket:
         next_bucket = add_months(bucket, 1) if period == "month" else bucket + timedelta(days=7)
@@ -192,23 +193,49 @@ def _period_weight_points(
         actual_minimum = min((point.value for point in clean), default=None)
         planned_average = statistics.fmean(planned) if planned else None
 
+        calendar_end = next_bucket - timedelta(days=1)
+        plan_start = max(plan.start_date, bucket - timedelta(days=1))
+        planned_start = plan_weight(plan_start, plan)
+        planned_end = plan_weight(calendar_end, plan)
+        planned_to_date = plan_weight(period_end, plan)
+        assert planned_start is not None and planned_end is not None and planned_to_date is not None
+        actual_start_date = actual_end_date = None
+        actual_start = actual_end = actual_change = observed_plan_change = None
+        if clean:
+            last = clean[-1]
+            actual_end_date, actual_end = last.day, last.value
+            if bucket == first_bucket:
+                actual_start_date, actual_start = plan.start_date, plan.start_weight_kg
+            else:
+                first = clean_by_day.get(plan_start) or clean[0]
+                actual_start_date, actual_start = first.day, first.value
+            # A single isolated day cannot establish an interval's change.
+            if bucket == first_bucket or actual_start_date < actual_end_date:
+                actual_change = round(actual_end - actual_start, 3)
+                observed_plan_change = round(
+                    plan_weight(actual_end_date, plan) - plan_weight(actual_start_date, plan), 3
+                )
+
         result.append(
             {
                 "start_date": period_start.isoformat(),
                 "end_date": period_end.isoformat(),
+                "period_end_date": calendar_end.isoformat(),
+                "plan_start_date": plan_start.isoformat(),
+                "planned_start_kg": planned_start,
+                "planned_end_kg": planned_end,
+                "planned_to_date_kg": planned_to_date,
+                "planned_full_change_kg": round(planned_end - planned_start, 3),
+                "actual_start_date": actual_start_date.isoformat() if actual_start_date else None,
+                "actual_end_date": actual_end_date.isoformat() if actual_end_date else None,
+                "actual_start_kg": round(actual_start, 3) if actual_start is not None else None,
+                "actual_end_kg": round(actual_end, 3) if actual_end is not None else None,
+                "planned_observed_change_kg": observed_plan_change,
                 "actual_avg_kg": round(actual_average, 3) if actual_average is not None else None,
                 "actual_min_kg": round(actual_minimum, 3) if actual_minimum is not None else None,
                 "planned_avg_kg": round(planned_average, 3) if planned_average is not None else None,
-                "actual_change_kg": (
-                    round(actual_average - previous_actual_average, 3)
-                    if actual_average is not None and previous_actual_average is not None
-                    else None
-                ),
-                "planned_change_kg": (
-                    round(planned_average - previous_planned_average, 3)
-                    if planned_average is not None and previous_planned_average is not None
-                    else None
-                ),
+                "actual_change_kg": actual_change,
+                "planned_change_kg": round(planned_to_date - planned_start, 3),
                 "deviation_from_plan_kg": (
                     round(actual_average - planned_average, 3)
                     if actual_average is not None and planned_average is not None
@@ -220,8 +247,6 @@ def _period_weight_points(
                 "is_partial": period_start != bucket or bucket == last_bucket,
             }
         )
-        previous_actual_average = actual_average
-        previous_planned_average = planned_average
         bucket = next_bucket
     return result
 

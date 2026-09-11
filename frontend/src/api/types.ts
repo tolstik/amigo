@@ -154,6 +154,17 @@ export interface WeightPlanPoint {
 export interface PeriodWeightPoint {
   startDate: string;
   endDate: string;
+  periodEndDate: string;
+  planStartDate: string;
+  plannedStartKg: number | null;
+  plannedEndKg: number | null;
+  plannedToDateKg: number | null;
+  plannedFullChangeKg: number | null;
+  actualStartDate: string | null;
+  actualEndDate: string | null;
+  actualStartKg: number | null;
+  actualEndKg: number | null;
+  plannedObservedChangeKg: number | null;
   actualAvgKg: number | null;
   actualMinKg: number | null;
   plannedAvgKg: number | null;

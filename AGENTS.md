@@ -123,14 +123,19 @@
 - Overview actual progress and change since program start use the latest Withings
   measurement. Planned progress uses the current Moscow date and the existing
   calendar-month plan; trend/forecast/AI evidence keep their smoothed contracts.
-- The progress page's monthly change chart compares mean non-outlier daily
-  weight medians in adjacent Moscow calendar months against mean calendar-plan
-  changes. The first month starts at the program boundary; the current month
-  ends today and remains marked partial. Preserve empty months and never
-  calculate actual change across a missing or outlier-only month, extrapolate a
-  partial month, or use pre-program measurements as its comparison baseline.
-  The first program month is compared with the configured baseline weight, so
-  August remains visibly plotted despite being partial.
+- Progress weekly/monthly change charts use observed non-outlier daily-median
+  endpoints, with separate fixed full-period and elapsed-to-date calendar plans.
+  Both plans use the original matching-month-day curve, from the preceding
+  calendar day (clipped to the program start) to the period end or today.
+  The first period uses the configured program baseline. Later periods may
+  use a measurement on that preceding day, otherwise their first in-period
+  measurement; never carry stale measurements across a missing boundary or
+  extrapolate a partial observed span. One isolated day cannot establish change.
+  Colors compare actual change only to plan over the exact observed dates,
+  disclosed alongside endpoint weights in tooltips/tables. Empty buckets remain.
+  The weekly weight chart shows the latest daily median, plan on the reporting
+  date, plan at the full week end, and minimum. Legacy mean fields and existing
+  immutable snapshots retain their meaning; charts no longer subtract averages.
 - The overview weight-candle chart selects data from the latest 90 Moscow
   calendar days, including today, and automatically fits the date axis to the
   first and last remaining measured days, with no empty leading/trailing days.

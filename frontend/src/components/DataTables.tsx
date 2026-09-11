@@ -62,6 +62,9 @@ export function WeightTable({ points }: { points: WeightPoint[] }) {
 function periodNote(point: PeriodWeightPoint, monthly: boolean): string {
   const notes: string[] = [];
   if (point.measurementDays === 0) notes.push("Нет замеров");
+  if (point.actualEndKg !== null && point.actualChangeKg === null) notes.push("Недостаточно замеров для изменения");
+  if (point.actualStartDate && point.actualStartDate > point.planStartDate) notes.push("Нет замера на границе периода");
+  if (point.actualEndDate && point.actualEndDate < point.endDate) notes.push("Факт до последнего замера");
   if (point.isPartial) notes.push(monthly ? "Неполный месяц" : "Неполная неделя");
   if (point.outlierDays > 0) notes.push(`Дней-выбросов: ${point.outlierDays}`);
   return notes.join(" · ") || "—";
@@ -84,12 +87,15 @@ function WeightPeriodTable({ points, monthly }: { points: PeriodWeightPoint[]; m
         <thead>
           <tr>
             <th scope="col">{monthly ? "Месяц" : "Неделя"}</th>
-            <th scope="col">Факт, средний</th>
-            <th scope="col">План, средний</th>
-            <th scope="col">Минимум</th>
+            <th scope="col">Даты факта</th>
+            <th scope="col">Начальный вес</th>
+            <th scope="col">Последний вес</th>
             <th scope="col">Изменение, факт</th>
-            <th scope="col">Изменение, план</th>
-            <th scope="col">Факт − план</th>
+            <th scope="col">План за даты факта</th>
+            <th scope="col">План на дату</th>
+            <th scope="col">{monthly ? "План на месяц" : "План на неделю"}</th>
+            <th scope="col">Вес по плану на дату</th>
+            <th scope="col">Вес по плану на конец</th>
             <th scope="col">Дни / замеры</th>
             <th scope="col">Примечание</th>
           </tr>
@@ -97,13 +103,16 @@ function WeightPeriodTable({ points, monthly }: { points: PeriodWeightPoint[]; m
         <tbody>
           {rows.map((point) => (
             <tr key={point.startDate}>
-              <th scope="row">{formatDate(point.startDate)} — {formatDate(point.endDate)}</th>
-              <td>{formatKg(point.actualAvgKg)}</td>
-              <td>{formatKg(point.plannedAvgKg)}</td>
-              <td>{formatKg(point.actualMinKg)}</td>
+              <th scope="row">{formatDate(point.startDate)} — {formatDate(point.periodEndDate)}</th>
+              <td>{point.actualEndDate ? `${formatDate(point.actualStartDate)} — ${formatDate(point.actualEndDate)}` : "—"}</td>
+              <td>{formatKg(point.actualStartKg, 2)}</td>
+              <td>{formatKg(point.actualEndKg, 2)}</td>
               <td>{formatDelta(point.actualChangeKg)}</td>
-              <td>{formatDelta(point.plannedChangeKg)}</td>
-              <td>{formatDelta(point.deviationFromPlanKg)}</td>
+              <td>{formatDelta(point.plannedObservedChangeKg)}</td>
+              <td>{formatDelta(point.plannedChangeKg)} · {formatDate(point.endDate)}</td>
+              <td>{formatDelta(point.plannedFullChangeKg)}</td>
+              <td>{formatKg(point.plannedToDateKg)}</td>
+              <td>{formatKg(point.plannedEndKg)}</td>
               <td>{point.measurementDays} / {point.sampleCount}</td>
               <td>{periodNote(point, monthly)}</td>
             </tr>

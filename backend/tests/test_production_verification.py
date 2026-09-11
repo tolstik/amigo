@@ -104,22 +104,28 @@ def test_assistant_rejects_analysis_metadata_without_recommendations(tmp_path):
     assert probe(tmp_path, "assistant", payload).returncode != 0
 
 
-def test_weight_probe_checks_monthly_changes_without_exposing_measurements(tmp_path):
-    first = {"start_date": "2026-08-15", "end_date": "2026-08-31", "is_partial": True,
-             "actual_avg_kg": 126.0, "planned_avg_kg": 126.0,
-             "actual_change_kg": -1.03, "planned_change_kg": -1.03}
-    second = {"start_date": "2026-09-01", "end_date": "2026-09-10", "is_partial": True,
-              "actual_avg_kg": 124.0, "planned_avg_kg": 124.5,
-              "actual_change_kg": -2.0, "planned_change_kg": -1.5}
-    payload = {"points": [], "monthly": [first, second]}
-    result = probe(tmp_path, "weight", payload)
+def weight_payload():
+    from datetime import date
+    from app.analytics import DailyPoint, monthly_weight_points, weekly_weight_points
+    points = [DailyPoint(date(2026, 8, 31), 126.0, 1), DailyPoint(date(2026, 9, 10), 124.0, 1)]
+    return {"points": [], "weekly": weekly_weight_points(points, as_of=date(2026, 9, 11)),
+            "monthly": monthly_weight_points(points, as_of=date(2026, 9, 11))}
+
+
+def test_weight_probe_checks_full_elapsed_and_observed_plans_without_exposing_measurements(tmp_path):
+    result = probe(tmp_path, "weight", weight_payload())
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
-    second["actual_change_kg"] = -4.0
-    assert probe(tmp_path, "weight", payload).returncode != 0
-    first["actual_avg_kg"] = None
-    first["actual_change_kg"] = None
-    assert probe(tmp_path, "weight", payload).returncode != 0
-    second["actual_change_kg"] = None
-    assert probe(tmp_path, "weight", payload).returncode == 0
     assert probe(tmp_path, "weight", {"points": []}).returncode != 0
+
+
+@pytest.mark.parametrize("period", ["weekly", "monthly"])
+@pytest.mark.parametrize("field,value", [
+    ("planned_full_change_kg", None), ("planned_change_kg", -99),
+    ("actual_change_kg", -99), ("period_end_date", "2026-08-01"),
+    ("actual_start_date", "2026-08-15"), ("planned_end_kg", None),
+])
+def test_weight_probe_rejects_averages_and_invalid_period_endpoints(tmp_path, period, field, value):
+    payload = weight_payload()
+    payload[period][-1][field] = value
+    assert probe(tmp_path, "weight", payload).returncode != 0

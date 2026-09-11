@@ -328,37 +328,32 @@ treatment, medication changes, or fixed calorie prescriptions.
 
 ## Weekly and monthly plan/fact analytics
 
-The program progress view includes two weekly charts backed by the `weekly`
-array in `GET /api/v1/series/weight?range=program`:
+The progress page uses the `weekly` and `monthly` arrays from authenticated
+`GET /api/v1/series/weight?range=program`. Change charts show observed change,
+plan to the reporting date, and a separate fixed plan for the complete period.
+The weekly weight chart shows the latest daily median, plan on the reporting
+date, plan at the week end, and a minimum line.
 
-- **Weight by week** — paired actual/plan average bars plus the actual weekly
-  minimum line.
-- **Change by week** — paired actual/plan change bars. A negative change means
-  weight loss; a positive change means weight gain.
+Buckets follow ISO weeks and calendar months in `Europe/Moscow`; the first
+starts on 2026-08-15. The plan remains the original curve: 4 kg between matching
+month-days, capped at 76.5 kg. Full and elapsed changes subtract the plan at the
+preceding calendar day (clipped to program start) from the plan at the bucket
+end and the reporting date respectively. A full September 2026 has a 3.931 kg
+planned reduction, since it crosses two program months of different lengths.
+The current month's full goal never shrinks to its elapsed portion.
 
-Buckets follow ISO weeks (Monday through Sunday) in `Europe/Moscow`. The first
-bucket is clipped to 2026-08-15. The current bucket remains partial until the
-next ISO week. Multiple readings on one local day become a daily median;
-outliers are excluded from fact averages but reported separately. Empty weeks
-remain present with null fact values, while the calendar plan remains
-continuous.
+Actual change uses non-outlier daily-median endpoints. The first period uses
+127.03 kg as its baseline. Later periods start from the preceding day's median
+when available, otherwise from the first measurement inside the period. Missing
+boundaries are disclosed; a single isolated day yields no change. Missing
+periods, stale measurements, and short observed intervals are never filled or
+extrapolated. Colors compare actual change to the plan over the exact observed
+dates; tooltips and tables show those dates and endpoint weights. Means remain
+available in the API for compatibility but no longer determine change bars.
 
-The 28-day and 42-day summary changes use the actual difference between the
-first and last non-outlier daily medians inside the selected calendar window.
-When a qualifying span is shorter than the full window, Amigo reports only the
-observed change and never scales it into a hypothetical full-period result.
-
-Activity has a separate weekly fact-versus-personal-baseline chart. Its baseline
-uses corresponding weekdays from the previous 28 complete days.
-
-The progress page also shows **«Изменение по месяцам»**, backed by the
-`monthly` array in the same authenticated weight response. It compares the
-mean non-outlier daily medians in adjacent Moscow calendar months with the
-change in mean calendar-plan weight. The first month starts on the program
-start date; the current month ends today. Both are marked partial, without
-extrapolation. The first month is compared with the program baseline; months following
-missing or outlier-only months have no actual change. A collapsible table preserves exact ranges,
-measurement counts, averages, changes, and partial-period notes.
+The 28-day and 42-day summary changes keep their observed endpoint contracts.
+Activity retains its separate weekly fact-versus-personal-baseline chart using
+corresponding weekdays from the previous 28 complete days.
 
 ## Local development
 

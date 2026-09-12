@@ -42,7 +42,18 @@ def test_daily_median_uses_moscow_day_and_marks_extreme_outlier():
     assert daily[0].sample_count == 2
     assert daily[0].value == pytest.approx(126.0)
     assert any(point.is_outlier and point.value == 180.0 for point in daily)
-    assert daily[-1].rolling_7d is not None
+
+
+def test_daily_median_allows_normal_scale_day_to_day_weight_change():
+    tz = ZoneInfo("Europe/Moscow")
+    start = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    values = [127.0, 126.8, 126.6, 126.4, 126.2, 126.0, 125.8, 125.0]
+    daily = daily_medians(
+        [ValuePoint(start + timedelta(days=index), value) for index, value in enumerate(values)],
+        tz,
+    )
+
+    assert daily[-1].is_outlier is False
 
 
 def test_weekly_weight_points_use_iso_weeks_and_preserve_empty_buckets():

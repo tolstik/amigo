@@ -298,7 +298,7 @@ def daily_medians(
 
 
 def hampel_flags(
-    values: Sequence[float], half_window: int = 3, threshold: float = 3.0, mad_floor: float = 0.1
+    values: Sequence[float], half_window: int = 3, threshold: float = 3.0, mad_floor: float = 0.25
 ) -> list[bool]:
     flags = [False] * len(values)
     for index, value in enumerate(values):
@@ -310,8 +310,9 @@ def hampel_flags(
         deviations = [abs(item - median) for item in window]
         mad = statistics.median(deviations)
         # A perfectly flat neighbourhood has MAD=0. A small measurement-domain
-        # floor avoids division/zero-threshold behaviour where any rounding
-        # difference would otherwise be labelled an outlier.
+        # A 250 g floor reflects normal day-to-day scale changes in the weight
+        # series. It prevents a smooth, valid change of roughly 0.8 kg from
+        # being rejected just because the surrounding values are very flat.
         effective_mad = max(mad, mad_floor)
         # 1.4826 makes MAD comparable with standard deviation for normal data.
         flags[index] = abs(value - median) > threshold * 1.4826 * effective_mad

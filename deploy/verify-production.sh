@@ -731,7 +731,7 @@ cookie = f"__Secure-amigo_session={session}; __Secure-amigo_csrf={csrf}"
 common = [
     "silent",
     "show-error",
-    "max-time = 20",
+    "max-time = 60",
     'proto = "=https"',
     "tlsv1.2",
     f'cookie = "{cookie}"',

@@ -869,7 +869,9 @@ def render_doctor_report(payload: dict) -> bytes:
             "producer": "Amigo",
         }
     )
-    output = writer.document.tobytes(garbage=4, deflate=True)
+    # A random trailer ID can even change encoded byte length between downloads.
+    # Keep the immutable payload reproducible and its advertised size exact.
+    output = writer.document.tobytes(garbage=4, deflate=True, no_new_id=True)
     page_count = writer.document.page_count
     writer.document.close()
     if page_count > MAX_REPORT_PAGES:

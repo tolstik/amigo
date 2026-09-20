@@ -212,6 +212,7 @@ def test_report_snapshot_does_not_drift_and_expires_after_24_hours(db):
     assert persisted["preview"]["sections"]["labs"][0]["value"] == "45 нг/мл"
     downloaded = download_doctor_report(report_id, db)
     assert len(downloaded.body) == created["size_bytes"]
+    assert download_doctor_report(report_id, db).body == downloaded.body
 
     row = db.get(DoctorReportSnapshot, report_id)
     row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)

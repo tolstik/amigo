@@ -4,12 +4,12 @@ import { chartPalettes } from "../charts/theme";
 import { useTheme } from "../theme/ThemeProvider";
 import { formatDateTime, formatKg, formatNumber } from "../lib/format";
 
-/** A stylized mannequin, never an estimate of the person's actual body shape. */
-function mannequin(bmi: number, material: THREE.Material, face: THREE.Texture | null) {
+/** A stylized, skin-toned mannequin, never an estimate of the person's actual body shape. */
+function mannequin(bmi: number, skinMaterial: THREE.Material, underwearMaterial: THREE.Material, face: THREE.Texture | null) {
   const body = new THREE.Group();
   const fullness = Math.max(0, Math.min(1.7, (bmi - 20) / 23));
   const ellipsoid = (x: number, y: number, z: number, sx: number, sy: number, sz: number, angle = 0) => {
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), material);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), skinMaterial);
     mesh.position.set(x, y, z);
     mesh.scale.set(sx, sy, sz);
     mesh.rotation.z = angle;
@@ -24,18 +24,49 @@ function mannequin(bmi: number, material: THREE.Material, face: THREE.Texture | 
     [.25 + fullness * .035, 1.36], [.18, 1.40], [.075, 1.43], [0, 1.44],
   ];
   const curve = new THREE.SplineCurve(outline.map(([radius, y]) => new THREE.Vector2(radius, y)));
-  const torso = new THREE.Mesh(new THREE.LatheGeometry(curve.getPoints(64), 48), material);
+  const torso = new THREE.Mesh(new THREE.LatheGeometry(curve.getPoints(64), 48), skinMaterial);
   torso.scale.z = .67 + fullness * .18;
   body.add(torso);
-  ellipsoid(0, 1.44, 0, .067, .10, .067);
+  // A short neck and rounded ears make the head read as part of the body.
+  ellipsoid(0, 1.48, 0, .067, .10, .067);
   const head = ellipsoid(0, 1.61, 0, .112 + fullness * .006, .145, .105);
   if (face) {
-    head.material = new THREE.MeshStandardMaterial({ color: "#c99d83", roughness: .9 });
-    const faceMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32, 0, Math.PI), new THREE.MeshBasicMaterial({ map: face, transparent: true, depthWrite: false, side: THREE.FrontSide }));
+    // Keep the whole head skin-toned and use a shallow, lit curved shell for
+    // the photo. The shell follows the same contour instead of looking like a
+    // flat sticker pasted in front of the face.
+    const faceMaterial = new THREE.MeshStandardMaterial({
+      map: face,
+      color: "#d2a187",
+      transparent: true,
+      opacity: .97,
+      roughness: .92,
+      metalness: 0,
+      depthWrite: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      side: THREE.FrontSide,
+    });
+    // SphereGeometry's horizontal range 0..π is the hemisphere facing the
+    // camera (+Z); centering the shell this way keeps the whole portrait on
+    // the front of the head rather than on its side.
+    const faceMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32, 0, Math.PI, 0, Math.PI), faceMaterial);
     faceMesh.position.copy(head.position);
-    faceMesh.scale.copy(head.scale).multiplyScalar(1.012);
+    faceMesh.position.z += head.scale.z * .018;
+    faceMesh.scale.copy(head.scale).multiplyScalar(1.004);
+    faceMesh.renderOrder = 2;
     body.add(faceMesh);
   } else ellipsoid(0, 1.59, .098, .025, .033, .024); // Nose makes the rotation easy to see.
+  for (const side of [-1, 1]) ellipsoid(side * .108, 1.61, 0, .018, .034, .024);
+  // A cloth brief gives the model a human silhouette while leaving the legs
+  // and the changing torso volume visible.
+  const briefs = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 24), underwearMaterial);
+  briefs.position.set(0, .655, .008);
+  briefs.scale.set(.235 + fullness * .035, .16 + fullness * .02, .17 + fullness * .025);
+  body.add(briefs);
+  const waistband = new THREE.Mesh(new THREE.TorusGeometry(.205 + fullness * .03, .014, 10, 40), underwearMaterial);
+  waistband.rotation.x = Math.PI / 2;
+  waistband.position.set(0, .735, 0);
+  body.add(waistband);
   for (const side of [-1, 1]) {
     const armX = .28 + fullness * .055;
     ellipsoid(side * armX, 1.24, 0, .075 + fullness * .025, .19, .072 + fullness * .022, side * .16);
@@ -87,9 +118,12 @@ function BodyCanvas({ bmi, rotating }: { bmi: number; rotating: boolean }) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(0, 0);
     element.appendChild(renderer.domElement);
-    const material = new THREE.MeshStandardMaterial({ color: chartPalettes[theme].green, roughness: .55, metalness: .14 });
-    const body = mannequin(bmi, material, face);
-    body.rotation.y = -.38;
+    const skinMaterial = new THREE.MeshStandardMaterial({ color: "#c98f73", roughness: .82, metalness: 0 });
+    const underwearMaterial = new THREE.MeshStandardMaterial({ color: "#304d6b", roughness: .72, metalness: .03 });
+    const body = mannequin(bmi, skinMaterial, underwearMaterial, face);
+    // Face the user on the first frame; rotation then reveals the profile and
+    // keeps the personalised texture readable before animation starts.
+    body.rotation.y = 0;
     scene.add(body, new THREE.HemisphereLight(0xffffff, 0x526477, 2));
     const key = new THREE.DirectionalLight(0xffffff, 3);
     key.position.set(-3, 4, 4);
@@ -113,7 +147,9 @@ function BodyCanvas({ bmi, rotating }: { bmi: number; rotating: boolean }) {
     resize.observe(element);
     let frame = 0, previous = 0, visible = true;
     const animate = (time: number) => {
-      body.rotation.y += previous ? Math.min(time - previous, 50) * .00032 : 0;
+      body.rotation.y += previous ? Math.min(time - previous, 50) * .00058 : 0;
+      body.position.y = Math.sin(time * .0018) * .008;
+      body.rotation.z = Math.sin(time * .00125) * .006;
       previous = time;
       render();
       frame = requestAnimationFrame(animate);
@@ -138,10 +174,10 @@ function BodyCanvas({ bmi, rotating }: { bmi: number; rotating: boolean }) {
       body.traverse((object) => {
         if (object instanceof THREE.Mesh) {
           object.geometry.dispose();
-          if (object.material !== material) (object.material as THREE.Material).dispose();
+          if (object.material !== skinMaterial && object.material !== underwearMaterial) (object.material as THREE.Material).dispose();
         }
       });
-      material.dispose(); baseGeometry.dispose(); baseMaterial.dispose(); renderer.dispose();
+      skinMaterial.dispose(); underwearMaterial.dispose(); baseGeometry.dispose(); baseMaterial.dispose(); renderer.dispose();
       renderer.domElement.remove();
     };
   }, [bmi, rotating, theme, face]);

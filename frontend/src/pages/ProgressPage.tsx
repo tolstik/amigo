@@ -41,7 +41,7 @@ export function ProgressPage() {
 
       <section className="kpi-grid" aria-label="Показатели программы">
         <KpiCard label="Сейчас" value={formatKg(weight?.latestKg)} hint={`Тренд: ${formatKg(weight?.smoothed7dKg)}`} icon="scale" tone="green" featured />
-        <KpiCard label="От плана" value={formatDelta(weight?.deviationFromPlanKg)} hint={`Сегодня по плану ${formatKg(plan?.plannedTodayKg)}`} icon="progress" tone="blue" />
+        <KpiCard label="От плана" value={formatDelta(weight?.latestDeviationFromPlanKg)} hint={`Последний замер · сегодня по плану ${formatKg(plan?.plannedTodayKg)}`} icon="progress" tone="blue" />
         <KpiCard label="Прогноз цели" value={weight?.forecastDate ? formatDate(weight.forecastDate) : "Пока рано"} hint="Показывается только при устойчивом снижении" icon="calendar" tone="violet" />
         <KpiCard label="Цель по плану" value={formatDate(plan?.targetDate)} hint="Темп −4 кг за календарный месяц" icon="progress" tone="coral" />
       </section>
@@ -104,7 +104,7 @@ export function ProgressPage() {
         </>
       ) : null}
 
-      {raw.data ? <WeightCandlestickChart points={raw.data.raw} asOf={overview.data?.generatedAt ?? new Date().toISOString()} /> : raw.error ? <ErrorState message={raw.error.message} onRetry={raw.reload} /> : <LoadingState compact />}
+      {raw.data ? <WeightCandlestickChart points={raw.data.raw} asOf={overview.data?.generatedAt ?? new Date().toISOString()} startDate={plan?.startDate} baselineKg={plan?.startWeightKg} /> : raw.error ? <ErrorState message={raw.error.message} onRetry={raw.reload} /> : <LoadingState compact />}
       <section id="history" className="weight-history">
         <div className="section-heading"><div><span className="eyebrow">Архив измерений</span><h2>Вся история веса</h2></div><a className="button button--secondary" href={csvUrl("weight", historyPeriod)} download><Icon name="download" /> CSV истории</a></div>
         <p className="chart-note">Включает замеры до {formatDate(plan?.startDate)}. Они не влияют на показатели программы и прогноз.</p>

@@ -484,8 +484,8 @@ def overview(db: Session, tz: ZoneInfo, now: datetime | None = None) -> dict[str
             else None
         ),
         "deviation_from_plan_kg": (
-            round(current_trend - planned, 3)
-            if current_trend is not None and planned is not None and not weight_is_stale
+            round(latest_weight - planned, 3)
+            if latest_weight is not None and planned is not None and not weight_is_stale
             else None
         ),
         "progress_pct": progress_pct(latest_weight),

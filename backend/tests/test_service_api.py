@@ -50,7 +50,7 @@ def test_service_payloads_match_frontend_contract(db, add_group):
     assert summary["plan"]["progress_today_pct"] == 1.0
     assert summary["weight"]["smoothed_7d_kg"] == 126.43
     assert summary["weight"]["latest_deviation_from_plan_kg"] == -0.684
-    assert summary["weight"]["deviation_from_plan_kg"] == -0.084
+    assert summary["weight"]["deviation_from_plan_kg"] == -0.684
     assert summary["pressure"]["latest_systolic"] == 128
     assert summary["composition"]["fat_pct"] == 34.6
     assert summary["sync"]["status"] == "delayed"

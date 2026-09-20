@@ -687,7 +687,13 @@ function dailyDerivedOption(points: WeightPoint[], heightCm: number, bmi: boolea
     grid: { ...sharedGrid, top: 35, bottom: 70 },
     tooltip: { trigger: "axis", confine: true, formatter: (params: any) => {
       const entry = Array.isArray(params) ? params[0] : params;
-      const point = derived.find((item) => Date.parse(item.measuredAt) === Number(entry?.axisValue));
+      const rawAxisValue = entry?.axisValue ?? entry?.value?.[0];
+      const axisText = rawAxisValue === undefined || rawAxisValue === null ? "" : String(rawAxisValue);
+      const axisTime = typeof rawAxisValue === "number" ? rawAxisValue : Date.parse(axisText);
+      const point = derived.find((item) => (
+        (Number.isFinite(axisTime) && Math.abs(Date.parse(item.measuredAt) - axisTime) < 1)
+        || axisText.startsWith(item.measuredAt.slice(0, 10))
+      ));
       if (!point) return "Нет замера";
       return `<div class="chart-tooltip"><strong>${formatDate(point.measuredAt)}</strong><div>Вес: ${formatKg(point.weightKg, 2)}</div>${bmi ? `<div>ИМТ: ${formatNumber(point.bmi, 2)} кг/м²</div>${point.isOutlier ? "<div>Необычный замер</div>" : ""}` : `<div>План: ${formatKg(point.plannedKg, 2)}</div><div>Факт − план: ${formatDelta(point.deviationKg, "кг", 2)}</div>`}</div>`;
     } },
@@ -696,7 +702,18 @@ function dailyDerivedOption(points: WeightPoint[], heightCm: number, bmi: boolea
     dataZoom: [{ type: "inside", filterMode: "none" }, { type: "slider", height: 20, bottom: 8 }],
     series: [timeLine(bmi ? "ИМТ" : "Факт − план", data, bmi ? colors.violet : colors.blue, {
       smooth: false, showSymbol: true, symbolSize: 6,
-      ...(!bmi ? { markLine: { silent: true, symbol: "none", label: { formatter: "По плану", position: "insideEndTop" }, data: [{ yAxis: 0 }], lineStyle: { color: colors.muted } } } : {}),
+      ...(bmi ? {
+        markLine: {
+          silent: true,
+          symbol: "none",
+          data: [
+            { yAxis: 35, name: "Ожирение II степени", label: { formatter: "Ожирение II степени · 35", position: "insideEndTop" }, lineStyle: { color: colors.coral, type: "dashed", width: 1.5 } },
+            { yAxis: 40, name: "Граница III степени", label: { formatter: "Граница III степени · 40", position: "insideEndTop" }, lineStyle: { color: colors.amber, type: "dashed", width: 1.2 } },
+          ],
+        },
+      } : {
+        markLine: { silent: true, symbol: "none", label: { formatter: "По плану", position: "insideEndTop" }, data: [{ yAxis: 0 }], lineStyle: { color: colors.muted } },
+      }),
     })],
   };
 }
@@ -807,7 +824,7 @@ export function dailyWeightChartOption(points: DailyWeightCandle[], asOf: string
         const title = `<strong>${formatDate(date)} · МСК</strong>`;
         if (!point) return `<div class="chart-tooltip">${title}<div>Нет замеров</div></div>`;
         const rows = [
-          [point.previousDate ? `Вес ${formatShortDate(point.previousDate)}` : "Предыдущий вес", formatKg(point.previousKg, 2)],
+          [point.comparisonLabel ?? (point.previousDate ? `Вес ${formatShortDate(point.previousDate)}` : "Предыдущий вес"), formatKg(point.previousKg, 2)],
           ["Последний замер", formatKg(point.lastKg, 2)],
           ["Минимум за день", formatKg(point.minimumKg, 2)],
           ["Максимум за день", formatKg(point.maximumKg, 2)],

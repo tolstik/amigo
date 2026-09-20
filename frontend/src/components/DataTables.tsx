@@ -22,7 +22,7 @@ export function WeightCandlesTable({ points }: { points: DailyWeightCandle[] }) 
             <tr key={point.date}>
               <td>{formatDate(point.date)}</td>
               <td>{formatKg(point.previousKg, 2)}</td>
-              <td>{formatDate(point.previousDate)}</td>
+              <td>{point.comparisonLabel ?? formatDate(point.previousDate)}</td>
               <td>{formatKg(point.lastKg, 2)}</td>
               <td>{formatKg(point.minimumKg, 2)}</td>
               <td>{formatKg(point.maximumKg, 2)}</td>

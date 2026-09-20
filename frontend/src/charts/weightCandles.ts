@@ -8,6 +8,13 @@ export interface DailyWeightCandle {
   minimumKg: number;
   maximumKg: number;
   sampleCount: number;
+  comparisonLabel?: string;
+}
+
+export interface DailyWeightCandleOptions {
+  startAt?: string;
+  baselineKg?: number;
+  baselineDate?: string;
 }
 
 const moscowDay = new Intl.DateTimeFormat("en-CA", {
@@ -21,9 +28,17 @@ export function weightCandleDates(asOf: string): string[] {
   return Array.from({ length: WEIGHT_CANDLE_DAYS }, (_, index) => new Date(today - (WEIGHT_CANDLE_DAYS - 1 - index) * 86_400_000).toISOString().slice(0, 10));
 }
 
-export function dailyWeightCandles(points: WeightRawPoint[], asOf: string): DailyWeightCandle[] {
+export function dailyWeightCandles(
+  points: WeightRawPoint[],
+  asOf: string,
+  options: DailyWeightCandleOptions = {},
+): DailyWeightCandle[] {
+  const startAt = options.startAt ? Date.parse(options.startAt) : Number.NEGATIVE_INFINITY;
   const ordered = points
-    .filter((point) => Number.isFinite(point.valueKg) && Number.isFinite(Date.parse(point.measuredAt)))
+    .filter((point) => {
+      const measuredAt = Date.parse(point.measuredAt);
+      return Number.isFinite(point.valueKg) && Number.isFinite(measuredAt) && measuredAt >= startAt;
+    })
     .sort((left, right) => Date.parse(left.measuredAt) - Date.parse(right.measuredAt));
   const days = new Map<string, DailyWeightCandle>();
   for (const point of ordered) {
@@ -50,6 +65,11 @@ export function dailyWeightCandles(points: WeightRawPoint[], asOf: string): Dail
     const previous = orderedDays[index - 1];
     day.previousKg = previous?.lastKg ?? null;
     day.previousDate = previous?.date ?? null;
+    if (index === 0 && Number.isFinite(options.baselineKg)) {
+      day.previousKg = options.baselineKg!;
+      day.previousDate = options.baselineDate ?? null;
+      day.comparisonLabel = "Старт программы";
+    }
   });
   const dates = weightCandleDates(asOf);
   return orderedDays.filter((day) => day.date >= dates[0] && day.date <= dates[WEIGHT_CANDLE_DAYS - 1]);

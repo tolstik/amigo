@@ -20,6 +20,14 @@ describe("daily progress", () => {
     }
     expect((planDeviationChartOption(rows).series as any[])[0].markLine.data).toEqual([{ yAxis: 0 }]);
   });
+  it("shows the obesity-II BMI threshold lines and resolves string axis dates in tooltips", () => {
+    const bmi = bmiChartOption([point("2026-09-01", 120, 121)], 176) as any;
+    expect(bmi.series[0].markLine.data.map((item: any) => item.yAxis)).toEqual([35, 40]);
+    const deviation = planDeviationChartOption([point("2026-09-01", 120, 121)]) as any;
+    const tooltip = deviation.tooltip.formatter([{ axisValue: "2026-09-01T00:00:00+03:00" }]);
+    expect(tooltip).toContain("Факт − план");
+    expect(tooltip).not.toContain("Нет замера");
+  });
   it("places month dividers at Moscow midnight including a year boundary", () => {
     const dates = ["2026-11-25T09:00:00Z", "2027-01-05T09:00:00Z"];
     expect((monthBoundaryLines(dates) as any).data.map((item: any) => new Date(item.xAxis).toISOString())).toEqual(["2026-11-30T21:00:00.000Z", "2026-12-31T21:00:00.000Z"]);

@@ -128,6 +128,23 @@ describe("daily weight candles", () => {
     expect(dailyWeightCandles([], asOf)).toEqual([]);
   });
 
+  it("starts the program chart from the evening baseline instead of a pre-program weight", () => {
+    const candles = dailyWeightCandles([
+      { measuredAt: "2026-08-14T06:00:00Z", valueKg: 105 },
+      { measuredAt: "2026-08-15T12:00:00Z", valueKg: 126.8 },
+      { measuredAt: "2026-08-15T16:30:00Z", valueKg: 127.1 },
+      { measuredAt: "2026-08-16T06:00:00Z", valueKg: 126.6 },
+    ], asOf, {
+      startAt: "2026-08-15T18:00:00+03:00",
+      baselineKg: 127.03,
+      baselineDate: "2026-08-15",
+    });
+    expect(candles.map((point) => point.date)).toEqual(["2026-08-15", "2026-08-16"]);
+    expect(candles[0]).toMatchObject({ previousKg: 127.03, comparisonLabel: "Старт программы", lastKg: 127.1 });
+    expect(weightCandleChange(candles[0])).toBe(0.07);
+    expect(weightCandleChange(candles[1])).toBe(-0.5);
+  });
+
   it("keeps rising, falling and unchanged candle colors consistent in every theme", () => {
     const option = dailyWeightChartOption([], asOf);
     for (const theme of ["light", "dark", "ocean", "sunset"] as const) {

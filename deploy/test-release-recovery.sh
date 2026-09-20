@@ -290,8 +290,6 @@ for explicit_dynamic_proxy in \
     'api/v1/studies/documents/$amigo_study_document_id' \
     'api/v1/assistant/messages/$amigo_chat_retry_id/retry' \
     'api/v1/assistant/messages/$amigo_chat_events_id/events' \
-    'api/v1/tasks/$amigo_task_action_id/$amigo_task_action' \
-    'api/v1/tasks/$amigo_task_id' \
     'api/v1/reports/doctor/$amigo_doctor_pdf_id.pdf' \
     'api/v1/reports/doctor/$amigo_doctor_html_id.html' \
     'api/v1/reports/doctor/$amigo_doctor_report_id'; do
@@ -348,14 +346,18 @@ for queue_route in \
     'location = /amigo/api/v1/studies/events {' \
     'location = /amigo/api/v1/data-quality {' \
     'location = /amigo/api/v1/series/swimming {' \
-    'location = /amigo/api/v1/tasks {' \
+    'location = /amigo/api/v1/profile/body-face {' \
     'location = /amigo/api/v1/reports/doctor {'; do
     grep --quiet --fixed-strings "${queue_route}" "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
         || amigo_die "managed route is missing: ${queue_route}"
 done
+for retired_task_route in \
+    'location = /amigo/api/v1/tasks { return 404; }' \
+    'location ^~ /amigo/api/v1/tasks/ { return 404; }'; do
+    grep --quiet --fixed-strings "${retired_task_route}" "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
+        || amigo_die "retired task API route must return 404 without upstream access"
+done
 for canonical_uuid_capture in \
-    'amigo_task_action_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
-    'amigo_task_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
     'amigo_doctor_pdf_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
     'amigo_doctor_html_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
     'amigo_doctor_report_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'; do
@@ -394,7 +396,9 @@ grep --quiet --fixed-strings 'lab-parser' "${SCRIPT_DIR}/rollback.sh" \
     || amigo_die "legacy disaster fallback does not stop the isolated laboratory parser"
 for verification_contract in \
     '"api/v1/data-quality?range=30d" data-quality' \
-    '"api/v1/tasks?state=open" tasks' \
+    'removed task route did not return 404' \
+    'BODY_FACE_EXPECTED' \
+    'sleep_date' \
     'DOCTOR_REPORT_ID' \
     'xiaomi_finalized_only' \
     'sleep_minutes' \

@@ -163,6 +163,10 @@ jobs:
             BASE_SHA="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
           fi
           git diff --check "${BASE_SHA}" "${GITHUB_SHA}"
+      - name: Check previous-release recovery contracts
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: bash deploy/test-release-recovery.sh "${BASE_SHA}"
       - name: Check deployment shell syntax
         run: |
           find deploy -type f -name '*.sh' -exec bash -n '{}' \;

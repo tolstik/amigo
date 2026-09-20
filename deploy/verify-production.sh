@@ -683,11 +683,9 @@ readonly LAB_RESULT_CREATE_PATH="api/v1/labs/documents/00000000-0000-0000-0000-0
     || amigo_die "unauthenticated laboratory upload route did not return 401"
 [[ "$(public_status 'api/v1/studies/uploads' POST)" == "401" ]] \
     || amigo_die "unauthenticated study upload route did not return 401"
-for protected_post_path in \
-    api/v1/reports/doctor; do
-    [[ "$(public_status "${protected_post_path}" POST)" == "401" ]] \
-        || amigo_die "unauthenticated protected POST route did not return 401: ${protected_post_path}"
-done
+[[ "$(public_status 'api/v1/reports/doctor' POST)" == "401" ]] \
+    || amigo_die "unauthenticated doctor report POST did not return 401"
+
 [[ "$(public_status 'api/v1/body-measurements/2026-08-28' DELETE)" == "401" ]] \
     || amigo_die "unauthenticated circumference DELETE route did not return 401"
 CIRCUMFERENCE_PUT_STATUS="$(curl --silent --show-error --max-time 20 \
@@ -1140,22 +1138,17 @@ LAB_CREATE_ROUTE_STATUS="$(
 [[ "${LAB_CREATE_ROUTE_STATUS}" == "404" ]] \
     || amigo_die "manual laboratory result allowlist returned ${LAB_CREATE_ROUTE_STATUS}, expected safe 404"
 
-for csrf_case in \
-    'api/v1/reports/doctor|{"period":"30d","sections":["summary"]}'; do
-    csrf_path=${csrf_case%%|*}
-    csrf_payload=${csrf_case#*|}
-    csrf_status="$(
-        curl --config "${ORIGIN_NO_CSRF_CURL_CONFIG}" \
-            --request POST \
-            --header 'Content-Type: application/json' \
-            --data "${csrf_payload}" \
-            --output "${UPLOAD_BODY}" \
-            --write-out '%{http_code}' \
-            "${AMIGO_PUBLIC_URL}${csrf_path}"
-    )"
-    [[ "${csrf_status}" == "403" ]] \
-        || amigo_die "authenticated mutation without CSRF returned ${csrf_status}: ${csrf_path}"
-done
+REPORT_NO_CSRF_STATUS="$(
+    curl --config "${ORIGIN_NO_CSRF_CURL_CONFIG}" \
+        --request POST \
+        --header 'Content-Type: application/json' \
+        --data '{"period":"30d","sections":["summary"]}' \
+        --output "${UPLOAD_BODY}" \
+        --write-out '%{http_code}' \
+        "${AMIGO_PUBLIC_URL}api/v1/reports/doctor"
+)"
+[[ "${REPORT_NO_CSRF_STATUS}" == "403" ]] \
+    || amigo_die "authenticated doctor report mutation without CSRF returned ${REPORT_NO_CSRF_STATUS}"
 
 TASK_REMOVED_STATUS="$(
     curl --config "${AUTH_CURL_CONFIG}" \

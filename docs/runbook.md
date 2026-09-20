@@ -45,7 +45,7 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
   (`ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`),
   фиксированную модель `gpt-5.6-sol`, read-only sandbox и строгую JSON
   schema. Авторизованные GET только читают PostgreSQL.
-- Prompt contract `amigo-health-v4` требует для каждой рекомендации конкретное
+- Prompt contract `amigo-health-v5` требует для каждой рекомендации конкретное
   действие, cadence или review period и ссылки на существующие evidence keys.
   На overview и в Telegram рекомендации идут раньше общих наблюдений.
 - UI разрешает каждую ссылку AI только из immutable snapshot конкретного
@@ -262,6 +262,30 @@ PostgreSQL/Fernet значения и отказывается перезапи�
 Production API probe проверяет обе серии, отдельные границы/величины полного
 и текущего плана, конечные веса факта и отсутствие переноса через пропуски.
 
+## Обновление прогресса и восстановления
+
+«Прогресс» объединяет программу, отдельную разницу факт − план, дневной ИМТ,
+свечи последних 90 дней и историю до программы. Старый `/history` перенаправляет
+на график истории. Обзор показывает границы московских месяцев и условную
+вращающуюся 3D-фигуру с весом старта, текущим и целевым; изменение сценария
+не сохраняет замеры. Сниженное движение и пауза поддержаны.
+Лицо — отдельная private PNG texture в `user_body_face`, без фото в Git/image.
+GET `/api/v1/profile/body-face` требует сессию, возвращает no-store PNG или 404.
+Для явного импорта оператор готовит вырезанное PNG до 512 КиБ/1024×1024 без
+метаданных и кладёт `/home/tolstik/amigo-body-face.png` с владельцем tolstik и
+правами 0600. Штатный deploy после migrations передаёт его через bounded
+no-symlink reader на stdin контейнера web для PNG-нормализации и записи в БД.
+После успешного deploy staging удаляется. Никаких фото в AI, report/CSV/Telegram
+или source checkpoint нет; source photo остаётся у владельца.
+
+Recovery использует отдельную дату последнего сна, пульса, HRV и SpO₂.
+`amigo-health-v5` требует отдельный недельный разбор сна и рекомендацию с
+цитированием серии `sleep.duration7d` и покрытия `sleep.coverage7d`.
+Среднее, минимум, максимум и вариабельность считаются детерминированно;
+пропуски не считаются нулевым сном. GET читает сохранённый результат без
+inference; generation идёт через существующие worker/gateway и не задерживает
+релиз. Прошлые результаты и evidence snapshots не переписываются.
+
 ## Backup и rollback snapshot
 
 `deploy.sh` сначала скачивает и проверяет immutable candidate image и signed APK,
@@ -380,12 +404,12 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    Опубликованные результаты и их immutable evidence продолжают проверяться.
 9. Запуск `ingest`, затем атомарная установка nginx route. Общий prefix
    разрешает только `GET`/`HEAD`/`OPTIONS`; exact
-   auth/profile/data-quality/labs/studies/tasks/doctor-report/assistant
+   auth/profile/data-quality/labs/studies/doctor-report/assistant
    mutation routes имеют отдельные rate/body limits, upload — 21 МиБ, SSE —
    отключённый buffering. Ingest имеет точные rate-limited routes и body limit
    1 МиБ. Doctor-report lifecycle использует dedicated `amigo_report` zone
    `60r/m`: creation с `burst=5`, metadata/PDF/delete с `burst=10`, чтобы
-   dashboard/labs/tasks/CSRF probes не расходовали его budget.
+   dashboard/labs/CSRF probes не расходовали его budget.
    Сразу после nginx reload origin получает до
    15 проверок с интервалом 2 секунды для стабилизации на exact HTTP 200;
    последующий полный verification этим не заменяется.
@@ -470,7 +494,7 @@ Codex повторял его и отображал как разрыв пото
 эти изменения в runtime не внесены. Ограниченный контекст прошёл полную
 валидацию на том же закреплённом CLI/model примерно за 41 секунду.
 
-Контракт `amigo-health-v4` допускает устойчивые рекомендации по питанию,
+Контракт `amigo-health-v5` допускает устойчивые рекомендации по питанию,
 активности, сну и измерениям, но каждый пункт должен содержать конкретное
 действие, периодичность или срок пересмотра и фактические evidence keys.
 Pressure/heart/SpO2/VO2 evidence разрешено только для repeat-measurement,
@@ -550,11 +574,9 @@ medication/dosage instructions и fixed calorie target.
 `xiaomi_finalized_only`, а `coverage.health_connect` обязан быть нулём.
 Health Connect step rows при этом не удаляются: они остаются rollback history.
 
-Задачи хранят immutable копию выбранной AI recommendation и её evidence IDs,
-если созданы из рекомендации. Recurrence — `once`, `daily`, `weekly` или
-calendar `monthly`; worker создаёт unique delivery на task/occurrence/channel.
-Telegram reminder не содержит note, health evidence или provider metadata —
-только title, Moscow due time и authenticated dashboard link.
+Функциональность задач удалена. Exact и nested `/api/v1/tasks` возвращают 404
+для всех методов, worker не создаёт новые напоминания. Старые outbox reminders
+обрабатываются без отправки. Таблицы и миграции сохранены для отката релиза.
 
 Doctor report создаётся authenticated POST, после чего exact GET/PDF доступны
 по canonical lowercase UUID и DELETE может удалить snapshot раньше срока.
@@ -761,17 +783,17 @@ sudo bash /srv/amigo/deploy/verify-production.sh
 - exact public `/.well-known/assetlinks.json`, package
   `ru.tolstik.amigo.sync` и release signing certificate, а также origin `405`
   и public `403`/`405` для POST;
-- explicit named-capture upstream URI для dynamic labs/studies/assistant/tasks/doctor-report routes без
+- explicit named-capture upstream URI для dynamic labs/studies/assistant/doctor-report routes без
   capture-unsafe generic rewrite;
 - explicit `429` для каждого managed rate-limit; upload допускает bounded burst
   из 25 запросов при сохранении лимита 30 запросов в минуту, а doctor-report
   lifecycle использует отдельную zone `60r/m` с creation `burst=5` и access
   `burst=10`;
 - public login shell и method-correct `401` для
-  health JSON/CSV/data-quality/labs/studies/tasks/doctor-report/updater/assistant
+  health JSON/CSV/data-quality/labs/studies/doctor-report/updater/assistant
   без session;
 - short-lived root-only verification session, authenticated overview/activity/
-  recovery/data-quality/AI-v4/labs/studies/tasks/updater/assistant/CSV, exact Origin+CSRF,
+  recovery/data-quality/AI-v5/labs/studies/updater/assistant/CSV, exact Origin+CSRF,
   безопасное отклонение пустого upload и no-buffer assistant/lab/study SSE без
   создания chat turn; temporary doctor snapshot/PDF проходит privacy, 24-hour,
   40-page/10-MiB и hours-on-sleep-scale checks, затем удаляется;

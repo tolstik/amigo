@@ -179,7 +179,6 @@ const assistantRecommendation = {
 
 test.beforeEach(async ({ page }) => {
   let assistantSent = false;
-  let taskItems: Array<Record<string, unknown>> = [];
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     const method = route.request().method();
@@ -204,30 +203,7 @@ test.beforeEach(async ({ page }) => {
         { key: "steps", family: "activity", source_policy: "xiaomi_finalized_only", status: "partial", days: [{ date: "2026-08-31", state: "confirmed_empty", source: "mi_fitness" }, { date: "2026-09-01", state: "available", source: "mi_fitness" }] },
       ],
     } });
-    if (path.endsWith("/tasks") && method === "GET") {
-      const state = new URL(route.request().url()).searchParams.get("state") ?? "open";
-      const items = state === "open" ? taskItems.filter((item) => item.status === "active") : state === "completed" ? taskItems.filter((item) => item.status === "completed") : taskItems;
-      return route.fulfill({ json: { items, open_count: taskItems.filter((item) => item.status === "active").length } });
-    }
-    if (path.endsWith("/tasks") && method === "POST") {
-      const payload = route.request().postDataJSON();
-      expect(payload).toMatchObject({ source_analysis_id: 42, source_item_id: "recommendation-1", telegram_enabled: true });
-      const task = { id: "task-1", ...payload, status: "active", overdue: false, source: { kind: "ai_recommendation", title: "Сохранить ритм", text: "Поддерживайте текущую регулярность прогулок.", evidence_ids: ["activity.steps.week"], generated_at: "2026-09-02T07:55:00Z" }, created_at: "2026-09-02T08:00:00Z", updated_at: "2026-09-02T08:00:00Z", completed_at: null, cancelled_at: null };
-      taskItems = [task];
-      return route.fulfill({ status: 201, json: task });
-    }
-    if (path.endsWith("/tasks/task-1") && method === "PATCH") {
-      taskItems = [{ ...taskItems[0], ...route.request().postDataJSON(), updated_at: "2026-09-02T08:05:00Z" }];
-      return route.fulfill({ json: taskItems[0] });
-    }
-    if (path.endsWith("/tasks/task-1/complete") && method === "POST") {
-      taskItems = [{ ...taskItems[0], status: "completed", next_due_at: null, completed_at: "2026-09-02T08:10:00Z" }];
-      return route.fulfill({ json: taskItems[0] });
-    }
-    if (path.endsWith("/tasks/task-1/cancel") && method === "POST") {
-      taskItems = [{ ...taskItems[0], status: "cancelled", next_due_at: null, cancelled_at: "2026-09-02T08:10:00Z" }];
-      return route.fulfill({ json: taskItems[0] });
-    }
+
     if (path.endsWith("/reports/doctor") && method === "POST") {
       const payload = route.request().postDataJSON();
       expect(payload.period).toBe("90d");
@@ -317,7 +293,7 @@ test.beforeEach(async ({ page }) => {
       generated_at: "2026-09-02T07:55:00Z",
       data_as_of: "2026-09-02T07:50:00Z",
       model: "gpt-5.6-sol",
-      prompt_version: "amigo-health-v4",
+      prompt_version: "amigo-health-v5",
       evidence: { "activity.steps.week": { key: "activity.steps.week", kind: "series", metric: "activity", label: "Активность Xiaomi Cloud", unit: "steps", range: { from: "2026-08-24", to: "2026-09-01" }, count: 7, target: { path: "/activity", available: true } } },
     } });
     if (path.endsWith("/insights")) return route.fulfill({ json: { items: overview.insights } });
@@ -342,15 +318,9 @@ test("renders the overview and navigates to pressure", async ({ page }) => {
   await page.goto("./");
   await expect(page.getByRole("heading", { name: "Добрый день! Вот как идут дела" })).toBeVisible();
   await expect(page.getByLabel("Главные показатели").getByText("125,50 кг")).toBeVisible();
-  const candleChart = page.getByRole("img", { name: /^Свечной график дневных изменений веса/ });
-  await expect(candleChart.locator("canvas").first()).toBeVisible();
-  await expect(page.locator(".chart-card").last()).toContainText("Дневные изменения веса");
-  await page.getByText("Показать дневные изменения (4)").click();
-  const candleTable = page.getByRole("table", { name: "Дневные свечи веса по московскому времени" });
-  await expect(candleTable).toContainText("−0,30 кг");
-  await expect(candleTable).toContainText("+0,20 кг");
-  await expect(candleTable).toContainText("−0,20 кг");
-  await expect(page.locator(".chart-card").last()).toContainText("Последние 90 дней");
+  await expect(page.getByRole("heading", { name: "Модель тела", exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: "График веса за последние 90 дней" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Задачи", exact: true })).toHaveCount(0);
   await page.getByRole("link", { name: "Давление", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Статистика давления" })).toBeVisible();
   await expect(page.getByText("122 / 78").first()).toBeVisible();
@@ -598,12 +568,7 @@ test("edits privacy profile and renders the persistent assistant", async ({ page
   await currentRecommendation.getByRole("button", { name: "Ферритин" }).click();
   await expect(page.getByRole("dialog", { name: "Ферритин" })).toContainText("зафиксировано в момент анализа");
   await page.getByRole("button", { name: "Закрыть основание" }).click();
-  await currentRecommendation.getByRole("button", { name: "Создать задачу" }).click();
-  const taskDialog = page.getByRole("dialog", { name: "Создать задачу" });
-  await expect(taskDialog.getByLabel("Название")).toHaveValue("Сверить динамику");
-  await taskDialog.getByLabel("Дата и время").fill("2027-09-03T09:00");
-  await taskDialog.getByRole("button", { name: "Создать задачу" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Задача создана и доступна в разделе «Задачи»." })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Создать задачу" })).toHaveCount(0);
   await page.getByPlaceholder("Задайте вопрос по вашим данным…").fill("Что с ферритином?");
   await page.getByRole("button", { name: "Отправить" }).click();
   await expect(page.getByText("Ферритин находится в референсе бланка.")).toBeVisible();
@@ -614,7 +579,7 @@ test("edits privacy profile and renders the persistent assistant", async ({ page
   await expect(page.getByText(/не предназначен для экстренной оценки/i)).toBeVisible();
 });
 
-test("opens immutable evidence and creates, edits and completes a task", async ({ page }) => {
+test("opens immutable evidence without retired task actions", async ({ page }) => {
   await page.goto("./");
   const recommendation = page.locator("article.insight--recommendation").filter({ hasText: "Сохранить ритм" });
   await recommendation.getByRole("button", { name: "Активность Xiaomi Cloud" }).click();
@@ -623,23 +588,7 @@ test("opens immutable evidence and creates, edits and completes a task", async (
   await expect(drawer.getByRole("link", { name: "Открыть исходные данные" })).toHaveAttribute("href", "/amigo/activity");
   await drawer.getByRole("button", { name: "Закрыть основание" }).click();
 
-  await recommendation.getByRole("button", { name: "Создать задачу" }).click();
-  const createDialog = page.getByRole("dialog", { name: "Создать задачу" });
-  await expect(createDialog.getByLabel("Название")).toHaveValue("Сохранить ритм");
-  await createDialog.getByLabel("Дата и время").fill("2027-09-03T09:00");
-  await createDialog.getByRole("button", { name: "Создать задачу" }).click();
-
-  await page.getByRole("link", { name: "Задачи", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Сохранить ритм" })).toBeVisible();
-  await page.getByRole("button", { name: "Изменить" }).click();
-  const editDialog = page.getByRole("dialog", { name: "Изменить задачу" });
-  await editDialog.getByLabel("Название").fill("Ежедневная прогулка");
-  await editDialog.getByRole("button", { name: "Сохранить" }).click();
-  await expect(page.getByRole("heading", { name: "Ежедневная прогулка" })).toBeVisible();
-  await page.getByRole("button", { name: "Выполнено" }).click();
-  await expect(page.getByText("Открытых задач нет")).toBeVisible();
-  await page.getByRole("button", { name: "Выполненные" }).click();
-  await expect(page.getByRole("heading", { name: "Ежедневная прогулка" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Создать задачу" })).toHaveCount(0);
 });
 
 test("shows Xiaomi-only coverage without page overflow on mobile", async ({ page }) => {
@@ -765,9 +714,74 @@ test("pool and overview remain readable in all themes on a narrow screen", async
       if (path === "./swimming") {
         await expect(page.getByRole("img", { name: "Дистанция плавания в метрах по тренировкам" })).toBeVisible();
       } else {
-        await expect(page.getByRole("img", { name: /^Свечной график дневных изменений веса/ }).locator("canvas").first()).toBeVisible();
+        await expect(page.getByRole("img", { name: "График веса за последние 90 дней" }).locator("canvas").first()).toBeVisible();
       }
       await page.screenshot({ path: testInfo.outputPath(`${path === "./" ? "overview" : "pool"}-${theme}.png`), fullPage: true });
     }
   }
+});
+
+
+test("progress contains deviation BMI candles and the relocated history", async ({ page }) => {
+  await page.goto("./progress");
+  await expect(page.getByRole("heading", { name: "Отклонение от плана", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Индекс массы тела по дням", exact: true })).toBeVisible();
+  const candleChart = page.getByRole("img", { name: /^Свечной график дневных изменений веса/ });
+  await expect(candleChart.locator("canvas").first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Дневные изменения веса" })).toBeVisible();
+  await page.getByText("Показать дневные изменения (4)").click();
+  const candleTable = page.getByRole("table", { name: "Дневные свечи веса по московскому времени" });
+  await expect(candleTable).toContainText("−0,30 кг");
+  await expect(candleTable).toContainText("+0,20 кг");
+  await expect(candleTable).toContainText("−0,20 кг");
+
+  await expect(page.getByRole("heading", { name: "Вся история веса", exact: true })).toBeVisible();
+  await expect(page.locator(".main-nav").getByRole("link", { name: "Вся история", exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
+
+test("old history link redirects to progress", async ({ page }) => {
+  await page.goto("./history");
+  await expect(page).toHaveURL(/progress#history$/);
+  await expect(page.getByRole("heading", { name: "Вся история веса", exact: true })).toBeVisible();
+});
+
+
+test("recovery shows the validated weekly sleep result and frozen coverage dates", async ({ page }) => {
+  await page.route("**/api/v1/ai-analysis", (route) => route.fulfill({ json: {
+    analysis_id: 43, status: "stale", generated_at: "2026-09-02T08:00:00Z", model: "gpt-5.6-sol",
+    insights: [{ id: "observation-2", scope: "sleep", title: "Две записанные ночи", text: "Есть две ночи из семи; этого мало для оценки всей недели.", evidence_ids: ["sleep.duration7d", "sleep.coverage7d"] }],
+    recommendations: [{ id: "recommendation-2", scope: "sleep", title: "Сверять самочувствие утром", text: "В течение недели записывайте самочувствие после пробуждения.", evidence_ids: ["sleep.duration7d", "sleep.coverage7d"] }],
+    evidence: {
+      "sleep.duration7d": { key: "sleep.duration7d", kind: "series", metric: "sleep", unit: "minutes", range: { from: "2026-09-01", to: "2026-09-02" }, count: 2, target: { path: "/recovery", available: true } },
+      "sleep.coverage7d": { key: "sleep.coverage7d", kind: "fact", metric: "sleep", value: 2, unit: "days", date: "2026-09-02", period: "7d", target: { path: "/recovery", available: true } },
+    },
+  } }));
+  await page.goto("./recovery");
+  const panel = page.getByRole("region", { name: "Разбор сна за неделю" });
+  await expect(panel.getByRole("heading", { name: "Две записанные ночи" })).toBeVisible();
+  await expect(panel).toContainText("сохранённый разбор устарел");
+  await expect(panel).toContainText("27 авг.");
+  await expect(panel).toContainText("2 сент.");
+  const articles = panel.locator("article");
+  await expect(articles.first()).toContainText("Сверять самочувствие утром");
+});
+
+test("body model starts paused for reduced motion and scenarios do not write data", async ({ page }) => {
+  if (process.env.AMIGO_TEST_FACE_PNG) {
+    await page.route("**/api/v1/profile/body-face", (route) => route.fulfill({ contentType: "image/png", path: process.env.AMIGO_TEST_FACE_PNG }));
+  }
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const writes: string[] = [];
+  page.on("request", (request) => { if (request.method() !== "GET") writes.push(request.url()); });
+  await page.goto("./");
+  const model = page.locator(".body-model");
+  await expect(model.getByRole("button", { name: "Вращать модель" })).toHaveAttribute("aria-pressed", "false");
+  await expect(model.locator("canvas")).toBeVisible();
+  await model.getByRole("button", { name: "Цель", exact: true }).click();
+  await expect(model).toContainText("76,5 кг");
+  await model.getByRole("button", { name: "Сейчас", exact: true }).click();
+  await expect(model).toContainText("125,5 кг");
+  expect(writes).toEqual([]);
+  await model.screenshot({ path: `/tmp/amigo-body-${test.info().project.name}.png` });
 });

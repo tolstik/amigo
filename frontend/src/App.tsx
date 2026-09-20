@@ -7,7 +7,6 @@ import { useApi, type ApiState } from "./hooks/useApi";
 import { CompositionPage } from "./pages/CompositionPage";
 import { ActivityPage } from "./pages/ActivityPage";
 import { SwimmingPage } from "./pages/SwimmingPage";
-import { HistoryPage } from "./pages/HistoryPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { PressurePage } from "./pages/PressurePage";
 import { ProgressPage } from "./pages/ProgressPage";
@@ -25,7 +24,6 @@ import { StudyDocumentPage } from "./pages/StudyDocumentPage";
 import { GlobalLoadingPopup } from "./components/GlobalLoadingPopup";
 import { DataQualityPage } from "./pages/DataQualityPage";
 import { DoctorReportPage } from "./pages/DoctorReportPage";
-import { TasksPage } from "./pages/TasksPage";
 import { CircumferencePage } from "./pages/CircumferencePage";
 
 export type OverviewContext = ApiState<Overview>;
@@ -52,9 +50,8 @@ function PrivateApp({ session, onLogout }: { session: AuthSession; onLogout: () 
       <Route element={<AppLayout overview={overview} session={session} onLogout={onLogout} />}>
         <Route index element={<OverviewPage />} />
         <Route path="progress" element={<ProgressPage />} />
-        <Route path="history" element={<HistoryPage />} />
+        <Route path="history" element={<Navigate to="/progress#history" replace />} />
         <Route path="data-quality" element={<DataQualityPage />} />
-        <Route path="tasks" element={<TasksPage />} />
         <Route path="pressure" element={<PressurePage />} />
         <Route path="composition" element={<CompositionPage />} />
         <Route path="circumference" element={<CircumferencePage />} />

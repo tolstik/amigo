@@ -114,7 +114,7 @@
       `http://lab-parser:8085`; override на внешний endpoint отклоняется fail-closed.
 - [ ] Pinned Codex binary на host и read-only mount в `ai-gateway` имеют ожидаемый
       SHA-256. Gateway health сообщает fixed model `gpt-5.6-sol` и
-      `amigo-health-v4`. Synthetic `python -m app.ai_smoke` доступен отдельно
+      `amigo-health-v5`. Synthetic `python -m app.ai_smoke` доступен отдельно
       как необязательная диагностика на неперсональных fixtures;
       успешная live-генерация не требуется для deployment.
 - [ ] `/srv/amigo/data/import/legacy-weight.tsv` root-owned, закрыт для group/world и
@@ -141,8 +141,8 @@
       `/amigo-ai/healthz` и `/amigo-lab-parser/healthz` не возвращают 2xx.
 - [ ] В `my.conf` ровно два managed marker, snippets совпадают с release,
       read/ingest/report rate-limit zones установлены, `nginx -t` успешен.
-- [ ] Dynamic labs/studies/assistant/tasks/doctor-report regex routes используют
-      named captures и exact upstream URI; новые task/report captures принимают
+- [ ] Dynamic labs/studies/assistant/doctor-report regex routes используют
+      named captures и exact upstream URI; новые report captures принимают
       только canonical lowercase UUID, public method/path не искажается generic rewrite.
 - [ ] Каждый managed `limit_req` имеет explicit `limit_req_status 429`; upload
       burst покрывает bounded verification/UI sequence без shared `503` handler,
@@ -156,7 +156,7 @@
       `ru.tolstik.amigo.sync`; origin возвращает exact `405` для POST, а
       public edge безопасно отклоняет его с `403` или `405`.
 - [ ] Без cookie auth session, overview, swimming, data-quality, CSV, circumference,
-      studies, tasks, doctor report/HTML/PDF, updater и assistant возвращают exact
+      studies, doctor report/HTML/PDF, updater и assistant возвращают exact
       `401` при проверке реальных HTTP-методов route; signed Android ingest
       остаётся независимым.
 - [ ] Root-only short-lived verification session создаётся CLI без печати
@@ -166,14 +166,14 @@
       нужного контракта. AI status может быть `fresh`, `stale`, `pending` или
       `unavailable`; payload помечен `ai_generated`. В двух последних состояниях
       нет текста анализа, рекомендаций и evidence. Для опубликованного результата
-      model равен `gpt-5.6-sol`, prompt contract равен `amigo-health-v4`,
+      model равен `gpt-5.6-sol`, prompt contract равен `amigo-health-v5`,
       а каждая опубликованная рекомендация имеет
       evidence IDs, каждый из которых разрешается в descriptor exact saved
       analysis snapshot; descriptor value/date/range не перечитывается из
       изменившихся source rows.
 - [ ] Та же session проверяет profile, labs documents/summary/analytes,
       справочную карточку `/labs/analytes/leukocytes/history`, studies,
-      data-quality, task list, updater metadata/APK, assistant messages и CSV.
+      data-quality, updater metadata/APK, assistant messages и CSV.
       APK download совпадает с advertised exact size/SHA-256. Mutation с exact Origin, но без CSRF возвращает
       `403`; пустой unsupported upload возвращает consent/validation rejection и
       не создаёт document. Fake assistant ID и laboratory/study queue SSE
@@ -186,8 +186,7 @@
       `xiaomi_finalized_only`, нулевой Health Connect coverage и только
       `mi_fitness`/null day sources; сохранённые Health Connect rows остаются
       rollback history и не попадают в dashboard/CSV/Telegram/AI/correlations.
-- [ ] Lab compare и task mutation routes проходят 403 без CSRF и безопасные
-      404/422 с CSRF без создания документа/задачи. Временный 30-day doctor
+- [ ] Удалённые lab compare и task API routes возвращают 404. Временный 30-day doctor
       snapshot содержит только privacy allowlist, laboratory rows с явным
       статусом проверки (включая unverified) и
       verified studies, имеет TTL 24 часа; PDF не превышает 40 страниц/10 МиБ,

@@ -500,3 +500,19 @@ def test_medical_metrics_require_one_bounded_recommendation():
 
     with pytest.raises(ValueError, match="requires a bounded"):
         validate_analysis_evidence(analysis, snapshot)
+
+
+def test_weekly_sleep_requires_standalone_assessment_and_coverage_citations():
+    snapshot = AnalysisSnapshot(source_through=NOW, facts=[fact("sleep.coverage7d", 2, "sleep", "days")], series=[SnapshotSeries(key="sleep.duration7d", scope="sleep", unit="minutes", points=[SnapshotPoint(day="2026-08-19", value=420)])])
+    analysis = AiAnalysis(headline="Сон", summary="Есть записи сна.", observations=[], recommendations=[], confidence="low", limitations=[])
+    with pytest.raises(ValueError, match="weekly sleep"):
+        validate_analysis_evidence(analysis, snapshot)
+    keys = ["sleep.duration7d", "sleep.coverage7d"]
+    analysis.observations = [AiObservation(title="Записанный сон", text="Оценка ограничена двумя днями из семи.", scope="sleep", tone="neutral", evidence_keys=keys)]
+    with pytest.raises(ValueError, match="recommendation"):
+        validate_analysis_evidence(analysis, snapshot)
+    analysis.recommendations = [AiRecommendation(title="Дневник сна", text="В течение недели отмечайте самочувствие после сна: пока есть только два дня из семи.", scope="sleep", evidence_keys=keys)]
+    validate_analysis_evidence(analysis, snapshot)
+    analysis.observations[0].evidence_keys = ["sleep.duration7d"]
+    with pytest.raises(ValueError, match="assessment"):
+        validate_analysis_evidence(analysis, snapshot)

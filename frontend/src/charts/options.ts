@@ -645,11 +645,76 @@ export function circumferenceChartOption(points: CircumferencePoint[]): EChartsO
   };
 }
 
+/** First-of-month midnight in Moscow, independent of the browser timezone. */
+export function monthBoundaryLines(dates: string[]): LineSeriesOption["markLine"] {
+  const times = dates.map(Date.parse).filter(Number.isFinite);
+  if (!times.length) return { data: [] };
+  const first = Math.min(...times), last = Math.max(...times);
+  const local = new Date(first + 3 * 3_600_000);
+  let year = local.getUTCFullYear(), month = local.getUTCMonth();
+  const data: Array<{ xAxis: number; name: string }> = [];
+  while (true) {
+    const time = Date.UTC(year, month, 1) - 3 * 3_600_000;
+    if (time > last) break;
+    if (time >= first) data.push({ xAxis: time, name: formatMonth(new Date(time).toISOString()) });
+    month += 1;
+    if (month === 12) { year += 1; month = 0; }
+  }
+  return { silent: true, symbol: "none", lineStyle: { color: colors.muted, type: "dashed", width: 1, opacity: .6 }, label: { formatter: "{b}", position: "insideEndTop", color: colors.muted, fontSize: 10 }, data };
+}
+
+export function dailyWeightDerived(points: WeightPoint[], heightCm: number) {
+  return points.map((point) => ({
+    ...point,
+    deviationKg: point.weightKg !== null && point.plannedKg !== null && !point.isOutlier
+      ? Number((point.weightKg - point.plannedKg).toFixed(3)) : null,
+    bmi: point.weightKg !== null && heightCm > 0 && Number.isFinite(heightCm)
+      ? Number((point.weightKg / (heightCm / 100) ** 2).toFixed(2)) : null,
+  }));
+}
+
+function dailyDerivedOption(points: WeightPoint[], heightCm: number, bmi: boolean): EChartsOption {
+  const derived = dailyWeightDerived(points, heightCm);
+  // Explicit nulls break every missing calendar day; never interpolate a missing BMI or deviation.
+  const data: Array<[string, number | null]> = [];
+  derived.forEach((point, index) => {
+    if (index && Date.parse(point.measuredAt) - Date.parse(derived[index - 1].measuredAt) > 86_400_000) {
+      data.push([new Date(Date.parse(derived[index - 1].measuredAt) + 86_400_000).toISOString(), null]);
+    }
+    data.push([point.measuredAt, bmi ? point.bmi : point.deviationKg]);
+  });
+  return {
+    grid: { ...sharedGrid, top: 35, bottom: 70 },
+    tooltip: { trigger: "axis", confine: true, formatter: (params: any) => {
+      const entry = Array.isArray(params) ? params[0] : params;
+      const point = derived.find((item) => Date.parse(item.measuredAt) === Number(entry?.axisValue));
+      if (!point) return "Нет замера";
+      return `<div class="chart-tooltip"><strong>${formatDate(point.measuredAt)}</strong><div>Вес: ${formatKg(point.weightKg, 2)}</div>${bmi ? `<div>ИМТ: ${formatNumber(point.bmi, 2)} кг/м²</div>${point.isOutlier ? "<div>Необычный замер</div>" : ""}` : `<div>План: ${formatKg(point.plannedKg, 2)}</div><div>Факт − план: ${formatDelta(point.deviationKg, "кг", 2)}</div>`}</div>`;
+    } },
+    xAxis: { ...sharedAxis, type: "time", axisLabel: { ...sharedAxis.axisLabel, formatter: (value: number) => formatShortDate(new Date(value).toISOString()) } },
+    yAxis: { ...sharedAxis, type: "value", scale: bmi, name: bmi ? "кг/м²" : "кг" },
+    dataZoom: [{ type: "inside", filterMode: "none" }, { type: "slider", height: 20, bottom: 8 }],
+    series: [timeLine(bmi ? "ИМТ" : "Факт − план", data, bmi ? colors.violet : colors.blue, {
+      smooth: false, showSymbol: true, symbolSize: 6,
+      ...(!bmi ? { markLine: { silent: true, symbol: "none", label: { formatter: "По плану", position: "insideEndTop" }, data: [{ yAxis: 0 }], lineStyle: { color: colors.muted } } } : {}),
+    })],
+  };
+}
+
+export function planDeviationChartOption(points: WeightPoint[]): EChartsOption {
+  return dailyDerivedOption(points, 176, false);
+}
+
+export function bmiChartOption(points: WeightPoint[], heightCm: number): EChartsOption {
+  return dailyDerivedOption(points, heightCm, true);
+}
+
 export function weightChartOption(
   points: WeightPoint[],
   detailed = true,
   projection: WeightProjectionPoint[] = [],
   planProjection: WeightPlanPoint[] = [],
+  monthBoundaries = false,
 ): EChartsOption {
   const normal = points.filter((point) => !point.isOutlier).map((point) => [point.measuredAt, point.weightKg]);
   const outliers = points.filter((point) => point.isOutlier).map((point) => [point.measuredAt, point.weightKg]);
@@ -665,6 +730,7 @@ export function weightChartOption(
     timeLine("Тренд 7 дней", withGapBreaks(points, (point) => point.smoothed7dKg), colors.green, {
       lineStyle: { width: 3.5, color: colors.green },
       z: 5,
+      ...(monthBoundaries ? { markLine: monthBoundaryLines(points.map((point) => point.measuredAt)) } : {}),
     }),
   ];
   const planLine = planProjection.length

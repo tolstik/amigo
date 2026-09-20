@@ -293,6 +293,7 @@ def _public_ai_analysis(db: Session) -> dict:
                     "title": str(value.get("title") or "Наблюдение"),
                     "text": value["text"],
                     "tone": str(value.get("tone") or "neutral"),
+                    "scope": str(value.get("scope") or "general"),
                     "evidence_ids": [
                         key for key in value.get("evidence_keys", []) if isinstance(key, str)
                     ],

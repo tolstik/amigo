@@ -2,13 +2,16 @@ import { useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
 import type { OverviewContext } from "../App";
 import { api, csvUrl } from "../api/client";
-import { monthlyChangeChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightChartOption } from "../charts/options";
+import { bmiChartOption, planDeviationChartOption, monthlyChangeChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightChartOption } from "../charts/options";
 import { ErrorState, EmptyState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
 import { MonthlyWeightTable, WeeklyWeightTable, WeightTable } from "../components/DataTables";
 import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
+import { WeightCandlestickChart } from "../components/WeightCandlestickChart";
+import { PeriodSwitcher } from "../components/PeriodSwitcher";
+import { useChartPeriod } from "../hooks/useChartPeriod";
 import { useApi } from "../hooks/useApi";
 import { formatDate, formatDelta, formatKg } from "../lib/format";
 
@@ -16,6 +19,14 @@ export function ProgressPage() {
   const overview = useOutletContext<OverviewContext>();
   const loadSeries = useCallback((signal: AbortSignal) => api.weight("program", signal), []);
   const series = useApi(loadSeries);
+  const [historyPeriod, setHistoryPeriod] = useChartPeriod("all");
+  const loadHistory = useCallback((signal: AbortSignal) => api.weight(historyPeriod, signal), [historyPeriod]);
+  const history = useApi(loadHistory);
+  // All raw history establishes the preceding candle before the 90-day display trim.
+  const loadRaw = useCallback((signal: AbortSignal) => api.weight("all", signal), []);
+  const raw = useApi(loadRaw);
+  const loadProfile = useCallback((signal: AbortSignal) => api.profile(signal), []);
+  const profile = useApi(loadProfile);
   const weight = overview.data?.weight;
   const plan = overview.data?.plan;
 
@@ -24,7 +35,7 @@ export function ProgressPage() {
       <PageHeader
         eyebrow="Программа похудения"
         title="Прогресс и прогноз"
-        description={`На этом экране учитываются только измерения с ${formatDate(plan?.startDate)}. Необычные замеры видны, но не влияют на тренд.`}
+        description={`Показатели программы считаются с ${formatDate(plan?.startDate)}. Полная история и дневные изменения — на отдельных графиках ниже.`}
         actions={<a className="button button--secondary" href={csvUrl("weight", "program")} download><Icon name="download" /> Скачать CSV</a>}
       />
 
@@ -49,6 +60,11 @@ export function ProgressPage() {
               footer={<WeightTable points={series.data.points} />}
             />
           ) : <EmptyState title="Замеров программы пока нет" text="После следующей синхронизации здесь появятся точки веса, план и тренд." />}
+
+          {series.data.points.length > 0 && <>
+            <ChartCard title="Отклонение от плана" subtitle="Дневная медиана минус план на ту же дату · плюс — выше плана, минус — ниже" option={planDeviationChartOption(series.data.points)} ariaLabel="График разницы между фактическим весом и планом" height={350} />
+            {profile.data && <ChartCard title="Индекс массы тела по дням" subtitle={`Дневная медиана веса / рост в метрах² · рост ${profile.data.height_cm} см · дни без замеров остаются пустыми`} option={bmiChartOption(series.data.points, profile.data.height_cm)} ariaLabel="График ежедневного индекса массы тела" height={350} />}
+          </>}
 
           {series.data.weekly.length ? (
             <>
@@ -87,6 +103,14 @@ export function ProgressPage() {
           ) : null}
         </>
       ) : null}
+
+      {raw.data ? <WeightCandlestickChart points={raw.data.raw} asOf={overview.data?.generatedAt ?? new Date().toISOString()} /> : raw.error ? <ErrorState message={raw.error.message} onRetry={raw.reload} /> : <LoadingState compact />}
+      <section id="history" className="weight-history">
+        <div className="section-heading"><div><span className="eyebrow">Архив измерений</span><h2>Вся история веса</h2></div><a className="button button--secondary" href={csvUrl("weight", historyPeriod)} download><Icon name="download" /> CSV истории</a></div>
+        <p className="chart-note">Включает замеры до {formatDate(plan?.startDate)}. Они не влияют на показатели программы и прогноз.</p>
+        <div className="toolbar"><PeriodSwitcher value={historyPeriod} onChange={setHistoryPeriod} /></div>
+        {history.data?.points.length ? <ChartCard title="История измерений" subtitle="Дневные медианы · разрывы длиннее 14 дней не соединяются" option={weightChartOption(history.data.points, false, [], history.data.planProjection)} ariaLabel="График всей истории веса, включая измерения до программы" height={450} footer={<WeightTable points={history.data.points} />} /> : history.error ? <ErrorState message={history.error.message} onRetry={history.reload} /> : history.loading ? <LoadingState compact /> : <EmptyState title="В выбранном периоде нет веса" text="Выберите другой период истории." />}
+      </section>
 
       <section className="explain-grid">
         <article className="panel explain-card"><span className="explain-card__number">01</span><div><h3>Сглаженный тренд</h3><p>Показывает направление без суточного шума. Для дня с несколькими замерами используется медиана.</p></div></article>

@@ -33,7 +33,7 @@ def analysis(status):
     }
     if status in {"fresh", "stale"}:
         payload.update(
-            analysis_id=1, model="gpt-5.6-sol", prompt_version="amigo-health-v4",
+            analysis_id=1, model="gpt-5.6-sol", prompt_version="amigo-health-v5",
             recommendations=[{"id": "recommendation-1", "evidence_ids": ["fact.test"]}],
             evidence={"fact.test": {"key": "fact.test", "kind": "fact", "target": {}}},
         )

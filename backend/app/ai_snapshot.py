@@ -241,7 +241,18 @@ def build_analysis_snapshot(
         fact("quality.activity_days_week", "quality", "week", coverage.get("steps"), "days")
 
     recovery_day = _day(latest_recovery.get("date"))
-    fact("sleep.duration_latest", "sleep", "day", latest_recovery.get("sleep_minutes"), "minutes", recovery_day)
+    latest_sleep = next((row for row in reversed(recovery_rows) if _number(row.get("sleep_minutes")) is not None), {})
+    fact("sleep.duration_latest", "sleep", "day", latest_sleep.get("sleep_minutes"), "minutes", _day(latest_sleep.get("date")))
+    sleep_week = [row for row in recovery_rows if (day := _day(row.get("date"))) is not None and today - timedelta(days=6) <= day <= today and _number(row.get("sleep_minutes")) is not None]
+    if routine_context:
+        fact("sleep.coverage7d", "sleep", "7d", len(sleep_week), "days", today)
+        if sleep_week:
+            durations = [float(row["sleep_minutes"]) for row in sleep_week]
+            fact("sleep.average7d", "sleep", "7d", statistics.fmean(durations), "minutes", today)
+            fact("sleep.minimum7d", "sleep", "7d", min(durations), "minutes", today)
+            fact("sleep.maximum7d", "sleep", "7d", max(durations), "minutes", today)
+            fact("sleep.variability7d", "sleep", "7d", statistics.pstdev(durations), "minutes", today)
+
     fact("sleep.duration_baseline28d", "sleep", "28d", _median(recovery_rows, "sleep_minutes"), "minutes")
     fact("recovery.heart_rate_average_latest", "heart", "day", latest_recovery.get("average_heart_rate_bpm"), "bpm", recovery_day)
     fact("recovery.heart_rate_minimum_latest", "heart", "day", latest_recovery.get("minimum_heart_rate_bpm"), "bpm", recovery_day)
@@ -322,6 +333,9 @@ def build_analysis_snapshot(
                     "key": item.key.removesuffix("90d") + "28d",
                     "points": points,
                 }))
+        weekly_sleep = _series("sleep.duration7d", "sleep", "minutes", sleep_week, "date", "sleep_minutes")
+        if weekly_sleep is not None:
+            recent_series.append(weekly_sleep)
         series_candidates = recent_series
 
     source_candidates = [

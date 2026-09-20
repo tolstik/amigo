@@ -267,6 +267,14 @@ done
 amigo_log "running the idempotent bootstrap, including schema migrations"
 amigo_compose run --rm --no-deps worker python -m app.cli bootstrap
 
+# Optional private texture explicitly staged by the operator, outside Git/images.
+# The bounded reader rejects symlinks and requires a 0600 tolstik-owned file.
+if [[ -e /home/tolstik/amigo-body-face.png || -L /home/tolstik/amigo-body-face.png ]]; then
+    amigo_log "importing the explicitly staged private body texture"
+    python3 "${SCRIPT_DIR}/read-body-face.py" \
+        | amigo_compose run --rm --no-deps -T web python -m app.body_face
+fi
+
 amigo_log "copying and verifying legacy laboratory originals in PostgreSQL"
 amigo_compose run --rm --no-deps \
     --volume "${AMIGO_LAB_FILES_DIR}:/lab-files:ro" \

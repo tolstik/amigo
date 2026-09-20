@@ -376,3 +376,12 @@ def patch_profile(
 
     enqueue_current_analysis(db, settings, trigger="manual", debounce_seconds=0)
     return _profile_response(profile)
+
+
+@profile_router.get("/body-face")
+def get_body_face(db: Session = Depends(get_db)) -> Response:
+    from .auth_models import UserBodyFace
+    row = db.get(UserBodyFace, 1)
+    if row is None:
+        raise HTTPException(status_code=404, detail="body_face_unavailable")
+    return Response(content=row.content, media_type="image/png", headers={"Cache-Control": "no-store"})

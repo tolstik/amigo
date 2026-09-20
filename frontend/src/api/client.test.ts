@@ -5,7 +5,6 @@ import {
   normalizeCompositionSeries,
   normalizeDataQuality,
   normalizeDoctorReport,
-  normalizeHealthTaskList,
   normalizeOverview,
   normalizePressureSeries,
   normalizeRecoverySeries,
@@ -259,16 +258,7 @@ describe("API normalization", () => {
     expect(result.metrics[0].coverage).toMatchObject({ withValues: 0, confirmedEmpty: 1, missing: 1, healthConnect: 0 });
   });
 
-  it("normalizes tasks and immutable assistant evidence", () => {
-    const tasks = normalizeHealthTaskList({ items: [{
-      id: "task-1", title: "Повторить измерение", note: null, next_due_at: "2026-09-04T06:00:00Z",
-      recurrence: "weekly", telegram_enabled: true, status: "active", overdue: false,
-      source_analysis_id: 42, source_item_id: "recommendation-1",
-      source: { kind: "ai_recommendation", title: "Контроль", text: "Повторите измерение.", evidence_ids: ["pressure.latest"], generated_at: "2026-09-01T06:00:00Z" },
-      created_at: "2026-09-01T06:00:00Z", updated_at: "2026-09-01T06:00:00Z",
-    }], open_count: 1 });
-    expect(tasks.items[0]).toMatchObject({ recurrence: "weekly", telegramEnabled: true, sourceAnalysisId: 42 });
-
+  it("normalizes immutable assistant evidence", () => {
     const assistant = normalizeAssistantMessages({ analysis_id: 42, items: [{
       id: "message-1", role: "assistant", status: "complete", content: "Значение сохранено.", draft_segments: [], evidence_keys: ["lab.ferritin"],
       evidence: { "lab.ferritin": { kind: "laboratory_result", metric: "laboratory", label: "Ферритин", value_numeric: 42, unit: "нг/мл", observed_on: "2026-08-28", verification: "verified", target: { path: null, available: false } } },

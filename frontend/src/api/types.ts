@@ -311,6 +311,11 @@ export interface HeartRateHourlyPoint {
 }
 
 export interface RecoverySummary {
+  sleepDate: string | null;
+  heartRateDate: string | null;
+  restingHeartRateDate: string | null;
+  hrvDate: string | null;
+  spo2Date: string | null;
   latestDate: string | null;
   sleepMinutes: number | null;
   baselineSleepMinutes: number | null;
@@ -333,6 +338,7 @@ export interface RecoverySeriesResponse extends SeriesResponse<RecoveryPoint> {
 }
 
 export interface AiNarrativeItem {
+  scope?: string;
   id: string;
   title: string;
   text: string;
@@ -567,59 +573,6 @@ export interface DataQualityResponse {
   generatedAt: string | null;
   sources: DataQualitySource[];
   metrics: DataQualityMetric[];
-}
-
-export type TaskStateFilter = "open" | "completed" | "all";
-export type TaskStatus = "active" | "completed" | "cancelled";
-export type TaskRecurrence = "once" | "daily" | "weekly" | "monthly";
-
-export interface HealthTaskSource {
-  kind: string;
-  title: string;
-  text: string;
-  evidenceIds: string[];
-  generatedAt: string | null;
-}
-
-export interface HealthTask {
-  id: string;
-  title: string;
-  note: string | null;
-  nextDueAt: string | null;
-  recurrence: TaskRecurrence;
-  telegramEnabled: boolean;
-  status: TaskStatus;
-  overdue: boolean;
-  sourceAnalysisId: number | null;
-  sourceItemId: string | null;
-  source: HealthTaskSource | null;
-  createdAt: string;
-  updatedAt: string;
-  completedAt: string | null;
-  cancelledAt: string | null;
-}
-
-export interface HealthTaskInput {
-  title: string;
-  note: string | null;
-  next_due_at: string;
-  recurrence: TaskRecurrence;
-  telegram_enabled: boolean;
-  source_analysis_id?: number;
-  source_item_id?: string;
-}
-
-export interface HealthTaskPatch {
-  title?: string;
-  note?: string | null;
-  next_due_at?: string;
-  recurrence?: TaskRecurrence;
-  telegram_enabled?: boolean;
-}
-
-export interface HealthTaskList {
-  items: HealthTask[];
-  openCount: number;
 }
 
 export type DoctorReportPeriod = "30d" | "90d" | "1y";

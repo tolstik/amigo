@@ -15,7 +15,6 @@ from .health_api import public_router as health_public_router
 from .labs_api import router as labs_router
 from .reports_api import router as reports_router
 from .studies_api import router as studies_router
-from .tasks_api import router as tasks_router
 from .update_api import router as update_router
 from .config import get_settings
 from .db import SessionLocal
@@ -34,7 +33,6 @@ app.include_router(router, dependencies=[Depends(require_session)])
 app.include_router(health_public_router, dependencies=[Depends(require_session)])
 app.include_router(labs_router, dependencies=[Depends(require_session)])
 app.include_router(studies_router, dependencies=[Depends(require_session)])
-app.include_router(tasks_router, dependencies=[Depends(require_session)])
 app.include_router(reports_router, dependencies=[Depends(require_session)])
 app.include_router(update_router, dependencies=[Depends(require_session)])
 app.include_router(assistant_router, dependencies=[Depends(require_session)])
@@ -42,9 +40,11 @@ app.include_router(assistant_router, dependencies=[Depends(require_session)])
 
 @app.middleware("http")
 async def privacy_headers(request, call_next):
-    # The removed comparison endpoint must not fall through to the SPA GET
-    # route (which would otherwise turn POST into 405).
-    if request.url.path == "/api/v1/labs/compare":
+    # Retired APIs must never fall through to the SPA or accept mutations.
+    if (
+        request.url.path in {"/api/v1/labs/compare", "/api/v1/tasks"}
+        or request.url.path.startswith("/api/v1/tasks/")
+    ):
         response = JSONResponse({"detail": "Not Found"}, status_code=404)
     else:
         response = await call_next(request)

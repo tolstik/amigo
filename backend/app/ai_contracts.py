@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 
 AI_MODEL = "gpt-5.6-sol"
-AI_PROMPT_VERSION = "amigo-health-v4"
+AI_PROMPT_VERSION = "amigo-health-v5"
 SNAPSHOT_SCHEMA_VERSION = "2"
 MAX_ANALYSIS_REQUEST_ATTEMPT = 4
 
@@ -316,7 +316,7 @@ class AiAnalysis(StrictModel):
 
 class GatewayAnalyzeRequest(StrictModel):
     snapshot_hash: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-    prompt_version: Literal["amigo-health-v4"] = AI_PROMPT_VERSION
+    prompt_version: Literal["amigo-health-v5"] = AI_PROMPT_VERSION
     model: Literal["gpt-5.6-sol"] = AI_MODEL
     attempt: Annotated[int, Field(ge=1, le=MAX_ANALYSIS_REQUEST_ATTEMPT)] = 1
     snapshot: AnalysisSnapshot
@@ -330,7 +330,7 @@ class GatewayAnalyzeRequest(StrictModel):
 
 class GatewayAnalyzeResponse(StrictModel):
     snapshot_hash: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-    prompt_version: Literal["amigo-health-v4"] = AI_PROMPT_VERSION
+    prompt_version: Literal["amigo-health-v5"] = AI_PROMPT_VERSION
     model: Literal["gpt-5.6-sol"] = AI_MODEL
     generated_at: datetime
     duration_ms: Annotated[int, Field(ge=0, le=600_000)]
@@ -421,6 +421,11 @@ def validate_analysis_evidence(analysis: AiAnalysis, snapshot: AnalysisSnapshot)
     for item in [*analysis.observations, *analysis.recommendations]:
         if not set(item.evidence_keys).issubset(known):
             raise ValueError("analysis cites an unknown metric")
+    weekly_sleep = {"sleep.duration7d", "sleep.coverage7d"}
+    if "sleep.duration7d" in known:
+        for items, label in ((analysis.observations, "assessment"), (analysis.recommendations, "recommendation")):
+            if not any(item.scope == "sleep" and weekly_sleep.issubset(item.evidence_keys) for item in items):
+                raise ValueError(f"weekly sleep requires a sleep-scoped {label} citing duration and coverage")
     has_medical_evidence = bool(medical)
     has_bounded_medical_recommendation = False
     has_laboratory_assessment = any(

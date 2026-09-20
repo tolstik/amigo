@@ -875,28 +875,20 @@ def _activity_summary(
 def _recovery_summary(
     daily: Sequence[dict[str, Any]], data_as_of: datetime | None
 ) -> dict[str, Any]:
-    if not daily:
-        return {
-            "latest_date": None,
-            "sleep_minutes": None,
-            "baseline_sleep_minutes": None,
-            "average_heart_rate_bpm": None,
-            "minimum_heart_rate_bpm": None,
-            "maximum_heart_rate_bpm": None,
-            "resting_heart_rate_bpm": None,
-            "baseline_resting_heart_rate_bpm": None,
-            "hrv_rmssd_ms": None,
-            "baseline_hrv_rmssd_ms": None,
-            "spo2_pct": None,
-            "data_as_of": data_as_of.isoformat().replace("+00:00", "Z")
-            if data_as_of
-            else None,
-        }
-    latest = daily[-1]
-    latest_day = date.fromisoformat(str(latest["date"]))
+    def latest_for(metric: str) -> dict[str, Any]:
+        return next((row for row in reversed(daily) if row.get(metric) is not None), {})
+
+    sleep = latest_for("sleep_minutes")
+    heart = latest_for("average_heart_rate_bpm")
+    resting = latest_for("resting_heart_rate_bpm")
+    hrv = latest_for("hrv_rmssd_ms")
+    spo2 = latest_for("spo2_pct")
     by_day = {date.fromisoformat(str(row["date"])): row for row in daily}
 
-    def baseline(metric: str, presence: str) -> float | None:
+    def baseline(metric: str, presence: str, latest: dict[str, Any]) -> float | None:
+        if not latest:
+            return None
+        latest_day = date.fromisoformat(str(latest["date"]))
         values: list[float] = []
         for offset in range(1, 29):
             row = by_day.get(latest_day - timedelta(days=offset))
@@ -906,22 +898,23 @@ def _recovery_summary(
         return round(statistics.fmean(values), 2)
 
     return {
-        "latest_date": latest["date"],
-        "sleep_minutes": latest["sleep_minutes"],
-        "baseline_sleep_minutes": baseline("sleep_minutes", "sleep"),
-        "average_heart_rate_bpm": latest["average_heart_rate_bpm"],
-        "minimum_heart_rate_bpm": latest["minimum_heart_rate_bpm"],
-        "maximum_heart_rate_bpm": latest["maximum_heart_rate_bpm"],
-        "resting_heart_rate_bpm": latest["resting_heart_rate_bpm"],
-        "baseline_resting_heart_rate_bpm": baseline(
-            "resting_heart_rate_bpm", "resting_heart_rate"
-        ),
-        "hrv_rmssd_ms": latest["hrv_rmssd_ms"],
-        "baseline_hrv_rmssd_ms": baseline("hrv_rmssd_ms", "hrv_rmssd"),
-        "spo2_pct": latest["spo2_pct"],
-        "data_as_of": data_as_of.isoformat().replace("+00:00", "Z")
-        if data_as_of
-        else None,
+        "latest_date": daily[-1]["date"] if daily else None,
+        "sleep_date": sleep.get("date"),
+        "heart_rate_date": heart.get("date"),
+        "resting_heart_rate_date": resting.get("date"),
+        "hrv_date": hrv.get("date"),
+        "spo2_date": spo2.get("date"),
+        "sleep_minutes": sleep.get("sleep_minutes"),
+        "baseline_sleep_minutes": baseline("sleep_minutes", "sleep", sleep),
+        "average_heart_rate_bpm": heart.get("average_heart_rate_bpm"),
+        "minimum_heart_rate_bpm": heart.get("minimum_heart_rate_bpm"),
+        "maximum_heart_rate_bpm": heart.get("maximum_heart_rate_bpm"),
+        "resting_heart_rate_bpm": resting.get("resting_heart_rate_bpm"),
+        "baseline_resting_heart_rate_bpm": baseline("resting_heart_rate_bpm", "resting_heart_rate", resting),
+        "hrv_rmssd_ms": hrv.get("hrv_rmssd_ms"),
+        "baseline_hrv_rmssd_ms": baseline("hrv_rmssd_ms", "hrv_rmssd", hrv),
+        "spo2_pct": spo2.get("spo2_pct"),
+        "data_as_of": data_as_of.isoformat().replace("+00:00", "Z") if data_as_of else None,
     }
 
 

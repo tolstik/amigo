@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { lazy, Suspense, useCallback } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import type { OverviewContext } from "../App";
 import { api, csvUrl } from "../api/client";
@@ -9,11 +9,11 @@ import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { WeightTable } from "../components/DataTables";
-import { WeightCandlestickChart } from "../components/WeightCandlestickChart";
 import { EvidenceChips } from "../components/EvidenceChips";
-import { TaskDialog, type TaskDialogSource } from "../components/TaskDialog";
 import { useApi } from "../hooks/useApi";
 import { clampProgress, formatDate, formatDateTime, formatDelta, formatKg, formatNumber, formatPercent } from "../lib/format";
+
+const BodyModel = lazy(() => import("../components/BodyModel"));
 
 function planPosition(deviation: number | null): string {
   if (deviation === null) return "Появится после нового замера";
@@ -31,8 +31,8 @@ export function OverviewPage() {
   const ai = useApi(loadAi);
   const activity = useApi(loadActivity);
   const recovery = useApi(loadRecovery);
-  const [taskSource, setTaskSource] = useState<TaskDialogSource | null>(null);
-  const [taskNotice, setTaskNotice] = useState<string | null>(null);
+  const loadProfile = useCallback((signal: AbortSignal) => api.profile(signal), []);
+  const profile = useApi(loadProfile);
 
   if (overview.loading && !overview.data) return <LoadingState />;
   if (overview.error && !overview.data) return <ErrorState message={overview.error.message} onRetry={overview.reload} />;
@@ -140,7 +140,7 @@ export function OverviewPage() {
           </Link>
           <Link className="today-row" to="/recovery">
             <span className="today-row__icon today-row__icon--blue"><Icon name="clock" /></span>
-            <span><small>Сон</small><strong>{recovery.data?.summary.sleepMinutes == null ? "—" : `${Math.floor(recovery.data.summary.sleepMinutes / 60)} ч ${Math.round(recovery.data.summary.sleepMinutes % 60)} мин`}</strong><em>{recovery.data?.summary.latestDate ? formatDate(recovery.data.summary.latestDate) : "Ожидаем Health Connect"}</em></span>
+            <span><small>Сон</small><strong>{recovery.data?.summary.sleepMinutes == null ? "—" : `${Math.floor(recovery.data.summary.sleepMinutes / 60)} ч ${Math.round(recovery.data.summary.sleepMinutes % 60)} мин`}</strong><em>{recovery.data?.summary.sleepDate ? formatDate(recovery.data.summary.sleepDate) : "Нет данных сна"}</em></span>
             <Icon name="arrow" />
           </Link>
           {pressure.latestPulse !== null && <p className="today-panel__note">Пульс в последней сессии: <strong>{formatNumber(pressure.latestPulse, 0)} уд/мин</strong></p>}
@@ -163,7 +163,7 @@ export function OverviewPage() {
               {aiItems.slice(0, 6).map((item) => (
                 <article className={`insight ${item.kind === "recommendation" ? "insight--recommendation" : ""}`} key={`${item.kind}-${item.id}`}>
                   <span className="insight__icon"><Icon name={item.kind === "recommendation" ? "progress" : "activity"} /></span>
-                  <div className="insight__body"><strong>{item.title}</strong><p>{item.text}</p><EvidenceChips evidenceIds={item.evidenceIds} evidence={ai.data?.evidence ?? {}} />{item.kind === "recommendation" && ai.data?.analysisId !== null && ai.data?.analysisId !== undefined && <button className="insight__task" type="button" onClick={() => setTaskSource({ analysisId: ai.data!.analysisId!, itemId: item.id, title: item.title, text: item.text })}>Создать задачу</button>}</div>
+                  <div className="insight__body"><strong>{item.title}</strong><p>{item.text}</p><EvidenceChips evidenceIds={item.evidenceIds} evidence={ai.data?.evidence ?? {}} /></div>
                 </article>
               ))}
             </div>}
@@ -176,18 +176,16 @@ export function OverviewPage() {
         <ChartCard
           title="Последние 90 дней"
           subtitle="Дневные медианы, сглаженный тренд и линия плана · необычные замеры скрыты"
-          option={weightChartOption(preview.data.points.filter((point) => !point.isOutlier), false, preview.data.projection, preview.data.planProjection)}
+          option={weightChartOption(preview.data.points.filter((point) => !point.isOutlier), false, preview.data.projection, preview.data.planProjection, true)}
           ariaLabel="График веса за последние 90 дней"
           height={330}
-          aside={<Link className="text-link" to="/history">Вся история <Icon name="arrow" /></Link>}
+          aside={<Link className="text-link" to="/progress#history">Вся история <Icon name="arrow" /></Link>}
           footer={<WeightTable points={preview.data.points} />}
         />
       ) : preview.loading ? <LoadingState compact /> : preview.error ? (
         <ErrorState message={preview.error.message} onRetry={preview.reload} />
       ) : null}
-      {preview.data && <WeightCandlestickChart points={preview.data.raw} asOf={overview.data.generatedAt ?? new Date().toISOString()} />}
-      <div className="sr-status" aria-live="polite">{taskNotice}</div>
-      {taskSource && <TaskDialog initial={{ title: taskSource.title, note: taskSource.text }} source={taskSource} onSubmit={async (input) => { await api.createTask(input); setTaskNotice("Задача создана и доступна в разделе «Задачи»."); }} onClose={() => setTaskSource(null)} />}
+      {profile.data && <Suspense fallback={<LoadingState compact />}><BodyModel latestKg={weight.latestKg} latestAt={weight.latestAt} heightCm={profile.data.height_cm} startKg={plan.startWeightKg} targetKg={plan.targetWeightKg} /></Suspense>}
     </>
   );
 }

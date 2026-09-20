@@ -10,9 +10,7 @@ import { ThemeSwitcher } from "./ThemeSwitcher";
 const navItems: Array<{ to: string; label: string; icon: IconName; end?: boolean }> = [
   { to: "/", label: "Обзор", icon: "overview", end: true },
   { to: "/progress", label: "Прогресс", icon: "progress" },
-  { to: "/history", label: "Вся история", icon: "history" },
   { to: "/data-quality", label: "Качество данных", icon: "overview" },
-  { to: "/tasks", label: "Задачи", icon: "calendar" },
   { to: "/pressure", label: "Давление", icon: "pressure" },
   { to: "/composition", label: "Состав тела", icon: "composition" },
   { to: "/circumference", label: "Обхваты", icon: "activity" },

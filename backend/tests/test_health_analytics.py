@@ -263,3 +263,21 @@ def test_correlation_requires_eight_complete_overlapping_weeks():
         )
         is None
     )
+
+
+def test_recovery_latest_sleep_is_not_erased_by_newer_heart_record():
+    from app.health_analytics import _recovery_summary
+    daily = [
+        {"date": "2026-09-18", "sleep_minutes": 420, "_present": {"sleep"}},
+        {"date": "2026-09-19", "sleep_minutes": 0, "_present": {"sleep"}},
+        {"date": "2026-09-20", "average_heart_rate_bpm": 68, "minimum_heart_rate_bpm": 50, "maximum_heart_rate_bpm": 91, "_present": {"heart_rate"}},
+    ]
+    summary = _recovery_summary(daily, None)
+    assert summary["sleep_minutes"] == 0
+    assert summary["sleep_date"] == "2026-09-19"
+    assert summary["average_heart_rate_bpm"] == 68
+    assert summary["heart_rate_date"] == "2026-09-20"
+    assert summary["resting_heart_rate_bpm"] is None
+    assert summary["resting_heart_rate_date"] is None
+    empty = _recovery_summary([], None)
+    assert empty["sleep_date"] is None and empty["sleep_minutes"] is None

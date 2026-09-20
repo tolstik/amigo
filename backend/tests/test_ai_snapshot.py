@@ -215,7 +215,7 @@ def test_routine_series_use_moscow_calendar_window_without_changing_facts(monkey
     full = build_analysis_snapshot(None, ZoneInfo("Europe/Moscow"), current)
     recent = build_analysis_snapshot(None, ZoneInfo("Europe/Moscow"), current,
                                      routine_context=True)
-    assert recent.facts == full.facts
+    assert [item for item in recent.facts if not (item.scope == "sleep" and item.key.endswith("7d"))] == full.facts
     assert recent.source_through == full.source_through
     assert len(full.series[0].points) > 28
     assert recent.series[0].key == "sleep.duration28d"
@@ -285,7 +285,7 @@ def test_routine_labs_keep_latest_distinct_results_and_full_freshness(db, monkey
     assert key("ancient-attention") not in selected
     assert not selected[key("recent-attention")].verified
     assert selected[key("recent-attention")].reference_high == 2
-    assert recent.facts == full.facts
+    assert [item for item in recent.facts if not (item.scope == "sleep" and item.key.endswith("7d"))] == full.facts
     assert recent.source_through == full.source_through == NOW - timedelta(hours=1)
     assert "must-not-leak.pdf" not in recent.model_dump_json()
     assert db.query(LabResult).count() == 33
@@ -312,3 +312,27 @@ def test_routine_laboratory_selection_does_not_merge_specimens_methods_or_units(
         ))
     selected = _routine_laboratory_rows(rows)
     assert {row.id for row in selected} == {"0", "1", "2", "3"}
+
+
+def test_weekly_sleep_uses_calendar_window_missing_days_and_last_sleep(monkeypatch):
+    from datetime import timedelta
+    _stub_snapshot_sources(monkeypatch)
+    today = NOW.astimezone(ZoneInfo("Europe/Moscow")).date()
+    rows = [
+        {"date": (today - timedelta(days=7)).isoformat(), "sleep_minutes": 900},
+        {"date": (today - timedelta(days=6)).isoformat(), "sleep_minutes": 360},
+        {"date": (today - timedelta(days=1)).isoformat(), "sleep_minutes": 480},
+        {"date": today.isoformat(), "average_heart_rate_bpm": 65},
+    ]
+    monkeypatch.setattr("app.ai_snapshot.recovery_series", lambda *_args: {"daily": rows})
+    snapshot = build_analysis_snapshot(None, ZoneInfo("Europe/Moscow"), NOW, routine_context=True)
+    facts = {item.key: item for item in snapshot.facts}
+    assert facts["sleep.duration_latest"].value == 480
+    assert facts["sleep.duration_latest"].observed_on == today - timedelta(days=1)
+    assert facts["sleep.coverage7d"].value == 2
+    assert facts["sleep.coverage7d"].observed_on == today
+    assert facts["sleep.average7d"].value == 420
+    assert facts["sleep.variability7d"].value == 60
+    series = next(item for item in snapshot.series if item.key == "sleep.duration7d")
+    assert [point.value for point in series.points] == [360, 480]
+    assert series.unit == "minutes"

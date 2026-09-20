@@ -256,6 +256,19 @@ Goal and output:
   "keep going", "watch your health", or "be more active".
 - Cover the most relevant of nutrition, movement, sleep/recovery, measurement technique, and
   clinician follow-up. Do not force a category when its evidence is absent.
+- When sleep.duration7d exists, include a separate scope "sleep" observation assessing the last
+  seven Moscow calendar days (ending on sleep.coverage7d.observed_on), and a scope "sleep"
+  recommendation with a concrete action and review period. Both MUST cite sleep.duration7d AND
+  sleep.coverage7d. These items are also displayed independently on the Recovery page, so make
+  them self-contained. State how many of the seven days have sleep records; missing days are
+  unknown, never zero sleep. Use the supplied average/minimum/maximum/variability facts to
+  explain whether duration and consistency supported recovery. Cite any such facts you use.
+  With sparse coverage, explicitly limit the assessment to recorded days. Duration alone cannot
+  establish subjective sleep quality or its cause; never invent sleep stages, awakenings,
+  sleep timing, symptoms, or a score. You may compare duration with the general adult 7-9 hour
+  reference as context, not a personal prescription. Keep snapshot sleep values in minutes;
+  express durations in Russian hours/minutes in the text. Do not replace this assessment with
+  generic "collecting metrics" text when recorded sleep is available.
 - Use profile.height_cm and the supplied weight.bmi_latest only as numeric context when present.
   Never recalculate or classify BMI, attach a diagnostic label such as obesity, or invent missing
   age, sex, diagnoses, symptoms, risks, or medical history.

@@ -46,11 +46,6 @@ import type {
   DoctorReportStudyItem,
   EvidenceDescriptor,
   EvidenceMap,
-  HealthTask,
-  HealthTaskInput,
-  HealthTaskList,
-  HealthTaskPatch,
-  HealthTaskSource,
   LabAnalyteGuide,
   LabDocument,
   LabResult,
@@ -59,9 +54,6 @@ import type {
   UserProfile,
   StudyDocument,
   StudyModality,
-  TaskRecurrence,
-  TaskStateFilter,
-  TaskStatus,
 } from "./types";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -636,6 +628,11 @@ export function normalizeRecoverySeries(payload: unknown, range: Period): Recove
     points,
     heartRateHourly,
     summary: {
+      sleepDate: string(summary, "sleep_date", "sleepDate") ?? [...points].reverse().find((point) => point.sleepMinutes !== null)?.measuredAt ?? null,
+      heartRateDate: string(summary, "heart_rate_date", "heartRateDate"),
+      restingHeartRateDate: string(summary, "resting_heart_rate_date", "restingHeartRateDate"),
+      hrvDate: string(summary, "hrv_date", "hrvDate"),
+      spo2Date: string(summary, "spo2_date", "spo2Date"),
       latestDate: string(summary, "latest_date", "latestDate") ?? latest?.measuredAt ?? null,
       sleepMinutes: number(summary, "sleep_minutes", "sleepMinutes") ?? latest?.sleepMinutes ?? null,
       baselineSleepMinutes: number(summary, "baseline_sleep_minutes", "baselineSleepMinutes"),
@@ -662,6 +659,7 @@ function normalizeAiItem(value: unknown, index: number, prefix: string): AiNarra
     id: string(value, "id") ?? `${prefix}-${index + 1}`,
     title: string(value, "title") ?? (prefix === "recommendation" ? "Рекомендация" : "Наблюдение"),
     text: textValue,
+    scope: string(value, "scope") ?? undefined,
     evidenceIds: list(value, "evidence_ids", "evidenceIds", "evidence_keys").filter((item): item is string => typeof item === "string"),
   };
 }
@@ -822,56 +820,6 @@ export function normalizeDataQuality(payload: unknown, fallbackRange: DataQualit
     generatedAt: string(body, "generated_at", "generatedAt"),
     sources,
     metrics: list(body, "metrics").map(normalizedDataMetric).filter((value): value is DataQualityMetric => value !== null),
-  };
-}
-
-function normalizedTaskStatus(value: string | null): TaskStatus {
-  return value && ["active", "completed", "cancelled"].includes(value) ? value as TaskStatus : "active";
-}
-
-function normalizedRecurrence(value: string | null): TaskRecurrence {
-  return value && ["once", "daily", "weekly", "monthly"].includes(value) ? value as TaskRecurrence : "once";
-}
-
-function normalizeTaskSource(value: unknown): HealthTaskSource | null {
-  if (!isRecord(value)) return null;
-  const textValue = string(value, "text");
-  if (!textValue) return null;
-  return {
-    kind: string(value, "kind") ?? "ai_recommendation",
-    title: string(value, "title") ?? "Рекомендация",
-    text: textValue,
-    evidenceIds: list(value, "evidence_ids", "evidenceIds").filter((item): item is string => typeof item === "string"),
-    generatedAt: string(value, "generated_at", "generatedAt"),
-  };
-}
-
-export function normalizeHealthTask(payload: unknown): HealthTask {
-  const body = unbox(payload);
-  return {
-    id: string(body, "id") ?? "",
-    title: string(body, "title") ?? "Задача",
-    note: string(body, "note"),
-    nextDueAt: string(body, "next_due_at", "nextDueAt"),
-    recurrence: normalizedRecurrence(string(body, "recurrence")),
-    telegramEnabled: boolean(body, "telegram_enabled", "telegramEnabled"),
-    status: normalizedTaskStatus(string(body, "status")),
-    overdue: boolean(body, "overdue"),
-    sourceAnalysisId: number(body, "source_analysis_id", "sourceAnalysisId"),
-    sourceItemId: string(body, "source_item_id", "sourceItemId"),
-    source: normalizeTaskSource(at(body, "source")),
-    createdAt: string(body, "created_at", "createdAt") ?? "",
-    updatedAt: string(body, "updated_at", "updatedAt") ?? "",
-    completedAt: string(body, "completed_at", "completedAt"),
-    cancelledAt: string(body, "cancelled_at", "cancelledAt"),
-  };
-}
-
-export function normalizeHealthTaskList(payload: unknown): HealthTaskList {
-  const body = unbox(payload);
-  return {
-    items: list(body, "items").map(normalizeHealthTask).filter((item) => Boolean(item.id)),
-    openCount: number(body, "open_count", "openCount") ?? 0,
   };
 }
 
@@ -1184,15 +1132,7 @@ export const api = {
   labSummary: async (signal?: AbortSignal) => fetchJson("/labs/summary", signal) as Promise<{ items: LabResult[]; counts: Record<string, number> }>,
   labHistory: async (analyteId: string, signal?: AbortSignal) =>
     fetchJson(`/labs/analytes/${encodeURIComponent(analyteId)}/history`, signal) as Promise<{ analyte_id: string; guide: LabAnalyteGuide; items: LabResult[] }>,
-  tasks: async (state: TaskStateFilter, signal?: AbortSignal) =>
-    normalizeHealthTaskList(await fetchJson(`/tasks?${new URLSearchParams({ state }).toString()}`, signal)),
-  createTask: async (task: HealthTaskInput) => normalizeHealthTask(await requestJson("/tasks", jsonBody(task))),
-  updateTask: async (id: string, patch: HealthTaskPatch) =>
-    normalizeHealthTask(await requestJson(`/tasks/${encodeURIComponent(id)}`, { ...jsonBody(patch), method: "PATCH" })),
-  completeTask: async (id: string) =>
-    normalizeHealthTask(await requestJson(`/tasks/${encodeURIComponent(id)}/complete`, { method: "POST" })),
-  cancelTask: async (id: string) =>
-    normalizeHealthTask(await requestJson(`/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" })),
+
   createDoctorReport: async (period: DoctorReportPeriod, sections: DoctorReportSection[]) =>
     normalizeDoctorReport(await requestJson("/reports/doctor", jsonBody({ period, sections }))),
   doctorReport: async (id: string, signal?: AbortSignal) =>

@@ -132,6 +132,7 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
         with client_for(db) as client:
             for path in (
                 "/api/v1/overview",
+                "/api/v1/profile/body-face",
                 "/api/v1/series/swimming?range=90d",
                 "/api/v1/series/circumference?range=30d",
                 "/api/v1/export/weight.csv?range=all",
@@ -141,7 +142,6 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
                 "/api/v1/app-update",
                 "/api/v1/assistant/messages",
                 "/api/v1/data-quality",
-                "/api/v1/tasks",
                 "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000",
                 "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000.pdf",
                 "/api/v1/reports/doctor/00000000-0000-4000-8000-000000000000.html",
@@ -153,23 +153,6 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
             ).status_code == 401
             assert client.post("/api/v1/labs/uploads").status_code == 401
             assert client.post("/api/v1/studies/uploads").status_code == 401
-            assert client.post(
-                "/api/v1/tasks",
-                json={
-                    "title": "Проверка",
-                    "next_due_at": "2030-01-01T09:00:00+03:00",
-                },
-            ).status_code == 401
-            assert client.patch(
-                "/api/v1/tasks/00000000-0000-4000-8000-000000000000",
-                json={"title": "Проверка"},
-            ).status_code == 401
-            assert client.post(
-                "/api/v1/tasks/00000000-0000-4000-8000-000000000000/complete"
-            ).status_code == 401
-            assert client.post(
-                "/api/v1/tasks/00000000-0000-4000-8000-000000000000/cancel"
-            ).status_code == 401
             assert client.post(
                 "/api/v1/reports/doctor",
                 json={"period": "30d", "sections": ["summary"]},
@@ -189,29 +172,6 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
 def test_new_mutations_require_exact_origin_and_csrf(db):
     set_password(db, "amigo", "correct horse battery staple")
     requests = (
-        (
-            "post",
-            "/api/v1/tasks",
-            {
-                "title": "Проверка",
-                "next_due_at": "2030-01-01T09:00:00+03:00",
-            },
-        ),
-        (
-            "patch",
-            "/api/v1/tasks/00000000-0000-4000-8000-000000000000",
-            {"title": "Проверка"},
-        ),
-        (
-            "post",
-            "/api/v1/tasks/00000000-0000-4000-8000-000000000000/complete",
-            {},
-        ),
-        (
-            "post",
-            "/api/v1/tasks/00000000-0000-4000-8000-000000000000/cancel",
-            {},
-        ),
         (
             "post",
             "/api/v1/reports/doctor",

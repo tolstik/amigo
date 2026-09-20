@@ -378,9 +378,9 @@ import json
 import urllib.request
 with urllib.request.urlopen("http://127.0.0.1:8090/healthz", timeout=3) as response:
     payload = json.load(response)
-if payload != {"status": "ok", "model": "gpt-5.6-sol", "prompt_version": "amigo-health-v4"}:
+if payload != {"status": "ok", "model": "gpt-5.6-sol", "prompt_version": "amigo-health-v5"}:
     raise SystemExit(1)
-' || amigo_die "AI gateway health does not report the fixed model and v4 contract"
+' || amigo_die "AI gateway health does not report the fixed model and v5 contract"
 docker exec "${parser_container}" python -c '
 import json
 import urllib.request
@@ -660,6 +660,7 @@ amigo_log "PASS hashed frontend assets retain immutable caching"
 for protected_path in \
     api/v1/auth/session \
     api/v1/overview \
+    api/v1/profile/body-face \
     api/v1/series/swimming \
     'api/v1/data-quality?range=30d' \
     api/v1/export/weight.csv \
@@ -667,7 +668,6 @@ for protected_path in \
     api/v1/series/circumference?range=30d \
     api/v1/labs/documents \
     api/v1/studies/documents \
-    'api/v1/tasks?state=open' \
     api/v1/reports/doctor/00000000-0000-0000-0000-000000000000 \
     api/v1/reports/doctor/00000000-0000-0000-0000-000000000000.pdf \
     api/v1/reports/doctor/00000000-0000-0000-0000-000000000000.html \
@@ -684,7 +684,6 @@ readonly LAB_RESULT_CREATE_PATH="api/v1/labs/documents/00000000-0000-0000-0000-0
 [[ "$(public_status 'api/v1/studies/uploads' POST)" == "401" ]] \
     || amigo_die "unauthenticated study upload route did not return 401"
 for protected_post_path in \
-    api/v1/tasks \
     api/v1/reports/doctor; do
     [[ "$(public_status "${protected_post_path}" POST)" == "401" ]] \
         || amigo_die "unauthenticated protected POST route did not return 401: ${protected_post_path}"
@@ -702,7 +701,13 @@ for removed_method in GET POST; do
     [[ "$(public_status 'api/v1/labs/compare' "${removed_method}")" == "404" ]] \
         || amigo_die "removed laboratory comparison route did not return 404"
 done
-amigo_log "PASS dashboard JSON, CSV, quality, swimming, tasks, doctor reports, updater, and assistant require authentication; removed comparison returns 404"
+for removed_method in GET POST PATCH DELETE; do
+    for removed_path in api/v1/tasks api/v1/tasks/00000000-0000-0000-0000-000000000000; do
+        [[ "$(public_status "${removed_path}" "${removed_method}")" == "404" ]] \
+            || amigo_die "removed task route did not return 404"
+    done
+done
+amigo_log "PASS dashboard JSON, CSV, quality, swimming, doctor reports, updater, and assistant require authentication; removed comparison returns 404"
 
 amigo_compose run --rm --no-deps --user 0 \
     --volume "${VERIFICATION_DIR}:/verification" \
@@ -858,6 +863,16 @@ elif contract in {"activity", "recovery"}:
     if not isinstance(payload.get("daily"), list) or not isinstance(payload.get("weekly"), list):
         raise SystemExit(f"{contract} contract is incomplete")
     if contract == "recovery":
+        summary = payload.get("summary")
+        if not isinstance(summary, dict):
+            raise SystemExit("recovery summary is missing")
+        for metric, date_key in (("sleep_minutes", "sleep_date"), ("average_heart_rate_bpm", "heart_rate_date"), ("resting_heart_rate_bpm", "resting_heart_rate_date"), ("hrv_rmssd_ms", "hrv_date"), ("spo2_pct", "spo2_date")):
+            value, measured_on = summary.get(metric), summary.get(date_key)
+            if date_key not in summary or (value is not None and not isinstance(measured_on, str)) or (value is None and measured_on is not None):
+                raise SystemExit("recovery metric has no independent measurement date")
+            matching = [row for row in payload["daily"] if isinstance(row, dict) and row.get("date") == measured_on]
+            if matching and matching[0].get(metric) != value:
+                raise SystemExit("recovery summary does not match its measured day")
         for row in payload["daily"]:
             if not isinstance(row, dict):
                 raise SystemExit("recovery daily row is not an object")
@@ -915,8 +930,8 @@ elif contract == "ai":
             raise SystemExit("AI without a validated result exposes analysis content")
         print("PASS AI API reports no ready analysis; background generation does not gate deployment")
         raise SystemExit(0)
-    if payload.get("prompt_version") != "amigo-health-v4":
-        raise SystemExit("AI payload does not use amigo-health-v4")
+    if payload.get("prompt_version") != "amigo-health-v5":
+        raise SystemExit("AI payload does not use amigo-health-v5")
     if payload.get("model") != "gpt-5.6-sol":
         raise SystemExit("AI payload does not use gpt-5.6-sol")
     recommendations = payload.get("recommendations")
@@ -941,7 +956,7 @@ elif contract == "ai":
             or not isinstance(descriptor.get("target"), dict)
         ):
             raise SystemExit("AI evidence descriptor contract is incomplete")
-elif contract in {"documents", "lab-summary", "analytes", "assistant", "tasks"}:
+elif contract in {"documents", "lab-summary", "analytes", "assistant"}:
     if not isinstance(payload.get("items"), list):
         raise SystemExit(f"{contract} items contract is incomplete")
     if contract == "lab-summary" and not isinstance(payload.get("counts"), dict):
@@ -971,7 +986,7 @@ elif contract in {"documents", "lab-summary", "analytes", "assistant", "tasks"}:
             or not isinstance(evidence, dict)
             or not evidence
         ):
-            raise SystemExit("assistant recommendation evidence/task source is incomplete")
+            raise SystemExit("assistant recommendation evidence source is incomplete")
         for index, item in enumerate(recommendations, 1):
             keys = item.get("evidence_ids") if isinstance(item, dict) else None
             if (
@@ -982,8 +997,6 @@ elif contract in {"documents", "lab-summary", "analytes", "assistant", "tasks"}:
                 or any(key not in evidence for key in keys)
             ):
                 raise SystemExit("assistant recommendation cannot resolve its stable evidence")
-    if contract == "tasks" and not isinstance(payload.get("open_count"), int):
-        raise SystemExit("task list count is missing")
 elif contract == "analyte-guide":
     guide = payload.get("guide")
     if not isinstance(guide, dict) or not all(
@@ -1021,8 +1034,33 @@ check_authenticated_json_api "api/v1/labs/summary" lab-summary
 check_authenticated_json_api "api/v1/labs/analytes" analytes
 check_authenticated_json_api "api/v1/labs/analytes/leukocytes/history" analyte-guide
 check_authenticated_json_api "api/v1/assistant/messages" assistant
-check_authenticated_json_api "api/v1/tasks?state=open" tasks
 check_authenticated_json_api "api/v1/app-update" update
+
+BODY_FACE_EXPECTED="$(amigo_compose exec -T web python -c '
+from sqlalchemy import select
+from app.auth_models import UserBodyFace
+from app.db import SessionLocal
+with SessionLocal() as db:
+    print("200" if db.scalar(select(UserBodyFace.id).where(UserBodyFace.id == 1)) else "404")
+')"
+BODY_FACE_STATUS="$(curl --config "${AUTH_CURL_CONFIG}" \
+    --dump-header "${API_HEADERS}" --output "${API_BODY}" --write-out '%{http_code}' \
+    "${AMIGO_PUBLIC_URL}api/v1/profile/body-face")"
+[[ "${BODY_FACE_STATUS}" == "${BODY_FACE_EXPECTED}" ]] \
+    || amigo_die "private body texture status differs from database presence"
+require_header '^cache-control:.*no-store' "${API_HEADERS}"
+if [[ "${BODY_FACE_STATUS}" == "200" ]]; then
+    require_header '^content-type:[[:space:]]*image/png' "${API_HEADERS}"
+    python3 - "${API_BODY}" <<'PYFACE'
+from pathlib import Path
+import sys
+content = Path(sys.argv[1]).read_bytes()
+if not content.startswith(b"\x89PNG\r\n\x1a\n") or len(content) > 512 * 1024:
+    raise SystemExit("private body texture is not a bounded PNG")
+PYFACE
+fi
+rm -f -- "${API_BODY}"
+amigo_log "PASS optional body face is authenticated, no-store and bounded; no image data logged"
 
 amigo_compose exec -T web python -c '
 from datetime import datetime, timedelta
@@ -1064,7 +1102,7 @@ curl --config "${AUTH_CURL_CONFIG}" \
     "${AMIGO_PUBLIC_URL}api/v1/export/weight.csv"
 [[ -s "${CSV_BODY}" ]] || amigo_die "authenticated CSV export is empty"
 require_header '^content-type:[[:space:]]*text/csv' "${CSV_HEADERS}"
-amigo_log "PASS authenticated dashboard, data quality, tasks, lab/study, analyte guide, updater, AI availability and published evidence, and CSV contracts"
+amigo_log "PASS authenticated dashboard, data quality, lab/study, analyte guide, updater, AI availability and published evidence, and CSV contracts"
 
 install -o root -g root -m 0600 /dev/null "${UNSUPPORTED_FILE}"
 CSRF_REJECTION_STATUS="$(
@@ -1103,7 +1141,6 @@ LAB_CREATE_ROUTE_STATUS="$(
     || amigo_die "manual laboratory result allowlist returned ${LAB_CREATE_ROUTE_STATUS}, expected safe 404"
 
 for csrf_case in \
-    'api/v1/tasks|{"title":"verification","next_due_at":"2099-01-01T09:00:00+03:00"}' \
     'api/v1/reports/doctor|{"period":"30d","sections":["summary"]}'; do
     csrf_path=${csrf_case%%|*}
     csrf_payload=${csrf_case#*|}
@@ -1120,7 +1157,7 @@ for csrf_case in \
         || amigo_die "authenticated mutation without CSRF returned ${csrf_status}: ${csrf_path}"
 done
 
-TASK_CREATE_VALIDATION_STATUS="$(
+TASK_REMOVED_STATUS="$(
     curl --config "${AUTH_CURL_CONFIG}" \
         --request POST \
         --header 'Content-Type: application/json' \
@@ -1129,8 +1166,8 @@ TASK_CREATE_VALIDATION_STATUS="$(
         --write-out '%{http_code}' \
         "${AMIGO_PUBLIC_URL}api/v1/tasks"
 )"
-[[ "${TASK_CREATE_VALIDATION_STATUS}" == "422" ]] \
-    || amigo_die "task validation route returned ${TASK_CREATE_VALIDATION_STATUS}, expected safe 422"
+[[ "${TASK_REMOVED_STATUS}" == "404" ]] \
+    || amigo_die "removed task route returned ${TASK_REMOVED_STATUS}, expected 404"
 TASK_PATCH_ROUTE_STATUS="$(
     curl --config "${AUTH_CURL_CONFIG}" \
         --request PATCH \

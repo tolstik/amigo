@@ -42,8 +42,8 @@
   that exactly match the candidate's versioned maintenance snippet and HTTP
   configuration.
 - Managed regex routes for laboratory documents/results, assistant turns,
-  tasks, and doctor reports use named captures with explicit upstream URIs.
-  New task/report captures accept canonical lowercase UUIDs; never reintroduce
+  and doctor reports use named captures with explicit upstream URIs.
+  New report captures accept canonical lowercase UUIDs; never reintroduce
   the generic `rewrite ^/amigo/(.*)$` form because nginx can clobber its numeric
   capture.
 - Assistant SSE sends `X-Accel-Buffering: no` through the origin nginx. The
@@ -55,7 +55,7 @@
 - Doctor-report routes use the dedicated `amigo_report` zone at `60r/m`:
   creation has `burst=5`, while metadata/PDF/delete access has `burst=10`.
   Never merge them into generic read or mutation buckets because dashboard,
-  labs, tasks, and CSRF probes must not exhaust a report lifecycle.
+  labs and CSRF probes must not exhaust a report lifecycle.
 - A responding but unhealthy legacy origin may be bypassed only with takeover's
   explicit `--allow-unhealthy-legacy-origin` flag. In that mode failure reversal
   must never treat legacy as healthy, enable its Withings cron, or stop a
@@ -136,7 +136,7 @@
   The weekly weight chart shows the latest daily median, plan on the reporting
   date, plan at the full week end, and minimum. Legacy mean fields and existing
   immutable snapshots retain their meaning; charts no longer subtract averages.
-- The overview weight-candle chart selects data from the latest 90 Moscow
+- The progress weight-candle chart selects data from the latest 90 Moscow
   calendar days, including today, and automatically fits the date axis to the
   first and last remaining measured days, with no empty leading/trailing days.
   Each candle body spans the last weight of the
@@ -295,7 +295,7 @@
   The analysis fixture must exercise a routine-sized manufactured context with
   laboratory deviations and medical evidence, and validate citations and bounded
   recommendations. Automated contract tests retain their deterministic fixtures.
-- AI prompt contract `amigo-health-v4` requires concrete actions, a cadence or
+- AI prompt contract `amigo-health-v5` requires concrete actions, a cadence or
   review period, and cited metric evidence; recommendations are shown before
   general observations in Telegram and on the overview dashboard. When any
   pressure, heart, SpO2, or VO2 evidence exists, validated output must contain
@@ -345,10 +345,10 @@
   exposes only aggregate source/metric states (`available`, `confirmed_empty`,
   `missing`, or partial summary), never device/account identity or provider
   payloads. Laboratory panel comparison has been removed; the archive and individual analyte history remain available.
-- Health tasks use `once`, `daily`, `weekly`, or calendar-month recurrence.
-  A task created from AI freezes the selected recommendation and evidence IDs;
-  reminder delivery is unique per task/occurrence/channel. Telegram receives
-  only title, Moscow due time, and dashboard link, never task notes or evidence.
+- Task functionality is retired: no navigation, task creation from AI, task API,
+  or reminder scheduling. Exact and nested task API routes return 404 for all
+  methods. Previously queued reminders drain silently; their historical tables
+  and migrations remain untouched for previous-release rollback.
 - Doctor-report snapshots are immutable, authenticated, and retained for 24
   hours unless deleted earlier. Locally rendered PDFs are capped at 40 pages
   and 10 MiB and may include only selected deterministic aggregates,
@@ -395,6 +395,33 @@
   traversable by non-root services. Release preparation uses a restrictive
   `umask`, so build-context file modes must never be trusted for container
   runtime access.
+
+## Progress, body model and recovery
+
+- Progress contains separate daily actual-minus-plan and BMI charts, the 90-day
+  candle chart and the full weight history. BMI uses measured daily medians and
+  the configured height; missing days stay empty. The deviation excludes
+  outliers and compares actual and plan on exactly the same date. The history
+  navigation item is removed; old history links redirect to progress.
+- Overview's 90-day line chart marks month boundaries at Moscow midnight.
+  Its animated 3D mannequin is a labelled illustration from weight and height,
+  not a prediction of appearance. Scenario weights never change measurements.
+  The optional face texture is stored only in the private `user_body_face` table,
+  served by authenticated `GET /api/v1/profile/body-face` with no-store, and
+  excluded from AI, reports, exports, Telegram, Git and application images.
+  An explicitly staged 0600 operator-owned `/home/tolstik/amigo-body-face.png`
+  may be imported during deployment after migrations, through a bounded
+  no-symlink reader and PNG-only pixel normalization. Remove staging after success.
+  Rotation pauses offscreen, in a hidden tab, or on request; reduced motion
+  starts paused. Rendering has no external network dependency.
+- Recovery summaries select each metric's latest available measurement with its
+  own date. A later heart-rate row must not erase available sleep.
+- Active AI contract `amigo-health-v5` adds a separate sleep observation and
+  recommendation when a seven-day sleep series exists. Both cite immutable
+  duration and coverage evidence. The window is seven Moscow dates ending today;
+  missing days are unknown. Mean, minimum, maximum and variability are deterministic
+  minutes. The fixed local gateway/model, background queue, bounded inference,
+  medical prohibitions and no-generated-fallback rule remain in force.
 
 ## Latest production checkpoint
 

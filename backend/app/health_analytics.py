@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 import math
@@ -44,6 +45,39 @@ def _range_start(range_name: HealthRange, today: date) -> date | None:
 
 def _utc_start(day: date, tz: ZoneInfo) -> datetime:
     return datetime.combine(day, time.min, tzinfo=tz).astimezone(timezone.utc)
+
+
+class _CoverageIndex:
+    """Find the winning overlapping snapshot without scanning every coverage."""
+
+    def __init__(self, coverages: Iterable[MiFitnessCoverage]) -> None:
+        ranked = sorted(
+            (
+                _aware(row.range_start),
+                (_aware(row.range_end), _aware(row.finalised_at), row.id),
+                row,
+            )
+            for row in coverages
+        )
+        self.starts: list[datetime] = []
+        self.winners: list[tuple[datetime, MiFitnessCoverage]] = []
+        best = None
+        for start, rank, row in ranked:
+            if best is None or rank > best[0]:
+                best = (rank, row)
+            self.starts.append(start)
+            self.winners.append((best[0][0], best[1]))
+
+    def winner(self, start: datetime, end: datetime) -> MiFitnessCoverage | None:
+        # Overlap is start < coverage.end and end >= coverage.start. Among
+        # coverages starting before the inclusive record end, the prefix maximum
+        # has the latest end (then finalisation and ID). If it already ends at or
+        # before the record start, no coverage in that prefix can overlap.
+        index = bisect_right(self.starts, _aware(end)) - 1
+        if index < 0:
+            return None
+        coverage_end, coverage = self.winners[index]
+        return coverage if _aware(start) < coverage_end else None
 
 
 def _records(
@@ -121,51 +155,28 @@ def _records(
         if row.account_fingerprint == source_by_device[row.device_id].account_fingerprint
     ]
 
-    def overlaps(
-        left_start: datetime,
-        left_end: datetime,
-        right_start: datetime,
-        right_end: datetime,
-    ) -> bool:
-        return _aware(left_start) < _aware(right_end) and _aware(left_end) >= _aware(right_start)
-
     by_type: dict[str, list[MiFitnessCoverage]] = defaultdict(list)
     for coverage in coverages:
         by_type[coverage.record_type].append(coverage)
+    indexes = {kind: _CoverageIndex(by_type[kind]) for kind in record_types}
 
     # A finalised cloud interval wins even when it is empty. This is the key
     # rollback-safe precedence rule: Health Connect rows are retained unchanged.
     health_connect = [
         row
         for row in health_connect
-        if not any(
-            overlaps(
-                row.start_time,
-                row.end_time or row.start_time,
-                coverage.range_start,
-                coverage.range_end,
-            )
-            for coverage in by_type[row.record_type]
-        )
+        if indexes[row.record_type].winner(row.start_time, row.end_time or row.start_time) is None
     ]
 
     cloud: list[MiFitnessRecord] = []
     for row in db.scalars(cloud_query):
         if row.account_fingerprint != source_by_device[row.device_id].account_fingerprint:
             continue
-        candidates = [
-            coverage
-            for coverage in by_type[row.record_type]
-            if overlaps(row.start_time, row.end_time, coverage.range_start, coverage.range_end)
-        ]
-        if not candidates:
+        winner = indexes[row.record_type].winner(row.start_time, row.end_time)
+        if winner is None:
             continue
         # An older monthly/history snapshot may finish after a newer recent
         # snapshot. Its delayed final page must not replace fresher coverage.
-        winner = max(
-            candidates,
-            key=lambda item: (_aware(item.range_end), _aware(item.finalised_at), item.id),
-        )
         if winner.snapshot_id == row.snapshot_id:
             cloud.append(row)
     combined: list[HealthConnectRecord | MiFitnessRecord] = [*health_connect, *cloud]

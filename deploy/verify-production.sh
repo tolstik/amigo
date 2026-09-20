@@ -397,7 +397,7 @@ with urllib.request.urlopen("http://lab-parser:8085/healthz", timeout=3) as resp
 if payload != {"status": "ok"}:
     raise SystemExit(1)
 ' || amigo_die "AI worker cannot reach the isolated laboratory parser"
-amigo_log "PASS fixed gpt-5.6-sol/v4 gateway and isolated parser health contracts"
+amigo_log "PASS fixed gpt-5.6-sol/v5 gateway and isolated parser health contracts"
 
 [[ -s "${AMIGO_LEGACY_WEIGHT_IMPORT}" && ! -L "${AMIGO_LEGACY_WEIGHT_IMPORT}" ]] \
     || amigo_die "root-only legacy weight import is missing"
@@ -755,6 +755,7 @@ PY
 check_authenticated_json_api() {
     local path=$1
     local contract=$2
+    amigo_log "checking authenticated API contract: ${contract}"
     curl --config "${AUTH_CURL_CONFIG}" \
         --dump-header "${API_HEADERS}" \
         --output "${API_BODY}" \

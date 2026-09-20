@@ -72,8 +72,8 @@ chat ID, Codex `auth.json` и значения из медицинских paylo
   payload и raw heart-rate samples.
 - Authenticated `/api/v1/data-quality` агрегирует 30/90 завершённых дней без
   device/account metadata и различает available, confirmed-empty и missing.
-  Tasks имеют once/daily/weekly/calendar-month recurrence и deduplicated
-  Telegram delivery; в Telegram уходят только title, due time и dashboard link.
+  Функциональность задач и напоминания удалены; прежние маршруты возвращают 404,
+  исторические таблицы сохранены для отката.
   Body-circumference records are keyed by local calendar date and keep waist and
   hip independently. Doctor-report snapshots live 24 hours and exclude
   filenames, originals, OCR, chat, identity and raw provider data. The primary

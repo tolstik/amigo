@@ -5,12 +5,50 @@ from decimal import Decimal
 
 from app.config import Settings
 from app.health_analytics import (
+    _CoverageIndex,
+    _aware,
     activity_series,
     full_week_correlation,
     recovery_series,
 )
 from app.health_models import HealthConnectDevice, HealthConnectRecord
 from app.mi_fitness_models import MiFitnessCoverage, MiFitnessRecord, MiFitnessSource
+
+
+def test_coverage_index_preserves_overlap_precedence_and_boundaries():
+    import random
+
+    randomizer = random.Random(9115)
+    epoch = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    coverages = []
+    for identifier in range(1, 301):
+        start = epoch + timedelta(hours=randomizer.randrange(100))
+        coverages.append(MiFitnessCoverage(
+            id=identifier,
+            range_start=start,
+            range_end=start + timedelta(hours=randomizer.randrange(1, 50)),
+            finalised_at=epoch + timedelta(hours=randomizer.randrange(200)),
+            snapshot_id=f"snapshot-{identifier}",
+        ))
+    randomizer.shuffle(coverages)
+    index = _CoverageIndex(coverages)
+    # Include exact endpoints, instantaneous records, crossing intervals, gaps,
+    # and naive UTC timestamps (SQLite) as well as aware production timestamps.
+    queries = [(row.range_end, row.range_end) for row in coverages]
+    queries += [(row.range_start, row.range_start) for row in coverages]
+    for _ in range(1_000):
+        start = epoch + timedelta(hours=randomizer.randrange(-50, 250))
+        end = start + timedelta(hours=randomizer.randrange(50))
+        queries.append((start.replace(tzinfo=None), end.replace(tzinfo=None)))
+    for start, end in queries:
+        expected = max(
+            (row for row in coverages
+             if _aware(start) < row.range_end and _aware(end) >= row.range_start),
+            key=lambda row: (row.range_end, row.finalised_at, row.id),
+            default=None,
+        )
+        assert index.winner(start, end) is expected
+    assert _CoverageIndex([]).winner(epoch, epoch) is None
 
 
 def add_device(db, data_as_of):

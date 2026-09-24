@@ -70,6 +70,10 @@ function periodNote(point: PeriodWeightPoint, monthly: boolean): string {
   return notes.join(" · ") || "—";
 }
 
+function displayedWeightChange(value: number | null): number | null {
+  return value === null ? null : -value;
+}
+
 export function WeeklyWeightTable({ points }: { points: WeeklyWeightPoint[] }) {
   return <WeightPeriodTable points={points} monthly={false} />;
 }
@@ -107,10 +111,10 @@ function WeightPeriodTable({ points, monthly }: { points: PeriodWeightPoint[]; m
               <td>{point.actualEndDate ? `${formatDate(point.actualStartDate)} — ${formatDate(point.actualEndDate)}` : "—"}</td>
               <td>{formatKg(point.actualStartKg, 2)}</td>
               <td>{formatKg(point.actualEndKg, 2)}</td>
-              <td>{formatDelta(point.actualChangeKg)}</td>
-              <td>{formatDelta(point.plannedObservedChangeKg)}</td>
-              <td>{formatDelta(point.plannedChangeKg)} · {formatDate(point.endDate)}</td>
-              <td>{formatDelta(point.plannedFullChangeKg)}</td>
+              <td>{formatDelta(displayedWeightChange(point.actualChangeKg))}</td>
+              <td>{formatDelta(displayedWeightChange(point.plannedObservedChangeKg))}</td>
+              <td>{formatDelta(displayedWeightChange(point.plannedChangeKg))} · {formatDate(point.endDate)}</td>
+              <td>{formatDelta(displayedWeightChange(point.plannedFullChangeKg))}</td>
               <td>{formatKg(point.plannedToDateKg)}</td>
               <td>{formatKg(point.plannedEndKg)}</td>
               <td>{point.measurementDays} / {point.sampleCount}</td>

@@ -61,6 +61,57 @@ export function swimmingChartOption(points: SwimmingPoint[], metric: "distance_m
   };
 }
 
+export function swimmingIntensityChartOption(points: SwimmingPoint[]): EChartsOption {
+  const tooltip = (params: any): string => {
+    const entries = Array.isArray(params) ? params : [params];
+    const title = entries[0]?.axisValue ? formatDateTime(String(entries[0].axisValue), true) : "";
+    const rows = entries
+      .filter((entry: any) => {
+        const value = Array.isArray(entry.value) ? entry.value.at(-1) : entry.value;
+        return typeof value === "number" && Number.isFinite(value);
+      })
+      .map((entry: any) => {
+        const value = Array.isArray(entry.value) ? entry.value.at(-1) : entry.value;
+        const unit = entry.seriesName === "Средний пульс" ? "уд/мин" : "ккал";
+        return `<div class="chart-tooltip-row"><span>${entry.marker}${entry.seriesName}</span><b>${formatNumber(Number(value), 0)} ${unit}</b></div>`;
+      })
+      .join("");
+    return `<div class="chart-tooltip"><strong>${title}</strong>${rows}</div>`;
+  };
+  return {
+    grid: { ...sharedGrid, top: 54, bottom: 65 },
+    legend: { top: 6, left: 0, textStyle: { color: colors.muted }, itemWidth: 18, itemHeight: 8 },
+    tooltip: { trigger: "axis", confine: true, formatter: tooltip },
+    xAxis: { ...sharedAxis, type: "category", data: points.map((point) => point.start_time) },
+    yAxis: [
+      { ...sharedAxis, type: "value", name: "ккал", min: 0, nameTextStyle: { color: colors.muted } },
+      { ...sharedAxis, type: "value", name: "уд/мин", min: 0, nameTextStyle: { color: colors.muted }, splitLine: { show: false } },
+    ],
+    dataZoom: [{ type: "inside" }, { type: "slider", height: 20, bottom: 8 }],
+    series: [
+      {
+        type: "bar",
+        name: "Активные калории",
+        yAxisIndex: 0,
+        barMaxWidth: 38,
+        itemStyle: { color: colors.coral, borderRadius: [5, 5, 0, 0] },
+        data: points.map((point) => point.kilocalories),
+      },
+      {
+        type: "line",
+        name: "Средний пульс",
+        yAxisIndex: 1,
+        connectNulls: false,
+        showSymbol: true,
+        symbolSize: 7,
+        lineStyle: { width: 2.5, color: colors.blue },
+        itemStyle: { color: colors.blue, borderColor: "#fff", borderWidth: 1 },
+        data: points.map((point) => point.average_bpm),
+      },
+    ],
+  };
+}
+
 function tooltipDate(value: unknown): string {
   if (typeof value !== "string" && typeof value !== "number") return "";
   return formatShortDate(new Date(value).toISOString());
@@ -171,6 +222,7 @@ function periodTooltipFormatter(
     value: (point: PeriodWeightPoint) => number | null;
   },
   period: "week" | "month" = "week",
+  changeValue: (value: number | null) => number | null = (value) => value,
 ) {
   const byStartDate = new Map(points.map((point) => [point.startDate, point]));
   return (params: any): string => {
@@ -198,7 +250,7 @@ function periodTooltipFormatter(
     const partial = point.isPartial ? (period === "month" ? " · неполный месяц" : " · неполная неделя") : "";
     const bounds = `<div class="chart-tooltip-row"><span>План на дату</span><b>${formatDate(point.endDate)}</b></div>`;
     const observed = point.actualEndDate
-      ? `<div class="chart-tooltip-row"><span>Даты факта</span><b>${formatDate(point.actualStartDate)} — ${formatDate(point.actualEndDate)}</b></div><div class="chart-tooltip-row"><span>Вес для сравнения</span><b>${formatKg(point.actualStartKg, 2)} → ${formatKg(point.actualEndKg, 2)}</b></div><div class="chart-tooltip-row"><span>План за даты факта</span><b>${formatDelta(point.plannedObservedChangeKg)}</b></div>`
+      ? `<div class="chart-tooltip-row"><span>Даты факта</span><b>${formatDate(point.actualStartDate)} — ${formatDate(point.actualEndDate)}</b></div><div class="chart-tooltip-row"><span>Вес для сравнения</span><b>${formatKg(point.actualStartKg, 2)} → ${formatKg(point.actualEndKg, 2)}</b></div><div class="chart-tooltip-row"><span>План за даты факта</span><b>${formatDelta(changeValue(point.plannedObservedChangeKg))}</b></div>`
       : "<div>Нет замеров</div>";
     return `<div class="chart-tooltip"><strong>${formatDate(point.startDate)} — ${formatDate(point.periodEndDate)}${partial}</strong>${rows}${bounds}${observed}${comparisonRow}${coverage}${outliers}</div>`;
   };
@@ -309,15 +361,16 @@ export function monthlyChangeChartOption(points: MonthlyWeightPoint[]): EChartsO
 
 function weightChangeChartOption(points: PeriodWeightPoint[], period: "week" | "month"): EChartsOption {
   const longHistory = points.length > 12;
-  const fact = weeklyBar("Факт", points.map((point) => point.actualChangeKg), colors.green);
+  const displayChange = (value: number | null): number | null => value === null ? null : -value;
+  const fact = weeklyBar("Факт: снижение", points.map((point) => displayChange(point.actualChangeKg)), colors.green);
   fact.itemStyle = {
     borderRadius: [4, 4, 4, 4],
     color: (params: any) => {
       const value = Number(params.value);
-      const planned = points[Number(params.dataIndex)]?.plannedObservedChangeKg;
+      const planned = displayChange(points[Number(params.dataIndex)]?.plannedObservedChangeKg ?? null);
       if (planned === null || planned === undefined) return colors.muted;
-      if (value <= planned) return colors.green;
-      return value < 0 ? colors.amber : colors.coral;
+      if (value >= planned) return colors.green;
+      return value > 0 ? colors.amber : colors.coral;
     },
   };
   return {
@@ -332,9 +385,9 @@ function weightChangeChartOption(points: PeriodWeightPoint[], period: "week" | "
       formatter: periodTooltipFormatter(points, formatDelta, {
         label: "Отклонение изменения за даты факта",
         value: (point) => point.actualChangeKg !== null && point.plannedObservedChangeKg !== null
-          ? point.actualChangeKg - point.plannedObservedChangeKg
+          ? displayChange(point.actualChangeKg)! - displayChange(point.plannedObservedChangeKg)!
           : null,
-      }, period),
+      }, period, displayChange),
       backgroundColor: "rgba(22,31,25,.95)",
       borderWidth: 0,
       textStyle: { color: "#fff" },
@@ -350,8 +403,8 @@ function weightChangeChartOption(points: PeriodWeightPoint[], period: "week" | "
     dataZoom: periodDataZoom(points),
     series: [
       fact,
-      { ...weeklyBar("План на дату", points.map((point) => point.plannedChangeKg), colors.blue), itemStyle: { color: colors.blue, borderRadius: 4 } },
-      { ...weeklyBar(period === "month" ? "План на месяц" : "План на неделю", points.map((point) => point.plannedFullChangeKg), colors.violet), itemStyle: { color: colors.violet, opacity: 0.72, borderRadius: 4 } },
+      { ...weeklyBar("План на дату", points.map((point) => displayChange(point.plannedChangeKg)), colors.blue), itemStyle: { color: colors.blue, borderRadius: 4 } },
+      { ...weeklyBar(period === "month" ? "План на месяц" : "План на неделю", points.map((point) => displayChange(point.plannedFullChangeKg)), colors.violet), itemStyle: { color: colors.violet, opacity: 0.72, borderRadius: 4 } },
     ],
   };
 }

@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { api } from "../api/client";
 import type { Period, SwimmingSession } from "../api/types";
-import { swimmingChartOption } from "../charts/options";
+import { swimmingChartOption, swimmingIntensityChartOption } from "../charts/options";
 import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
 import { KpiCard } from "../components/KpiCard";
@@ -77,7 +77,7 @@ function SwimmingPeriod({ period }: { period: Period }) {
     </p>
     {points.length > 0 && <>
       <ChartCard title="Дистанция по тренировкам" subtitle="Каждый столбик — отдельная тренировка в бассейне; пропуски остаются пустыми" option={swimmingChartOption(points, "distance_meters")} ariaLabel="Дистанция плавания в метрах по тренировкам" height={300} />
-      <ChartCard title="Длительность по тренировкам" subtitle="Полное время тренировки, включая паузы" option={swimmingChartOption(points, "duration_seconds")} ariaLabel="Длительность тренировок в бассейне в минутах" height={300} />
+      <ChartCard title="Интенсивность тренировок" subtitle="Активные калории и средний пульс по каждой тренировке" option={swimmingIntensityChartOption(points)} ariaLabel="График активных калорий и среднего пульса тренировок в бассейне" height={330} />
     </>}
     {summary.workouts ? <section className="panel swimming-history" aria-labelledby="swimming-history-title" aria-busy={result.loading}>
       <div className="panel__head"><div><h2 id="swimming-history-title">История тренировок</h2><p>Откройте тренировку, чтобы посмотреть подробности · время московское</p></div></div>

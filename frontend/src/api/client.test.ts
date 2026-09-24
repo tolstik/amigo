@@ -211,6 +211,18 @@ describe("API normalization", () => {
     expect(result.correlations[0].disclaimer).toBe("Корреляция не доказывает причинность.");
   });
 
+  it("keeps hourly recovery data when the daily series is empty", () => {
+    const result = normalizeRecoverySeries({
+      daily: [],
+      heart_rate_hourly: [{ measured_at: "2026-08-18T12:00:00Z", average_bpm: 61, minimum_bpm: 52, maximum_bpm: 76, sample_count: 18 }],
+      summary: {},
+      available_metrics: ["heart_rate"],
+    }, "90d");
+    expect(result.points).toEqual([]);
+    expect(result.heartRateHourly).toHaveLength(1);
+    expect(result.availableMetrics).toEqual(["heart_rate"]);
+  });
+
   it("normalizes schema-validated AI analysis without template fields", () => {
     const result = normalizeAiAnalysis({
       analysis_id: 42,

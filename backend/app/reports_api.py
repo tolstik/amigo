@@ -14,7 +14,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from .ai_queue import public_analysis_payload
 from .auth import AuthContext, require_csrf
 from .config import Settings, get_settings
 from .db import get_db
@@ -222,21 +221,6 @@ def build_doctor_report_payload(
                 "conclusion": row.conclusion,
             }
             for row in rows
-        ]
-    if "ai" in sections:
-        cached = public_analysis_payload(db)
-        analysis = cached.get("analysis") if cached.get("status") == "ready" else None
-        recommendations = analysis.get("recommendations") if isinstance(analysis, dict) else []
-        payload["sections"]["ai"] = [
-            {
-                "title": str(item.get("title") or "Рекомендация"),
-                "text": item["text"],
-                "evidence_ids": [
-                    key for key in item.get("evidence_keys", []) if isinstance(key, str)
-                ],
-            }
-            for item in recommendations or []
-            if isinstance(item, dict) and isinstance(item.get("text"), str)
         ]
     # This snapshot is deliberately structured and bounded. Never add originals,
     # filenames, OCR, chat, device/account identity, or provider payloads here.

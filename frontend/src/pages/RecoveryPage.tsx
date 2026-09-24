@@ -1,10 +1,9 @@
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { api, csvUrl } from "../api/client";
 import { recoveryChartOption, sleepChartOption } from "../charts/options";
 import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
 import { CorrelationPanel } from "../components/CorrelationPanel";
-import { EvidenceChips } from "../components/EvidenceChips";
 import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
@@ -12,7 +11,7 @@ import { PeriodSwitcher } from "../components/PeriodSwitcher";
 import { WatchHeartRateChart } from "../components/WatchHeartRateChart";
 import { useApi } from "../hooks/useApi";
 import { useChartPeriod } from "../hooks/useChartPeriod";
-import { formatDate, formatDateTime, formatNumber } from "../lib/format";
+import { formatDate, formatNumber } from "../lib/format";
 
 const metricLabels: Record<string, string> = {
   sleep_minutes: "Продолжительность сна",
@@ -44,17 +43,6 @@ export function RecoveryPage() {
   const [period, setPeriod] = useChartPeriod("90d");
   const load = useCallback((signal: AbortSignal) => api.recovery(period, signal), [period]);
   const series = useApi(load);
-  const loadAi = useCallback((signal: AbortSignal) => api.aiAnalysis(signal), []);
-  const ai = useApi(loadAi);
-  useEffect(() => {
-    const refresh = () => { if (document.visibilityState === "visible") ai.reload(); };
-    const timer = window.setInterval(refresh, ai.data?.status === "pending" ? 30_000 : 300_000);
-    document.addEventListener("visibilitychange", refresh);
-    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
-  }, [ai.data?.status, ai.reload]);
-  const sleepItems = [...(ai.data?.recommendations ?? []), ...(ai.data?.insights ?? [])].filter((item) => item.scope === "sleep" && item.evidenceIds.includes("sleep.duration7d") && item.evidenceIds.includes("sleep.coverage7d"));
-  const sleepEnd = ai.data?.evidence["sleep.coverage7d"]?.observedOn;
-  const sleepStart = sleepEnd ? new Date(Date.parse(sleepEnd) - 6 * 86_400_000).toISOString() : null;
   const points = series.data?.points ?? [];
   const hourlyHeartRate = series.data?.heartRateHourly ?? [];
   const summary = series.data?.summary;
@@ -76,20 +64,12 @@ export function RecoveryPage() {
         <KpiCard label="SpO₂" value={summary?.spo2Pct == null ? "—" : `${formatNumber(summary.spo2Pct)}%`} hint={summary?.spo2Date ? `Замер ${formatDate(summary.spo2Date)}` : "Показывается только при наличии"} icon="progress" tone="blue" />
       </section>
 
-      <section className="panel sleep-analysis" aria-labelledby="sleep-analysis-title">
-        <div className="panel__head"><div><span className="eyebrow">Локальный Codex</span><h2 id="sleep-analysis-title">Разбор сна за неделю</h2><p>{sleepStart && sleepEnd ? `${formatDate(sleepStart)} — ${formatDate(sleepEnd)} · ${ai.data?.status === "stale" ? "сохранённый разбор устарел" : "по сохранённым данным"}` : "Последние 7 московских дней, включая сегодня"}</p></div></div>
-        {sleepItems.length && (ai.data?.status === "fresh" || ai.data?.status === "stale") ? <>
-          <div className="sleep-analysis__items">{sleepItems.map((item) => <article key={item.id}><h3>{item.title}</h3><p>{item.text}</p><EvidenceChips evidenceIds={item.evidenceIds} evidence={ai.data!.evidence} /></article>)}</div>
-          <p className="chart-note">Разбор от {formatDateTime(ai.data.generatedAt)} · информационная поддержка, не медицинское заключение. Продолжительность сна не определяет его качество полностью.</p>
-        </> : ai.loading ? <LoadingState compact /> : ai.error ? <ErrorState message={ai.error.message} onRetry={ai.reload} /> : <p className="chart-note">{ai.data?.status === "pending" ? "Разбор сна готовится в фоне. Доступные измерения показаны на графиках ниже." : "Готового разбора сна за неделю пока нет. Доступные измерения показаны ниже."}</p>}
-      </section>
-
       <div className="toolbar"><PeriodSwitcher value={period} onChange={setPeriod} /></div>
       {series.loading && !series.data ? <LoadingState /> : series.error && !series.data ? (
         <ErrorState message={series.error.message} onRetry={series.reload} />
-      ) : points.length ? (
+      ) : points.length || hourlyHeartRate.length ? (
         <>
-          <ChartCard title="Сон" subtitle="Общая продолжительность и доступные стадии" option={sleepChartOption(points)} ariaLabel="График продолжительности и стадий сна" height={390} />
+          {points.some((point) => point.sleepMinutes !== null || point.deepSleepMinutes !== null || point.remSleepMinutes !== null) && <ChartCard title="Сон" subtitle="Общая продолжительность и доступные стадии" option={sleepChartOption(points)} ariaLabel="График продолжительности и стадий сна" height={390} />}
           {hourlyHeartRate.length > 0 && (
             <WatchHeartRateChart points={hourlyHeartRate} />
           )}

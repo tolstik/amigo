@@ -956,17 +956,14 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 }
 
 .body-model { margin-bottom: 22px; padding: 24px; }
-.body-model__layout { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 32px; }
-.body-model__canvas { height: 390px; min-width: 0; position: relative; border-radius: 24px; background: radial-gradient(ellipse at 50% 65%, var(--green-soft), transparent 65%); }
+.body-model__figures { position: relative; min-width: 0; }
+.body-model__canvas { height: 430px; min-width: 0; position: relative; border-radius: 24px; background: radial-gradient(ellipse at 50% 65%, var(--green-soft), transparent 65%); }
 .body-model__canvas canvas { display: block; }
 .body-model__fallback { position: absolute; padding: 30px; }
-.body-model__controls { min-width: 0; max-width: 400px; }
-.body-model__weight { display: block; margin-top: 12px; font-size: 44px; letter-spacing: -2px; }
-.body-model__controls p, .body-model__controls small { color: var(--text-soft); }
-.body-model__controls label { display: block; margin: 26px 0 12px; font-size: 12px; font-weight: 650; }
-.body-model__controls input { width: 100%; accent-color: var(--green); cursor: pointer; }
-.body-model__range { display: flex; justify-content: space-between; color: var(--text-faint); font-size: 11px; }
-.body-model__presets { display: flex; gap: 8px; margin-top: 18px; }
+.body-model__labels { display: grid; grid-template-columns: repeat(3, 1fr); position: absolute; inset: 14px 4% auto; pointer-events: none; text-align: center; }
+.body-model__label { display: grid; gap: 3px; color: var(--text); }
+.body-model__label strong { font-size: 13px; }
+.body-model__label span { color: var(--text-soft); font-size: 12px; }
 .body-model__note { font-size: 11px; line-height: 1.6; margin-top: 22px; }
 .weight-history { scroll-margin-top: 95px; margin-top: 28px; }
 .sleep-analysis { margin-bottom: 22px; padding: 24px; }
@@ -975,8 +972,6 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 .sleep-analysis__items p { margin: 0 0 10px; color: var(--text-soft); line-height: 1.65; }
 @media (max-width: 640px) {
   .body-model, .sleep-analysis { padding: 17px; }
-  .body-model__layout { grid-template-columns: 1fr; gap: 12px; }
-  .body-model__canvas { height: 310px; }
-  .body-model__controls { max-width: none; }
+  .body-model__canvas { height: 330px; }
   .body-model .panel__head { flex-wrap: wrap; gap: 12px; }
 }

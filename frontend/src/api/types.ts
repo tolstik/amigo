@@ -4,6 +4,8 @@ export interface SwimmingPoint {
   start_time: string;
   duration_seconds: number | null;
   distance_meters: number | null;
+  kilocalories: number | null;
+  average_bpm: number | null;
 }
 
 export interface SwimmingSession extends SwimmingPoint {

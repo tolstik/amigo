@@ -135,7 +135,7 @@ def swimming_series(
         "range": range_name,
         "summary": summary,
         "points": [
-            {key: item[key] for key in ("start_time", "duration_seconds", "distance_meters")}
+            {key: item[key] for key in ("start_time", "duration_seconds", "distance_meters", "kilocalories", "average_bpm")}
             for item in reversed(sessions)
         ],
         "sessions": sessions[offset:offset + 50],

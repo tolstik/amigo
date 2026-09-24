@@ -9,7 +9,6 @@ import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { WeightTable } from "../components/DataTables";
-import { EvidenceChips } from "../components/EvidenceChips";
 import { useApi } from "../hooks/useApi";
 import { clampProgress, formatDate, formatDateTime, formatDelta, formatKg, formatNumber, formatPercent } from "../lib/format";
 
@@ -24,11 +23,9 @@ function planPosition(deviation: number | null): string {
 export function OverviewPage() {
   const overview = useOutletContext<OverviewContext>();
   const loadPreview = useCallback((signal: AbortSignal) => api.weight("90d", signal), []);
-  const loadAi = useCallback((signal: AbortSignal) => api.aiAnalysis(signal), []);
   const loadActivity = useCallback((signal: AbortSignal) => api.activity("30d", signal), []);
   const loadRecovery = useCallback((signal: AbortSignal) => api.recovery("30d", signal), []);
   const preview = useApi(loadPreview);
-  const ai = useApi(loadAi);
   const activity = useApi(loadActivity);
   const recovery = useApi(loadRecovery);
   const loadProfile = useCallback((signal: AbortSignal) => api.profile(signal), []);
@@ -40,13 +37,6 @@ export function OverviewPage() {
 
   const { weight, plan, pressure, composition } = overview.data;
   const progress = weight.progressPct;
-  const aiItems = ai.data
-    ? [
-        ...ai.data.recommendations.map((item) => ({ ...item, kind: "recommendation" as const })),
-        ...ai.data.insights.map((item) => ({ ...item, kind: "insight" as const })),
-      ]
-    : [];
-
   return (
     <>
       <PageHeader
@@ -147,31 +137,6 @@ export function OverviewPage() {
         </article>
       </section>
 
-      <section className="insights-section" aria-labelledby="insights-title">
-        <div className="section-heading">
-          <div><span className="eyebrow">Персональный разбор</span><h2 id="insights-title">ИИ-анализ</h2></div>
-          <span className={`rules-badge rules-badge--${ai.data?.status ?? "pending"}`}><Icon name="sparkle" /> {ai.data?.generatedAt ? `${ai.data.status === "stale" ? "Устарел · " : ""}${formatDateTime(ai.data.generatedAt)}` : "Готовится"}</span>
-        </div>
-        {ai.loading && !ai.data ? <LoadingState compact /> : ai.error && !ai.data ? (
-          <div className="ai-unavailable"><strong>ИИ-анализ временно недоступен</strong><p>Числовые показатели продолжают рассчитываться без модели.</p></div>
-        ) : ai.data?.status === "unavailable" || ai.data?.status === "pending" ? (
-          <div className="ai-unavailable"><strong>{ai.data.status === "pending" ? "Анализ новых данных готовится" : "ИИ-анализ временно недоступен"}</strong><p>Здесь нет шаблонной подмены: до готовности модели остаются только проверяемые факты.</p></div>
-        ) : (
-          <div className="ai-analysis panel">
-            <div className="ai-analysis__intro"><span className="ai-orbit"><Icon name="sparkle" /></span><div><h3>{ai.data?.headline ?? "Разбор текущей динамики"}</h3>{ai.data?.summary && <p>{ai.data.summary}</p>}<small>Данные на {formatDateTime(ai.data?.dataAsOf)} · {ai.data?.model ?? "Codex"} · информационная поддержка, не диагноз и не замена врачу</small></div></div>
-            {aiItems.length > 0 && <div className="insight-grid">
-              {aiItems.slice(0, 6).map((item) => (
-                <article className={`insight ${item.kind === "recommendation" ? "insight--recommendation" : ""}`} key={`${item.kind}-${item.id}`}>
-                  <span className="insight__icon"><Icon name={item.kind === "recommendation" ? "progress" : "activity"} /></span>
-                  <div className="insight__body"><strong>{item.title}</strong><p>{item.text}</p><EvidenceChips evidenceIds={item.evidenceIds} evidence={ai.data?.evidence ?? {}} /></div>
-                </article>
-              ))}
-            </div>}
-            {ai.data?.limitations.length ? <p className="ai-analysis__limitations">Ограничения: {ai.data.limitations.join(" · ")}</p> : null}
-          </div>
-        )}
-      </section>
-
       {preview.data?.points.length ? (
         <ChartCard
           title="Последние 90 дней"
@@ -185,7 +150,7 @@ export function OverviewPage() {
       ) : preview.loading ? <LoadingState compact /> : preview.error ? (
         <ErrorState message={preview.error.message} onRetry={preview.reload} />
       ) : null}
-      {profile.data && <Suspense fallback={<LoadingState compact />}><BodyModel latestKg={weight.latestKg} latestAt={weight.latestAt} heightCm={profile.data.height_cm} startKg={plan.startWeightKg} targetKg={plan.targetWeightKg} /></Suspense>}
+      {profile.data && <Suspense fallback={<LoadingState compact />}><BodyModel latestKg={weight.latestKg} heightCm={profile.data.height_cm} startKg={plan.startWeightKg} targetKg={plan.targetWeightKg} /></Suspense>}
     </>
   );
 }

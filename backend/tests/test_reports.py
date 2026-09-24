@@ -82,6 +82,16 @@ def test_report_payload_includes_structured_labs_with_verification_status(db):
     assert "root-only-random-key" not in encoded
 
 
+def test_new_doctor_report_payload_omits_ai_section(db):
+    payload = build_doctor_report_payload(
+        db,
+        Settings(database_url="sqlite+pysqlite:///:memory:"),
+        DoctorReportCreate(period="30d", sections=["ai"]),
+        datetime(2026, 8, 25, 10, tzinfo=timezone.utc),
+    )
+    assert "ai" not in payload["sections"]
+
+
 def test_report_export_keeps_unverified_labs_and_raw_weight_points():
     payload = {
         "meta": {"from": "2026-08-01", "to": "2026-08-28", "labs_unverified_count": 1},

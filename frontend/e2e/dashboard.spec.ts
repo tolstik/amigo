@@ -85,7 +85,7 @@ const swimmingSessions = Array.from({ length: 51 }, (_, index) => ({
 const swimmingSeries = {
   range: "90d", summary: { workouts: 51, duration_seconds: 91800, duration_seconds_count: 51,
     distance_meters: 50000, distance_meters_count: 50, kilocalories: 12240, kilocalories_count: 51 },
-  points: [...swimmingSessions].reverse().map(({ start_time, duration_seconds, distance_meters }) => ({ start_time, duration_seconds, distance_meters })),
+  points: [...swimmingSessions].reverse().map(({ start_time, duration_seconds, distance_meters, kilocalories, average_bpm }) => ({ start_time, duration_seconds, distance_meters, kilocalories, average_bpm })),
   sessions: swimmingSessions.slice(0, 50), next_offset: 50,
   coverage: { status: "partial", from: "2026-06-06T21:00:00Z", to: "2026-09-02T08:00:00Z", data_as_of: "2026-09-02T08:00:00Z", covered_days: 51, total_days: 90 },
 };
@@ -339,7 +339,7 @@ test("renders weekly and monthly plan/fact charts with accessible tables", async
   await expect(page.getByRole("heading", { name: "Вес по неделям" })).toBeVisible();
   await expect(page.getByRole("img", { name: /Недельный график последнего веса/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Изменение по неделям" })).toBeVisible();
-  await expect(page.getByText(/план на всю неделю · снижение ниже нуля/)).toBeVisible();
+  await expect(page.getByText("Потеря веса положительная: факт · план на дату · план на всю неделю", { exact: true })).toBeVisible();
 
   await page.getByText("Показать недельную таблицу (4)").click();
   const table = page.getByRole("table", { name: "Недельные показатели веса относительно плана" });
@@ -349,20 +349,20 @@ test("renders weekly and monthly plan/fact charts with accessible tables", async
 
   const monthlyCard = page.locator(".chart-card").filter({ has: page.getByRole("heading", { name: "Изменение по месяцам", exact: true }) });
   await expect(monthlyCard.getByRole("img", { name: /Месячный график/ })).toBeVisible();
-  await expect(monthlyCard.getByText(/план на весь месяц · снижение ниже нуля/)).toBeVisible();
+  await expect(monthlyCard.getByText("Потеря веса положительная: факт · план на дату · план на весь месяц", { exact: true })).toBeVisible();
   await monthlyCard.getByText("Показать месячную таблицу (2)").click();
   const monthlyTable = monthlyCard.getByRole("table", { name: "Месячные показатели веса относительно плана" });
   await expect(monthlyTable).toContainText("Неполный месяц");
   const augustRow = monthlyTable.getByRole("row").filter({ hasText: "15 авг." });
-  await expect(augustRow).toContainText("−1,5 кг");
-  await expect(augustRow).toContainText("−2,1 кг");
+  await expect(augustRow).toContainText("+1,5 кг");
+  await expect(augustRow).toContainText("+2,1 кг");
   await monthlyCard.getByText("Как считаются факт и план", { exact: true }).click();
   await expect(monthlyCard.getByText(/Первый период считается от 127,03 кг/)).toBeVisible();
   await monthlyCard.getByText("Как считаются факт и план", { exact: true }).click();
   const septemberRow = monthlyTable.getByRole("row").filter({ hasText: "30 сент." });
-  await expect(septemberRow).toContainText("−3,9 кг");
-  await expect(septemberRow).toContainText("−0,3 кг");
-  await expect(septemberRow).toContainText("−0,1 кг");
+  await expect(septemberRow).toContainText("+3,9 кг");
+  await expect(septemberRow).toContainText("+0,3 кг");
+  await expect(septemberRow).toContainText("+0,1 кг");
   await expect(table.getByRole("columnheader", { name: "План на неделю", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await monthlyCard.getByText("Показать месячную таблицу (2)").click();
@@ -375,10 +375,9 @@ test("renders weekly and monthly plan/fact charts with accessible tables", async
   }
 });
 
-test("renders AI analysis, activity baseline and recovery", async ({ page }) => {
+test("renders activity baseline and recovery without AI narrative", async ({ page }) => {
   await page.goto("./");
-  await expect(page.getByRole("heading", { name: "ИИ-анализ" })).toBeVisible();
-  await expect(page.getByText("Динамика остаётся управляемой")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ИИ-анализ" })).toHaveCount(0);
 
   await page.getByRole("link", { name: "Активность", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Активность", exact: true })).toBeVisible();
@@ -391,6 +390,7 @@ test("renders AI analysis, activity baseline and recovery", async ({ page }) => 
   await expect(page.getByRole("heading", { name: "Восстановление", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Сон", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Пульс с часов" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Разбор сна за неделю" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "1 ч" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText(/Пропуски данных показаны разрывами/)).toBeVisible();
   await expect(page.getByText("Слабая прямая линейная связь.")).toBeVisible();
@@ -563,11 +563,7 @@ test("edits privacy profile and renders the persistent assistant", async ({ page
 
   await page.getByRole("link", { name: "Ассистент", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Ассистент здоровья" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Актуальные рекомендации" })).toBeVisible();
-  const currentRecommendation = page.locator("article.insight--recommendation").filter({ hasText: "Сверить динамику" });
-  await currentRecommendation.getByRole("button", { name: "Ферритин" }).click();
-  await expect(page.getByRole("dialog", { name: "Ферритин" })).toContainText("зафиксировано в момент анализа");
-  await page.getByRole("button", { name: "Закрыть основание" }).click();
+  await expect(page.getByRole("heading", { name: "Актуальные рекомендации" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Создать задачу" })).toHaveCount(0);
   await page.getByPlaceholder("Задайте вопрос по вашим данным…").fill("Что с ферритином?");
   await page.getByRole("button", { name: "Отправить" }).click();
@@ -581,13 +577,7 @@ test("edits privacy profile and renders the persistent assistant", async ({ page
 
 test("opens immutable evidence without retired task actions", async ({ page }) => {
   await page.goto("./");
-  const recommendation = page.locator("article.insight--recommendation").filter({ hasText: "Сохранить ритм" });
-  await recommendation.getByRole("button", { name: "Активность Xiaomi Cloud" }).click();
-  const drawer = page.getByRole("dialog", { name: "Активность Xiaomi Cloud" });
-  await expect(drawer).toContainText("зафиксировано в момент анализа");
-  await expect(drawer.getByRole("link", { name: "Открыть исходные данные" })).toHaveAttribute("href", "/amigo/activity");
-  await drawer.getByRole("button", { name: "Закрыть основание" }).click();
-
+  await expect(page.locator("article.insight--recommendation")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Создать задачу" })).toHaveCount(0);
 });
 
@@ -607,7 +597,7 @@ test("builds, downloads HTML and explicitly deletes a doctor package on mobile",
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("./reports/doctor");
   await expect(page.getByRole("heading", { name: "Пакет для врача" })).toBeVisible();
-  await expect(page.getByLabel("AI-рекомендации")).not.toBeChecked();
+  await expect(page.getByLabel("AI-рекомендации")).toHaveCount(0);
   await page.getByRole("button", { name: "Сформировать preview и HTML" }).click();
   await expect(page.getByRole("heading", { name: "Preview пакета" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Шаги · Xiaomi Cloud" })).toBeVisible();
@@ -747,24 +737,18 @@ test("old history link redirects to progress", async ({ page }) => {
 });
 
 
-test("recovery shows the validated weekly sleep result and frozen coverage dates", async ({ page }) => {
-  await page.route("**/api/v1/ai-analysis", (route) => route.fulfill({ json: {
-    analysis_id: 43, status: "stale", generated_at: "2026-09-02T08:00:00Z", model: "gpt-5.6-sol",
-    insights: [{ id: "observation-2", scope: "sleep", title: "Две записанные ночи", text: "Есть две ночи из семи; этого мало для оценки всей недели.", evidence_ids: ["sleep.duration7d", "sleep.coverage7d"] }],
-    recommendations: [{ id: "recommendation-2", scope: "sleep", title: "Сверять самочувствие утром", text: "В течение недели записывайте самочувствие после пробуждения.", evidence_ids: ["sleep.duration7d", "sleep.coverage7d"] }],
-    evidence: {
-      "sleep.duration7d": { key: "sleep.duration7d", kind: "series", metric: "sleep", unit: "minutes", range: { from: "2026-09-01", to: "2026-09-02" }, count: 2, target: { path: "/recovery", available: true } },
-      "sleep.coverage7d": { key: "sleep.coverage7d", kind: "fact", metric: "sleep", value: 2, unit: "days", date: "2026-09-02", period: "7d", target: { path: "/recovery", available: true } },
-    },
+test("recovery keeps charts visible when only hourly heart rate is available", async ({ page }) => {
+  await page.route("**/api/v1/series/recovery?*", (route) => route.fulfill({ json: {
+    daily: [],
+    heart_rate_hourly: recoverySeries.heart_rate_hourly,
+    summary: {},
+    available_metrics: ["heart_rate"],
   } }));
   await page.goto("./recovery");
-  const panel = page.getByRole("region", { name: "Разбор сна за неделю" });
-  await expect(panel.getByRole("heading", { name: "Две записанные ночи" })).toBeVisible();
-  await expect(panel).toContainText("сохранённый разбор устарел");
-  await expect(panel).toContainText("27 авг.");
-  await expect(panel).toContainText("2 сент.");
-  const articles = panel.locator("article");
-  await expect(articles.first()).toContainText("Сверять самочувствие утром");
+  await expect(page.getByRole("heading", { name: "Восстановление", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Пульс с часов" })).toBeVisible();
+  await expect(page.getByText("Данных сна и восстановления пока нет")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Разбор сна за неделю" })).toHaveCount(0);
 });
 
 test("body model starts paused for reduced motion and scenarios do not write data", async ({ page }) => {
@@ -776,11 +760,13 @@ test("body model starts paused for reduced motion and scenarios do not write dat
   page.on("request", (request) => { if (request.method() !== "GET") writes.push(request.url()); });
   await page.goto("./");
   const model = page.locator(".body-model");
-  await expect(model.getByRole("button", { name: "Вращать модель" })).toHaveAttribute("aria-pressed", "false");
+  await expect(model.getByRole("button", { name: "Вращать модели" })).toHaveAttribute("aria-pressed", "false");
   await expect(model.locator("canvas")).toBeVisible();
-  await model.getByRole("button", { name: "Цель", exact: true }).click();
+  await expect(model.locator(".body-model__label")).toHaveCount(3);
+  await expect(model).toContainText("Старт");
+  await expect(model).toContainText("Сейчас");
+  await expect(model).toContainText("Цель");
   await expect(model).toContainText("76,5 кг");
-  await model.getByRole("button", { name: "Сейчас", exact: true }).click();
   await expect(model).toContainText("125,5 кг");
   expect(writes).toEqual([]);
   await model.screenshot({ path: `/tmp/amigo-body-${test.info().project.name}.png` });

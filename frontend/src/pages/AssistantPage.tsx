@@ -3,8 +3,8 @@ import { Link } from "react-router-dom";
 import { api, ApiError, assistantEventsUrl } from "../api/client";
 import type { AssistantMessage, AssistantSegment } from "../api/types";
 import { ErrorState, LoadingState } from "../components/AsyncState";
-import { PageHeader } from "../components/PageHeader";
 import { EvidenceChips } from "../components/EvidenceChips";
+import { PageHeader } from "../components/PageHeader";
 import { useApi } from "../hooks/useApi";
 
 export function AssistantPage() {
@@ -62,7 +62,6 @@ export function AssistantPage() {
     <div className="emergency-note"><strong>Важно</strong><span>Ассистент не предназначен для экстренной оценки. При острых или быстро усиливающихся симптомах используйте местную службу экстренной помощи.</span></div>
     {messages.loading && <LoadingState />}
     {messages.error && <ErrorState onRetry={messages.reload} />}
-    {!!messages.data?.recommendations.length && <section className="assistant-recommendations"><h2>Актуальные рекомендации</h2><div className="insight-grid">{messages.data.recommendations.map((item) => <article className="insight insight--recommendation" key={item.id}><div className="insight__body"><strong>{item.title}</strong><p>{item.text}</p><EvidenceChips evidenceIds={item.evidenceIds} evidence={messages.data?.evidence ?? {}} /></div></article>)}</div></section>}
     {!messages.loading && <section className="panel chat-panel">
       <div className="chat-messages" aria-live="polite">
         {!rows.length && <div className="chat-empty"><strong>Контекст уже собран</strong><p>Можно спросить о динамике показателей, подготовке к визиту или о том, какие значения стоит перепроверить.</p></div>}

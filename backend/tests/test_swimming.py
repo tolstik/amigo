@@ -62,6 +62,8 @@ def test_only_finalized_active_pool_sessions_and_nullable_totals(db):
     assert payload["summary"]["distance_meters_count"] == 1
     assert payload["summary"]["duration_seconds"] == 3600
     assert payload["summary"]["kilocalories_count"] == 1
+    enriched_point = next(point for point in payload["points"] if point["kilocalories"] == 240)
+    assert enriched_point["average_bpm"] == 100
     assert payload["sessions"][0]["pace_seconds_per_100m"] == 150
     assert payload["sessions"][1]["distance_meters"] is None
     assert payload["coverage"]["status"] == "available"

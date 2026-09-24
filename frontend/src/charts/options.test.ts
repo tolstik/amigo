@@ -61,7 +61,7 @@ describe("weekly chart options", () => {
     expect(tooltip).toContain("Всего замеров");
   });
 
-  it("keeps negative changes as weight loss and opens long histories on recent weeks", () => {
+  it("shows weight loss as positive change and opens long histories on recent weeks", () => {
     const points = Array.from({ length: 14 }, (_, index) => week(index));
     points[2] = week(2, { actualChangeKg: -0.7 });
     points[3] = week(3, { actualChangeKg: 0.1 });
@@ -70,14 +70,14 @@ describe("weekly chart options", () => {
     const zoom = option.dataZoom as any[];
     const factColor = series[0].itemStyle.color;
 
-    expect(series[0].data[1]).toBe(-0.4);
-    expect(series[1].data[1]).toBe(-0.5);
+    expect(series[0].data[1]).toBe(0.4);
+    expect(series[1].data[1]).toBe(0.5);
     expect(series[2].name).toBe("План на неделю");
-    expect(series[2].data[1]).toBe(-0.9);
-    expect(series[0].itemStyle.color({ value: -0.6, dataIndex: 1 })).toBe("#2d9365");
-    expect(factColor({ value: -0.4, dataIndex: 1 })).toBe("#d99b35");
-    expect(factColor({ value: -0.7, dataIndex: 2 })).toBe("#2d9365");
-    expect(factColor({ value: 0.1, dataIndex: 3 })).toBe("#e9785d");
+    expect(series[2].data[1]).toBe(0.9);
+    expect(series[0].itemStyle.color({ value: 0.6, dataIndex: 1 })).toBe("#2d9365");
+    expect(factColor({ value: 0.4, dataIndex: 1 })).toBe("#d99b35");
+    expect(factColor({ value: 0.7, dataIndex: 2 })).toBe("#2d9365");
+    expect(factColor({ value: -0.1, dataIndex: 3 })).toBe("#e9785d");
     expect(zoom.map((item) => item.type)).toEqual(["inside", "slider"]);
     expect(zoom[0]).toMatchObject({ startValue: 2, endValue: 13 });
   });
@@ -90,8 +90,8 @@ describe("weekly chart options", () => {
     expect((option.legend as any).textStyle.color).toBe(chartPalettes.ocean.muted);
     expect((option.yAxis as any).axisLine.lineStyle.color).toBe(chartPalettes.ocean.grid);
     expect(series[1].itemStyle.color).toBe(chartPalettes.ocean.blue);
-    expect(factColor({ value: -0.7, dataIndex: 1 })).toBe(chartPalettes.ocean.green);
-    expect(factColor({ value: 0.1, dataIndex: 1 })).toBe(chartPalettes.ocean.coral);
+    expect(factColor({ value: 0.7, dataIndex: 1 })).toBe(chartPalettes.ocean.green);
+    expect(factColor({ value: -0.1, dataIndex: 1 })).toBe(chartPalettes.ocean.coral);
   });
 });
 
@@ -105,17 +105,17 @@ describe("monthly weight change chart", () => {
     const option = monthlyChangeChartOption(points) as any;
     expect(option.xAxis.data).toEqual(["2026-08-15", "2026-09-01", "2026-10-01"]);
     expect(option.xAxis.axisLabel.formatter("2026-09-01")).toBe("сент. 2026");
-    expect(option.series[0].data).toEqual([-1.03, -2.4, null]);
-    expect(option.series[1].data).toEqual([-0.5, -0.5, -0.5]);
+    expect(option.series[0].data).toEqual([1.03, 2.4, null]);
+    expect(option.series[1].data).toEqual([0.5, 0.5, 0.5]);
     expect(option.series[2].name).toBe("План на месяц");
-    expect(option.series[2].data).toEqual([-0.9, -0.9, -0.9]);
+    expect(option.series[2].data).toEqual([0.9, 0.9, 0.9]);
     expect(option.legend.type).toBe("scroll");
     const tooltip = option.tooltip.formatter([
-      { axisValue: "2026-09-01", value: -2.4, marker: "", seriesName: "Факт" },
+      { axisValue: "2026-09-01", value: 2.4, marker: "", seriesName: "Факт" },
     ]);
     expect(tooltip).toContain("неполный месяц");
     expect(tooltip).not.toContain("неделя");
-    expect(tooltip).toContain("−2,4 кг");
+    expect(tooltip).toContain("+2,4 кг");
     expect(tooltip).toContain("Дней с замерами");
   });
 });

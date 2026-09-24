@@ -771,6 +771,9 @@ payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 contract = sys.argv[2]
 if not isinstance(payload, dict):
     raise SystemExit("API response is not an object")
+import math
+def finite(value):
+    return type(value) in (int, float) and math.isfinite(value)
 if contract == "session":
     if payload.get("authenticated") is not True or not isinstance(payload.get("expires_at"), str):
         raise SystemExit("session contract is incomplete")
@@ -797,12 +800,9 @@ elif contract == "overview":
         raise SystemExit("overview substituted an actual value without measurements")
 elif contract == "weight":
     from datetime import date
-    import math
 
     if not isinstance(payload.get("points"), list):
         raise SystemExit("weight points are missing")
-    def finite(value):
-        return type(value) in (int, float) and math.isfinite(value)
     for period in ("weekly", "monthly"):
         if not isinstance(payload.get(period), list):
             raise SystemExit("weight period contract is incomplete")
@@ -849,6 +849,13 @@ elif contract == "swimming":
         raise SystemExit("swimming history is not bounded")
     if not isinstance(payload.get("summary"), dict) or not isinstance(payload.get("points"), list):
         raise SystemExit("swimming summary/points contract is incomplete")
+    for point in payload["points"]:
+        if not isinstance(point, dict) or "kilocalories" not in point or "average_bpm" not in point:
+            raise SystemExit("swimming intensity projection is incomplete")
+        for key in ("kilocalories", "average_bpm"):
+            value = point[key]
+            if value is not None and not finite(value):
+                raise SystemExit("swimming intensity projection contains an invalid value")
     if payload.get("coverage", {}).get("status") not in {"missing", "partial", "available", "confirmed_empty"}:
         raise SystemExit("swimming coverage state is missing")
     forbidden = {"device_id", "account_fingerprint", "external_record_id", "snapshot_id", "data_origin", "route", "samples"}
@@ -862,6 +869,14 @@ elif contract in {"activity", "recovery"}:
     if not isinstance(payload.get("daily"), list) or not isinstance(payload.get("weekly"), list):
         raise SystemExit(f"{contract} contract is incomplete")
     if contract == "recovery":
+        hourly = payload.get("heart_rate_hourly")
+        if not isinstance(hourly, list):
+            raise SystemExit("recovery hourly heart-rate projection is missing")
+        for row in hourly:
+            if not isinstance(row, dict) or not isinstance(row.get("measured_at"), str):
+                raise SystemExit("recovery hourly heart-rate row is invalid")
+            if not all(finite(row.get(key)) for key in ("average_bpm", "minimum_bpm", "maximum_bpm", "sample_count")):
+                raise SystemExit("recovery hourly heart-rate values are invalid")
         summary = payload.get("summary")
         if not isinstance(summary, dict):
             raise SystemExit("recovery summary is missing")

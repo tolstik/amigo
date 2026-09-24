@@ -17,44 +17,67 @@ function humanFigure(weightKg: number, heightCm: number, skinMaterial: THREE.Mat
   const fullness = clamp((bmi - 18.5) / 22, 0, 1.25);
   const heightScale = clamp(heightCm / 176, 0.9, 1.1);
   const ellipsoid = (x: number, y: number, z: number, sx: number, sy: number, sz: number, angle = 0) => {
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 18), skinMaterial);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), skinMaterial);
     mesh.position.set(x, y, z);
     mesh.scale.set(sx, sy, sz);
     mesh.rotation.z = angle;
     body.add(mesh);
     return mesh;
   };
+  const taperedLimb = (from: THREE.Vector3, to: THREE.Vector3, upper: number, lower: number) => {
+    const direction = new THREE.Vector3().subVectors(to, from);
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(upper, lower, direction.length(), 32, 3), skinMaterial);
+    mesh.position.copy(from).add(to).multiplyScalar(0.5);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+    body.add(mesh);
+  };
   const outline = [
-    [0, 0.83], [0.21 + fullness * 0.045, 0.84], [0.26 + fullness * 0.085, 1.02],
-    [0.22 + fullness * 0.11, 1.25], [0.24 + fullness * 0.095, 1.50],
-    [0.33 + fullness * 0.08, 1.76], [0.30 + fullness * 0.05, 1.97],
-    [0.19, 2.08], [0.08, 2.13], [0, 2.14],
+    [0, 0.79], [0.18 + fullness * 0.075, 0.82], [0.22 + fullness * 0.12, 1.02],
+    [0.20 + fullness * 0.18, 1.26], [0.22 + fullness * 0.13, 1.48],
+    [0.29 + fullness * 0.085, 1.74], [0.32 + fullness * 0.075, 1.91],
+    [0.23 + fullness * 0.035, 2.04], [0.10, 2.11], [0, 2.13],
   ];
   const curve = new THREE.SplineCurve(outline.map(([radius, y]) => new THREE.Vector2(radius, y)));
   const torso = new THREE.Mesh(new THREE.LatheGeometry(curve.getPoints(64), 40), skinMaterial);
-  torso.scale.set(1, 1, 0.73 + fullness * 0.12);
+  torso.scale.set(1, 1, 0.78 + fullness * 0.17);
   body.add(torso);
-  const shoulder = 0.32 + fullness * 0.08;
-  const arm = 0.075 + fullness * 0.025;
+  const shoulder = 0.37 + fullness * 0.075;
+  const arm = 0.075 + fullness * 0.03;
   for (const side of [-1, 1]) {
-    ellipsoid(side * shoulder, 1.86, 0, arm, 0.24, arm * 0.92, side * 0.08);
-    ellipsoid(side * (shoulder + 0.055), 1.56, 0.01, arm * 0.9, 0.22, arm * 0.84, side * 0.1);
-    ellipsoid(side * (shoulder + 0.08), 1.29, 0.018, arm * 0.76, 0.11, arm * 0.68);
-    ellipsoid(side * 0.135, 0.67, 0, 0.12 + fullness * 0.025, 0.25, 0.105 + fullness * 0.02, side * -0.025);
-    ellipsoid(side * 0.135, 0.29, 0, 0.078 + fullness * 0.018, 0.28, 0.078 + fullness * 0.02);
-    ellipsoid(side * 0.135, 0.035, 0.075, 0.084, 0.055, 0.16);
+    const shoulderPoint = new THREE.Vector3(side * shoulder, 1.94, 0);
+    const elbow = new THREE.Vector3(side * (shoulder + 0.08), 1.52, 0.015);
+    const wrist = new THREE.Vector3(side * (shoulder + 0.095), 1.16, 0.035);
+    ellipsoid(shoulderPoint.x, shoulderPoint.y, 0, arm * 1.25, arm * 1.4, arm * 1.2);
+    taperedLimb(shoulderPoint, elbow, arm * 1.13, arm * 0.8);
+    ellipsoid(elbow.x, elbow.y, elbow.z, arm * 0.82, arm * 0.8, arm * 0.82);
+    taperedLimb(elbow, wrist, arm * 0.85, arm * 0.62);
+    ellipsoid(wrist.x, wrist.y - 0.08, wrist.z, arm * 0.7, 0.12, arm * 0.46);
+    ellipsoid(wrist.x + side * 0.049, wrist.y - 0.04, wrist.z + 0.035, 0.026, 0.065, 0.026, side * -0.28);
+    const hip = new THREE.Vector3(side * (0.15 + fullness * 0.022), 0.84, 0);
+    const knee = new THREE.Vector3(side * 0.16, 0.43, 0.012);
+    const ankle = new THREE.Vector3(side * 0.17, 0.075, 0.025);
+    ellipsoid(hip.x, 0.73, 0, 0.13 + fullness * 0.043, 0.24, 0.12 + fullness * 0.03);
+    taperedLimb(hip, knee, 0.115 + fullness * 0.035, 0.085 + fullness * 0.014);
+    ellipsoid(knee.x, knee.y, knee.z, 0.086 + fullness * 0.014, 0.095, 0.085);
+    taperedLimb(knee, ankle, 0.09 + fullness * 0.012, 0.063 + fullness * 0.008);
+    ellipsoid(ankle.x, 0.045, 0.105, 0.088, 0.055, 0.17);
   }
   const briefs = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), underwearMaterial);
-  briefs.position.set(0, 0.79, 0.015);
-  briefs.scale.set(0.245 + fullness * 0.06, 0.18 + fullness * 0.025, 0.18 + fullness * 0.035);
+  briefs.position.set(0, 0.81, 0.015);
+  briefs.scale.set(0.245 + fullness * 0.09, 0.17 + fullness * 0.025, 0.18 + fullness * 0.06);
   body.add(briefs);
   const waistband = new THREE.Mesh(new THREE.TorusGeometry(0.215 + fullness * 0.045, 0.014, 8, 32), underwearMaterial);
   waistband.rotation.x = Math.PI / 2;
   waistband.position.y = 0.86;
   body.add(waistband);
-  ellipsoid(0, 2.19, 0, 0.08, 0.11, 0.075);
-  const head = ellipsoid(0, 2.39, 0, 0.135 + fullness * 0.008, 0.17, 0.12);
-  for (const side of [-1, 1]) ellipsoid(side * 0.13, 2.4, 0, 0.022, 0.044, 0.028);
+  ellipsoid(0, 2.2, 0, 0.075, 0.12, 0.07);
+  const head = ellipsoid(0, 2.43, 0, 0.168 + fullness * 0.01, 0.215, 0.145);
+  ellipsoid(0, 2.345, 0.025, 0.14, 0.13, 0.13);
+  for (const side of [-1, 1]) ellipsoid(side * 0.167, 2.41, 0, 0.026, 0.049, 0.032);
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 28, 0, Math.PI * 2, 0, Math.PI * 0.44), new THREE.MeshStandardMaterial({ color: "#302b2b", roughness: 0.93 }));
+  hair.position.copy(head.position);
+  hair.scale.set(head.scale.x * 1.01, head.scale.y * 1.03, head.scale.z * 1.02);
+  body.add(hair);
   if (face) {
     const faceMaterial = new THREE.MeshStandardMaterial({ map: face, color: "#d2a187", transparent: true, opacity: 0.98, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1 });
     const faceMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 28, 0, Math.PI, 0, Math.PI), faceMaterial);
@@ -64,8 +87,20 @@ function humanFigure(weightKg: number, heightCm: number, skinMaterial: THREE.Mat
     faceMesh.renderOrder = 2;
     body.add(faceMesh);
   } else {
-    ellipsoid(0, 2.37, 0.115, 0.026, 0.036, 0.025);
-    for (const side of [-1, 1]) ellipsoid(side * 0.052, 2.43, 0.111, 0.012, 0.012, 0.009);
+    const eyeMaterial = new THREE.MeshStandardMaterial({ color: "#2d2b2b", roughness: 0.45 });
+    const lipMaterial = new THREE.MeshStandardMaterial({ color: "#8b5d54", roughness: 0.9 });
+    for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), eyeMaterial);
+      eye.position.set(side * 0.067, 2.475, 0.131);
+      eye.scale.set(0.014, 0.009, 0.006);
+      body.add(eye);
+      ellipsoid(side * 0.05, 2.375, 0.129, 0.057, 0.065, 0.022);
+    }
+    ellipsoid(0, 2.42, 0.146, 0.026, 0.064, 0.034);
+    const mouth = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), lipMaterial);
+    mouth.position.set(0, 2.335, 0.148);
+    mouth.scale.set(0.049, 0.008, 0.006);
+    body.add(mouth);
   }
   body.scale.y = heightScale;
   return body;

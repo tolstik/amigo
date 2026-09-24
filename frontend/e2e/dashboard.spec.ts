@@ -390,6 +390,7 @@ test("renders activity baseline and recovery without AI narrative", async ({ pag
   await expect(page.getByRole("heading", { name: "Восстановление", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Сон", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Пульс с часов" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Дневной пульс с часов" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Разбор сна за неделю" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "1 ч" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText(/Пропуски данных показаны разрывами/)).toBeVisible();
@@ -747,8 +748,20 @@ test("recovery keeps charts visible when only hourly heart rate is available", a
   await page.goto("./recovery");
   await expect(page.getByRole("heading", { name: "Восстановление", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Пульс с часов" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Дневной пульс с часов" })).toHaveCount(0);
   await expect(page.getByText("Данных сна и восстановления пока нет")).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Разбор сна за неделю" })).toHaveCount(0);
+});
+
+test("recovery shows daily watch heart rate independently from sleep and hourly samples", async ({ page }) => {
+  await page.route("**/api/v1/series/recovery?*", (route) => route.fulfill({ json: {
+    daily: [{ date: "2026-09-02", sleep_minutes: null, minimum_heart_rate_bpm: 53, average_heart_rate_bpm: 68, maximum_heart_rate_bpm: 104 }],
+    heart_rate_hourly: [], summary: {}, available_metrics: ["heart_rate"],
+  } }));
+  await page.goto("./recovery");
+  await expect(page.getByRole("heading", { name: "Дневной пульс с часов" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Сон", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Пульс с часов", exact: true })).toHaveCount(0);
 });
 
 test("body model starts paused for reduced motion and scenarios do not write data", async ({ page }) => {

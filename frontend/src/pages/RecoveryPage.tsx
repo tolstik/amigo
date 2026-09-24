@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { api, csvUrl } from "../api/client";
-import { recoveryChartOption, sleepChartOption } from "../charts/options";
+import { recoveryChartOption, sleepChartOption, watchHeartRateDailyChartOption } from "../charts/options";
 import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
 import { CorrelationPanel } from "../components/CorrelationPanel";
@@ -70,6 +70,7 @@ export function RecoveryPage() {
       ) : points.length || hourlyHeartRate.length ? (
         <>
           {points.some((point) => point.sleepMinutes !== null || point.deepSleepMinutes !== null || point.remSleepMinutes !== null) && <ChartCard title="Сон" subtitle="Общая продолжительность и доступные стадии" option={sleepChartOption(points)} ariaLabel="График продолжительности и стадий сна" height={390} />}
+          {points.some((point) => point.averageHeartRateBpm !== null || point.minimumHeartRateBpm !== null || point.maximumHeartRateBpm !== null) && <ChartCard title="Дневной пульс с часов" subtitle="Минимум, среднее и максимум по доступным дням" option={watchHeartRateDailyChartOption(points)} ariaLabel="График дневного пульса с часов" height={390} />}
           {hourlyHeartRate.length > 0 && (
             <WatchHeartRateChart points={hourlyHeartRate} />
           )}

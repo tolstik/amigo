@@ -148,9 +148,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             messages += "Xiaomi Cloud: ${cloud.uploadedBatches} пакетов"
         }
         val health = container.healthGateway
-        if (health != null && preferences.selectedOrigin() != null && health.enabledTypes().isNotEmpty()) {
-            val summary = container.sync(maxPagesPerType = 12)
-            messages += "Health Connect: ${summary.uploadedBatches} пакетов"
+        if (health != null && preferences.selectedOrigin() != null) {
+            try {
+                if (health.enabledTypes().isNotEmpty()) {
+                    val summary = container.sync(maxPagesPerType = 12)
+                    messages += "Health Connect: ${summary.uploadedBatches} пакетов"
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (messages.isEmpty()) throw error
+                messages += "Health Connect: ${userFacingSyncError(error)}"
+            }
         }
         check(messages.isNotEmpty()) { "Сначала подключите Xiaomi Cloud или Health Connect" }
         showNotice(messages.joinToString("; "))

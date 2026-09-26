@@ -172,19 +172,19 @@ grep --quiet --fixed-strings 'cmp --silent "${LEGACY_IMPORT_CANDIDATE}"' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy rewrites unchanged legacy rollback exports"
 grep --quiet --fixed-strings \
-    'https://github.com/tolstik/amigo/releases/download/v5.3.3/Amigo-1.5.2.apk' \
+    'https://github.com/tolstik/amigo/releases/download/v5.3.4/Amigo-1.5.4.apk' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not fetch the published signed Android update"
 grep --quiet --fixed-strings \
-    '9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab' \
+    '5f7dbc047659df9f24aa0b23eb08afaf6bda9219ca90e5c3ef47e67402a77c51' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not pin the signed Android update hash"
 for android_release_pin in \
-    'AMIGO_ANDROID_APK_VERSION_CODE: "19"' \
-    'AMIGO_ANDROID_APK_VERSION_NAME: "1.5.2"'; do
+    'AMIGO_ANDROID_APK_VERSION_CODE: "21"' \
+    'AMIGO_ANDROID_APK_VERSION_NAME: "1.5.4"'; do
     grep --quiet --fixed-strings "${android_release_pin}" \
         "${PROJECT_ROOT}/compose.yaml" \
-        || amigo_die "Compose does not pin the Android 1.5.2 metadata contract"
+        || amigo_die "Compose does not pin the Android 1.5.4 metadata contract"
 done
 grep --quiet --fixed-strings 'EXPECTED_ANDROID_APK_SIZE_BYTES=3520750' \
     "${SCRIPT_DIR}/verify-production.sh" \

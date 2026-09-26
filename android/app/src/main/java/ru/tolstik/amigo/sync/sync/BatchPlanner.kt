@@ -1,5 +1,6 @@
 package ru.tolstik.amigo.sync.sync
 
+import java.security.MessageDigest
 import java.time.Instant
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -62,14 +63,20 @@ class BatchPlanner(
     ): List<BatchEnvelope> {
         if (sourceRecords.isEmpty()) return emptyList()
         return partition(sourceRecords) { records, chunkIndex, _ ->
-            BatchEnvelope(
-                batchId = stableId("changes-v2", type.wireName, sourceToken, chunkIndex.toString()),
+            val unsigned = BatchEnvelope(
+                batchId = "pending",
                 mode = BatchMode.CHANGES,
                 recordType = type,
                 dataOrigin = origin,
                 // A deletion has no provider timestamp. EPOCH keeps retry JSON byte-identical.
                 dataAsOf = records.mapNotNull(ExportRecord::dataAsOf).maxOrNull() ?: Instant.EPOCH,
                 records = records,
+            )
+            val bodyHash = MessageDigest.getInstance("SHA-256")
+                .digest(CanonicalJson.encode(unsigned.toJson()))
+                .joinToString("") { "%02x".format(it) }
+            unsigned.copy(
+                batchId = stableId("changes-v3", type.wireName, sourceToken, chunkIndex.toString(), bodyHash),
             )
         }
     }

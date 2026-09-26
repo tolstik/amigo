@@ -154,6 +154,23 @@ class XiaomiSyncQueueTest {
     }
 
     @Test
+    fun pendingStepCorrectionUsesMonthlyShareUntilFinishedWithoutBlockingOtherLanes() {
+        preferences.completeHistoryWindow(XiaomiMetric.STEPS, now.minusSeconds(90 * 86_400L), null)
+        preferences.prepareStepReconciliationUpgrade(now)
+        val correctionTarget = preferences.stepCorrectionTarget()!!
+        queue.prepare(now, 30, XiaomiSyncMode.ROUTINE, correctionTarget)
+        val correction = XiaomiPageWork(XiaomiMetric.STEPS, XiaomiCursorLane.REFRESH)
+
+        val calls = (1..40).map { XiaomiSyncQueue(XiaomiSyncPreferences(storage), floor).next(emptySet())!! }
+        assertEquals(32, calls.count { it.lane == XiaomiCursorLane.RECENT })
+        assertEquals(4, calls.count { it == correction })
+        assertEquals(4, calls.count { it.lane == XiaomiCursorLane.HISTORY })
+
+        val blockedCalls = (1..10).map { queue.next(setOf(correction))!! }
+        assertTrue(blockedCalls.any { it.lane == XiaomiCursorLane.REFRESH && it.metric != XiaomiMetric.STEPS })
+    }
+
+    @Test
     fun failedMetricIsSkippedWithinRunAndResumedWithTheSameCursorNextRun() {
         queue.prepare(now, 3, XiaomiSyncMode.ROUTINE)
         val failed = queue.next(emptySet())!!

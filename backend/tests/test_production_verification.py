@@ -143,14 +143,16 @@ def test_weight_probe_rejects_averages_and_invalid_period_endpoints(tmp_path, pe
 
 def test_update_probe_uses_the_installed_apk_size_and_hash(tmp_path):
     payload = {
-        "version_code": 19,
-        "version_name": "1.5.2",
+        "version_code": 21,
+        "version_name": "1.5.4",
         "sha256": EXPECTED_APK_SHA256,
         "size_bytes": EXPECTED_APK_SIZE,
         "download_url": "/amigo/api/v1/app-update/apk",
     }
     assert probe(tmp_path, "update", payload).returncode == 0
     for field, value in (
+        ("version_code", 20),
+        ("version_name", "1.5.3"),
         ("size_bytes", EXPECTED_APK_SIZE + 1),
         ("sha256", "0" * 64),
     ):

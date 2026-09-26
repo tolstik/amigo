@@ -5,8 +5,8 @@ import org.junit.Test
 
 class AppVersionTest {
     @Test
-    fun releaseIdentityIsVersionOneFiveTwo() {
-        assertEquals(19, BuildConfig.VERSION_CODE)
-        assertEquals("1.5.2", BuildConfig.VERSION_NAME.removeSuffix("-debug"))
+    fun releaseIdentityIsVersionOneFiveFour() {
+        assertEquals(21, BuildConfig.VERSION_CODE)
+        assertEquals("1.5.4", BuildConfig.VERSION_NAME.removeSuffix("-debug"))
     }
 }

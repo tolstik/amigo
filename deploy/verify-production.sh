@@ -431,7 +431,7 @@ parser_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destinati
     || amigo_die "isolated parser unexpectedly mounts laboratory originals"
 amigo_log "PASS root-only laboratory originals and least-privilege mounts"
 
-readonly EXPECTED_ANDROID_APK_SHA256="9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab"
+readonly EXPECTED_ANDROID_APK_SHA256="5f7dbc047659df9f24aa0b23eb08afaf6bda9219ca90e5c3ef47e67402a77c51"
 readonly EXPECTED_ANDROID_APK_SIZE_BYTES=3520750
 [[ -f "${AMIGO_ANDROID_APK}" && ! -L "${AMIGO_ANDROID_APK}" ]] \
     || amigo_die "signed Android update is missing or is a symlink"
@@ -441,9 +441,9 @@ readonly EXPECTED_ANDROID_APK_SIZE_BYTES=3520750
     || amigo_die "signed Android update is not owned by root:root"
 [[ "$(sha256sum "${AMIGO_ANDROID_APK}" | awk '{ print $1 }')" \
     == "${EXPECTED_ANDROID_APK_SHA256}" ]] \
-    || amigo_die "installed Android update hash differs from signed 1.5.2"
+    || amigo_die "installed Android update hash differs from signed 1.5.4"
 [[ "$(stat -c '%s' "${AMIGO_ANDROID_APK}")" -eq "${EXPECTED_ANDROID_APK_SIZE_BYTES}" ]] \
-    || amigo_die "installed Android update size differs from signed 1.5.2"
+    || amigo_die "installed Android update size differs from signed 1.5.4"
 web_android_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/android"}}{{.Source}}|{{.RW}}{{end}}{{end}}' "${web_container}")"
 [[ "${web_android_mount}" == "$(dirname -- "${AMIGO_ANDROID_APK}")|false" ]] \
     || amigo_die "web Android update mount is missing, writable, or sourced unexpectedly"
@@ -511,7 +511,7 @@ with SessionLocal() as db:
 [[ "${ANALYTE_GUIDE_STATE}" =~ ^[0-9]+\|[0-9]+\|[0-9]+\|[0-9]+$ ]] \
     || amigo_die "analyte guide queue state is malformed"
 amigo_log "INFO analyte guide counts (missing|active|failed|generated): ${ANALYTE_GUIDE_STATE}; generation does not gate deployment"
-amigo_log "PASS database-owned originals, repaired laboratory dates, and signed Android 1.5.2 artifact"
+amigo_log "PASS database-owned originals, repaired laboratory dates, and signed Android 1.5.4 artifact"
 
 check_loopback_listener() {
     local port=$1
@@ -1021,8 +1021,8 @@ elif contract == "analyte-guide":
         raise SystemExit("laboratory analyte guide contract is incomplete")
 elif contract == "update":
     if (
-        payload.get("version_code") != 19
-        or payload.get("version_name") != "1.5.2"
+        payload.get("version_code") != 21
+        or payload.get("version_name") != "1.5.4"
         or payload.get("sha256") != sys.argv[4]
         or payload.get("download_url") != "/amigo/api/v1/app-update/apk"
         or payload.get("size_bytes") != int(sys.argv[3])

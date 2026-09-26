@@ -38,7 +38,9 @@ class SyncWorker(
         return try {
             var didWork = false
             var needsContinuation = false
+            var continuationScheduled = false
             var cloudFailure: Exception? = null
+            var healthFailure: Exception? = null
             if (container.xiaomiPreferences.enabled()) {
                 didWork = true
                 try {
@@ -54,6 +56,10 @@ class SyncWorker(
                         },
                     )
                     needsContinuation = cloud.needsContinuation
+                    if (needsContinuation) {
+                        SyncScheduler.continueBackfill(applicationContext)
+                        continuationScheduled = true
+                    }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -63,26 +69,49 @@ class SyncWorker(
                 }
             }
             val health = container.healthGateway
-            val healthReady = health != null &&
-                container.preferences.selectedOrigin() != null &&
-                health.enabledTypes().isNotEmpty()
-            if (healthReady) {
-                val permissions = health!!.permissionStatus()
-                if (permissions.backgroundAvailable && permissions.backgroundGranted) {
-                    val summary = container.sync(maxPagesPerType = 4)
-                    didWork = true
-                    needsContinuation = needsContinuation ||
-                        summary.completedTypes < health.enabledTypes().size
+            try {
+                val healthReady = health != null &&
+                    container.preferences.selectedOrigin() != null &&
+                    health.enabledTypes().isNotEmpty()
+                if (healthReady) {
+                    val permissions = health!!.permissionStatus()
+                    if (permissions.backgroundAvailable && permissions.backgroundGranted) {
+                        didWork = true
+                        val summary = container.sync(maxPagesPerType = 4)
+                        needsContinuation = needsContinuation ||
+                            summary.completedTypes < health.enabledTypes().size
+                    }
                 }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                didWork = true
+                healthFailure = error
             }
             if (!didWork) {
                 container.preferences.markBackgroundFinished(runId, "not_ready")
                 return Result.success()
             }
-            if (needsContinuation) {
+            if (needsContinuation && !continuationScheduled) {
                 SyncScheduler.continueBackfill(applicationContext)
             }
             cloudFailure?.let { throw it }
+            if (healthFailure != null) {
+                // Preserve the usual retry policy when no Xiaomi continuation depends
+                // on this worker succeeding (including Health Connect-only setups).
+                if (!continuationScheduled) throw healthFailure
+                container.preferences.markBackgroundFinished(
+                    runId,
+                    if (healthFailure is SecurityException) "permission_revoked" else "health_connect_failed",
+                    if (healthFailure is SecurityException) {
+                        "Разрешение Health Connect было отозвано"
+                    } else {
+                        userFacingSyncError(healthFailure)
+                    },
+                )
+                // A rollback-history error must not fail an already queued Xiaomi continuation.
+                return Result.success()
+            }
             container.preferences.markBackgroundFinished(
                 runId,
                 if (needsContinuation) "backfill_continues" else "success",
@@ -128,8 +157,10 @@ class SyncWorker(
 
 object SyncScheduler {
     private const val UNIQUE_WORK = "amigo-health-connect-hourly"
-    private const val IMMEDIATE_WORK = "amigo-health-connect-immediate"
-    private const val BACKFILL_WORK = "amigo-health-connect-backfill"
+    // New unique chains leave pre-fix Health Connect retry backoff (including the 1.5.3 candidate) behind.
+    // Persisted Xiaomi/Health cursors are independent of WorkManager work names.
+    private const val IMMEDIATE_WORK = "amigo-health-connect-immediate-v154"
+    private const val BACKFILL_WORK = "amigo-health-connect-backfill-v154"
     private const val XIAOMI_WEEKLY_WORK = "amigo-xiaomi-cloud-weekly-reconcile"
     internal const val INPUT_XIAOMI_REFRESH_DAYS = "xiaomi_refresh_days"
     internal const val INPUT_XIAOMI_BACKFILL_CONTINUATION =

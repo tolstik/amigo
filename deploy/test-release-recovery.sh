@@ -176,7 +176,7 @@ grep --quiet --fixed-strings \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not fetch the published signed Android update"
 grep --quiet --fixed-strings \
-    '4e9fc3c31cdc211c7e7106a503b5b053c2031344860c12dd1e84effd3eef3c34' \
+    '5f7dbc047659df9f24aa0b23eb08afaf6bda9219ca90e5c3ef47e67402a77c51' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not pin the signed Android update hash"
 for android_release_pin in \

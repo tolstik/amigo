@@ -107,7 +107,7 @@ export AMIGO_IMAGE_TAG="${RELEASE_SHA}"
 CANDIDATE_IMAGE_SOURCE="ghcr.io/tolstik/amigo:${RELEASE_SHA}"
 readonly CANDIDATE_IMAGE_SOURCE
 readonly ANDROID_APK_URL="https://github.com/tolstik/amigo/releases/download/v5.3.4/Amigo-1.5.4.apk"
-readonly ANDROID_APK_SHA256="4e9fc3c31cdc211c7e7106a503b5b053c2031344860c12dd1e84effd3eef3c34"
+readonly ANDROID_APK_SHA256="5f7dbc047659df9f24aa0b23eb08afaf6bda9219ca90e5c3ef47e67402a77c51"
 amigo_log "candidate Git SHA: ${RELEASE_SHA}"
 amigo_log "automatic recovery target: ${PREVIOUS_RELEASE_SHA}"
 

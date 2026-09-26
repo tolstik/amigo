@@ -431,7 +431,7 @@ parser_lab_mount="$(docker inspect --format '{{range .Mounts}}{{if eq .Destinati
     || amigo_die "isolated parser unexpectedly mounts laboratory originals"
 amigo_log "PASS root-only laboratory originals and least-privilege mounts"
 
-readonly EXPECTED_ANDROID_APK_SHA256="4e9fc3c31cdc211c7e7106a503b5b053c2031344860c12dd1e84effd3eef3c34"
+readonly EXPECTED_ANDROID_APK_SHA256="5f7dbc047659df9f24aa0b23eb08afaf6bda9219ca90e5c3ef47e67402a77c51"
 readonly EXPECTED_ANDROID_APK_SIZE_BYTES=3520750
 [[ -f "${AMIGO_ANDROID_APK}" && ! -L "${AMIGO_ANDROID_APK}" ]] \
     || amigo_die "signed Android update is missing or is a symlink"

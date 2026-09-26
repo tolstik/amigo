@@ -157,10 +157,10 @@ class SyncWorker(
 
 object SyncScheduler {
     private const val UNIQUE_WORK = "amigo-health-connect-hourly"
-    // New unique chains leave pre-fix Health Connect retry backoff behind on upgrade.
+    // New unique chains leave pre-fix Health Connect retry backoff (including the 1.5.3 candidate) behind.
     // Persisted Xiaomi/Health cursors are independent of WorkManager work names.
-    private const val IMMEDIATE_WORK = "amigo-health-connect-immediate-v153"
-    private const val BACKFILL_WORK = "amigo-health-connect-backfill-v153"
+    private const val IMMEDIATE_WORK = "amigo-health-connect-immediate-v154"
+    private const val BACKFILL_WORK = "amigo-health-connect-backfill-v154"
     private const val XIAOMI_WEEKLY_WORK = "amigo-xiaomi-cloud-weekly-reconcile"
     internal const val INPUT_XIAOMI_REFRESH_DAYS = "xiaomi_refresh_days"
     internal const val INPUT_XIAOMI_BACKFILL_CONTINUATION =

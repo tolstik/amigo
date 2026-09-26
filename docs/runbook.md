@@ -231,7 +231,7 @@ backup. Теперь checkpoint сам создаёт локальный documen
    [`Amigo-1.5.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.4/Amigo-1.5.4.apk)
    из GitHub release
    [`v5.3.4`](https://github.com/tolstik/amigo/releases/tag/v5.3.4) и сверить SHA-256
-   `4e9fc3c31cdc211c7e7106a503b5b053c2031344860c12dd1e84effd3eef3c34`
+   `5f7dbc047659df9f24aa0b23eb08afaf6bda9219ca90e5c3ef47e67402a77c51`
    и размер `3 520 750` bytes.
    Signing certificate SHA-256 должен быть
    `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
@@ -630,7 +630,7 @@ steps в PDF явно обозначены как Xiaomi Cloud-only. Вес в e
    ```
 
    SHA-256 asset `Amigo-1.5.4.apk`:
-   `4e9fc3c31cdc211c7e7106a503b5b053c2031344860c12dd1e84effd3eef3c34`;
+   `5f7dbc047659df9f24aa0b23eb08afaf6bda9219ca90e5c3ef47e67402a77c51`;
    размер `3 520 750` bytes.
    Upgrade через `adb install -r` сохраняет pairing state, non-exportable
    Android Keystore key, выбранный Mi Fitness origin и курсоры остальных

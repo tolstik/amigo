@@ -81,7 +81,7 @@
       [`Amigo-1.5.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.4/Amigo-1.5.4.apk)
       из release [`v5.3.4`](https://github.com/tolstik/amigo/releases/tag/v5.3.4);
       его SHA-256 равен
-      `4e9fc3c31cdc211c7e7106a503b5b053c2031344860c12dd1e84effd3eef3c34`, размер
+      `5f7dbc047659df9f24aa0b23eb08afaf6bda9219ca90e5c3ef47e67402a77c51`, размер
       равен `3 520 750` bytes, а
       signing certificate SHA-256 равен
       `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.

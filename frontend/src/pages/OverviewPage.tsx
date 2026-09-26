@@ -150,7 +150,7 @@ export function OverviewPage() {
       ) : preview.loading ? <LoadingState compact /> : preview.error ? (
         <ErrorState message={preview.error.message} onRetry={preview.reload} />
       ) : null}
-      {profile.data && <Suspense fallback={<LoadingState compact />}><BodyModel latestKg={weight.latestKg} heightCm={profile.data.height_cm} startKg={plan.startWeightKg} targetKg={plan.targetWeightKg} /></Suspense>}
+      {profile.data && <Suspense fallback={<LoadingState compact />}><BodyModel latestKg={weight.latestKg} latestAt={weight.latestAt} heightCm={profile.data.height_cm} startKg={plan.startWeightKg} targetKg={plan.targetWeightKg} /></Suspense>}
     </>
   );
 }

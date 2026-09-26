@@ -185,6 +185,7 @@ test.beforeEach(async ({ page }) => {
     if (path.endsWith("/auth/session")) return route.fulfill({ json: session });
     if (path.endsWith("/auth/login")) return route.fulfill({ json: session });
     if (path.endsWith("/auth/logout")) return route.fulfill({ status: 204 });
+    if (path.endsWith("/profile/body-model-assets")) return route.fulfill({ status: 404, json: { detail: "body_model_assets_unavailable" } });
     if (path.endsWith("/profile")) return route.fulfill({ json: profile });
     if (path.endsWith("/series/circumference")) return route.fulfill({ json: {
       range: "1y", unit: "cm", points: [{ measured_on: "2026-09-01", waist_cm: 96.5, hip_cm: 108.0 }, { measured_on: "2026-09-02", waist_cm: null, hip_cm: 107.5 }], meta: { range: "1y", from: "2026-09-01", to: "2026-09-02", count: 2, timezone: "Europe/Moscow" },
@@ -764,23 +765,83 @@ test("recovery shows daily watch heart rate independently from sleep and hourly 
   await expect(page.getByRole("heading", { name: "Пульс с часов", exact: true })).toHaveCount(0);
 });
 
-test("body model starts paused for reduced motion and scenarios do not write data", async ({ page }) => {
-  if (process.env.AMIGO_TEST_FACE_PNG) {
-    await page.route("**/api/v1/profile/body-face", (route) => route.fulfill({ contentType: "image/png", path: process.env.AMIGO_TEST_FACE_PNG }));
-  }
+test("body model uses exact API weights and controls stay read-only", async ({ page }) => {
+  test.setTimeout(60000);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const writes: string[] = [];
   page.on("request", (request) => { if (request.method() !== "GET") writes.push(request.url()); });
   await page.goto("./");
   const model = page.locator(".body-model");
+  await expect(model).toBeVisible({ timeout: 20000 });
+  await model.locator(".body-model__stage").scrollIntoViewIfNeeded();
   await expect(model.getByRole("button", { name: "Вращать модели" })).toHaveAttribute("aria-pressed", "false");
-  await expect(model.locator("canvas")).toBeVisible();
+  await expect(model.locator("canvas")).toBeVisible({ timeout: 20000 });
   await expect(model.locator(".body-model__label")).toHaveCount(3);
-  await expect(model).toContainText("Старт");
-  await expect(model).toContainText("Сейчас");
-  await expect(model).toContainText("Цель");
-  await expect(model).toContainText("76,5 кг");
+  await expect(model).toContainText("127,03 кг");
   await expect(model).toContainText("125,5 кг");
+  await expect(model).toContainText("76,5 кг");
+  await expect(model).toContainText("01 сент. 2026");
+  for (const view of ["Анфас", "Профиль", "Спина"]) {
+    const button = model.getByRole("button", { name: view });
+    await button.click();
+    await expect(button).toHaveAttribute("aria-pressed", "true");
+  }
+  for (const label of ["Крупно", "Худи", "Очки"]) {
+    const button = model.getByRole("button", { name: label });
+    await button.click();
+    await expect(button).toHaveAttribute("aria-pressed", label === "Худи" ? "false" : "true");
+  }
+  await model.getByRole("button", { name: "Вращать модели" }).click();
+  await expect(model.getByRole("button", { name: "Остановить вращение" })).toHaveAttribute("aria-pressed", "true");
   expect(writes).toEqual([]);
-  await model.screenshot({ path: `/tmp/amigo-body-${test.info().project.name}.png` });
+});
+
+test("body model leaves current slot empty without a Withings measurement", async ({ page }) => {
+  test.setTimeout(60000);
+  await page.route("**/api/v1/overview", (route) => route.fulfill({ json: {
+    ...overview, weight: { ...overview.weight, latest_kg: null, latest_at: null },
+  } }));
+  await page.goto("./");
+  await expect(page.locator(".body-model")).toBeVisible({ timeout: 20000 });
+  await page.locator(".body-model__stage").scrollIntoViewIfNeeded();
+  const current = page.locator(".body-model__label").nth(1);
+  await expect(current).toContainText("Сейчас");
+  await expect(current).toContainText("Нет замера");
+  await expect(current).not.toContainText("127,03 кг");
+});
+
+test("body model responds to a refreshed real measurement", async ({ page }) => {
+  test.setTimeout(60000);
+  let latestKg = 125.5;
+  await page.route("**/api/v1/overview", (route) => route.fulfill({ json: {
+    ...overview, weight: { ...overview.weight, latest_kg: latestKg },
+  } }));
+  await page.goto("./");
+  await expect(page.locator(".body-model")).toBeVisible({ timeout: 20000 });
+  await page.locator(".body-model__stage").scrollIntoViewIfNeeded();
+  const current = page.locator(".body-model__label").nth(1);
+  await expect(current).toContainText("125,5 кг");
+  latestKg = 124.75;
+  await page.reload();
+  await expect(page.locator(".body-model")).toBeVisible({ timeout: 20000 });
+  await expect(current).toContainText("124,75 кг");
+});
+
+test("body model remains usable across themes and page visits", async ({ page }) => {
+  test.setTimeout(60000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("./");
+  const model = page.locator(".body-model");
+  await expect(model).toBeVisible({ timeout: 20000 });
+  await model.locator(".body-model__stage").scrollIntoViewIfNeeded();
+  await expect(model.locator("canvas")).toBeVisible({ timeout: 20000 });
+  for (const theme of ["dark", "ocean", "sunset", "light"]) {
+    await page.getByRole("combobox", { name: "Тема оформления" }).selectOption(theme);
+    await expect(model.locator("canvas")).toBeVisible({ timeout: 20000 });
+  }
+  await page.goto("./progress");
+  await page.goto("./");
+  await expect(page.locator(".body-model")).toBeVisible({ timeout: 20000 });
+  await page.locator(".body-model__stage").scrollIntoViewIfNeeded();
+  await expect(page.locator(".body-model canvas")).toBeVisible({ timeout: 20000 });
 });

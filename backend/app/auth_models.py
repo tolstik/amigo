@@ -72,10 +72,12 @@ class UserProfile(Base):
 
 
 class UserBodyFace(Base):
-    """Private normalized face texture; never part of any health/AI snapshot."""
+    """Private face texture and optional model assets; never in health/AI snapshots."""
 
     __tablename__ = "user_body_face"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    model_assets_version: Mapped[int | None] = mapped_column(Integer)
+    model_assets_content: Mapped[bytes | None] = mapped_column(LargeBinary)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)

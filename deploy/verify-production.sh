@@ -661,6 +661,7 @@ for protected_path in \
     api/v1/auth/session \
     api/v1/overview \
     api/v1/profile/body-face \
+    api/v1/profile/body-model-assets \
     api/v1/series/swimming \
     'api/v1/data-quality?range=30d' \
     api/v1/export/weight.csv \
@@ -1075,6 +1076,61 @@ PYFACE
 fi
 rm -f -- "${API_BODY}"
 amigo_log "PASS optional body face is authenticated, no-store and bounded; no image data logged"
+
+BODY_MODEL_EXPECTED="$(amigo_compose exec -T web python -c '
+from app.auth_models import UserBodyFace
+from app.db import SessionLocal
+with SessionLocal() as db:
+    row = db.get(UserBodyFace, 1)
+    print("200" if row is not None and row.model_assets_version == 1 and row.model_assets_content is not None else "404")
+')"
+BODY_MODEL_STATUS="$(curl --config "${AUTH_CURL_CONFIG}" \
+    --max-filesize 12582912 \
+    --dump-header "${API_HEADERS}" --output "${API_BODY}" --write-out '%{http_code}' \
+    "${AMIGO_PUBLIC_URL}api/v1/profile/body-model-assets")"
+[[ "${BODY_MODEL_STATUS}" == "${BODY_MODEL_EXPECTED}" ]] \
+    || amigo_die "private body model assets status differs from database presence"
+require_header '^cache-control:.*no-store' "${API_HEADERS}"
+if [[ "${BODY_MODEL_STATUS}" == "200" ]]; then
+    require_header '^content-type:[[:space:]]*application/json' "${API_HEADERS}"
+    python3 - "${API_BODY}" <<'PYMODEL'
+import base64
+import binascii
+import json
+from pathlib import Path
+import struct
+import sys
+
+content = Path(sys.argv[1]).read_bytes()
+if not 0 < len(content) <= 12 * 1024 * 1024:
+    raise SystemExit("private body model response size is invalid")
+payload = json.loads(content)
+if not isinstance(payload, dict) or payload.get("version") != 1:
+    raise SystemExit("private body model version is invalid")
+head, ear = payload.get("head"), payload.get("ear")
+if not isinstance(head, dict) or not isinstance(ear, dict):
+    raise SystemExit("private body model geometry is missing")
+if not {"nr", "seg", "q", "pos", "skin", "anchors", "crown", "bottom", "tex"} <= head.keys():
+    raise SystemExit("private body model head contract is incomplete")
+if not {"pos", "uv", "idx", "top", "tex"} <= ear.keys():
+    raise SystemExit("private body model ear contract is incomplete")
+for label, texture in (("head", head["tex"]), ("ear", ear["tex"])):
+    prefix = "data:image/png;base64,"
+    if not isinstance(texture, str) or not texture.startswith(prefix):
+        raise SystemExit("private body model texture is not a PNG data URL")
+    try:
+        png = base64.b64decode(texture[len(prefix):], validate=True)
+    except (ValueError, binascii.Error):
+        raise SystemExit("private body model texture encoding is invalid") from None
+    if not png.startswith(b"\x89PNG\r\n\x1a\n") or png[12:16] != b"IHDR" or len(png) < 24:
+        raise SystemExit("private body model texture is not PNG")
+    width, height = struct.unpack(">II", png[16:24])
+    if label == "head" and (width, height) != (2048, 1024):
+        raise SystemExit("private body model head atlas has wrong dimensions")
+PYMODEL
+fi
+rm -f -- "${API_BODY}"
+amigo_log "PASS optional private body model assets are authenticated, no-store and bounded; no resource data logged"
 
 amigo_compose exec -T web python -c '
 from datetime import datetime, timedelta

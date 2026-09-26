@@ -385,3 +385,21 @@ def get_body_face(db: Session = Depends(get_db)) -> Response:
     if row is None:
         raise HTTPException(status_code=404, detail="body_face_unavailable")
     return Response(content=row.content, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@profile_router.get("/body-model-assets")
+def get_body_model_assets(db: Session = Depends(get_db)) -> Response:
+    from .auth_models import UserBodyFace
+
+    row = db.get(UserBodyFace, 1)
+    if row is None or row.model_assets_version != 1 or row.model_assets_content is None:
+        raise HTTPException(
+            status_code=404,
+            detail="body_model_assets_unavailable",
+            headers={"Cache-Control": "no-store"},
+        )
+    return Response(
+        content=row.model_assets_content,
+        media_type="application/json",
+        headers={"Cache-Control": "no-store"},
+    )

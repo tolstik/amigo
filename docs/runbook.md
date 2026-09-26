@@ -228,9 +228,9 @@ backup. Теперь checkpoint сам создаёт локальный documen
    авторизован только для чтения package. OCI label
    `org.opencontainers.image.revision` должен совпадать с `GIT_SHA`.
 9. Для Android `1.5.2` (`versionCode 19`) использовать signed
-   [`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.2/Amigo-1.5.2.apk)
+   [`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.3/Amigo-1.5.2.apk)
    из GitHub release
-   [`v5.3.2`](https://github.com/tolstik/amigo/releases/tag/v5.3.2) и сверить SHA-256
+   [`v5.3.3`](https://github.com/tolstik/amigo/releases/tag/v5.3.3) и сверить SHA-256
    `9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab`
    и размер `3 520 750` bytes.
    Signing certificate SHA-256 должен быть
@@ -620,8 +620,8 @@ steps в PDF явно обозначены как Xiaomi Cloud-only. Вес в e
 ## Android APK, pairing и backfill
 
 1. Установить проверенный signed Android `1.5.2` (`versionCode 19`) —
-   [`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.2/Amigo-1.5.2.apk)
-   из release [`v5.3.2`](https://github.com/tolstik/amigo/releases/tag/v5.3.2) —
+   [`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.3/Amigo-1.5.2.apk)
+   из release [`v5.3.3`](https://github.com/tolstik/amigo/releases/tag/v5.3.3) —
    или обновить предыдущий signed `1.5.1` из
    [`v5.3.1`](https://github.com/tolstik/amigo/releases/tag/v5.3.1):
 

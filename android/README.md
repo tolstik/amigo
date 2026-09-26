@@ -8,8 +8,8 @@ to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
 Signed release `1.5.2` (`versionCode 19`) for project release
-[`v5.3.2`](https://github.com/tolstik/amigo/releases/tag/v5.3.2):
-[`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.2/Amigo-1.5.2.apk),
+[`v5.3.3`](https://github.com/tolstik/amigo/releases/tag/v5.3.3):
+[`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.3/Amigo-1.5.2.apk),
 SHA-256
 `9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab`, size
 `3,520,750` bytes. The signing-certificate SHA-256 is
@@ -22,7 +22,7 @@ from monthly reconciliation and increased each run's budget to 40 provider
 pages, starting no new page after 90 seconds. The server coverage selector
 prefers newer recent snapshots over older monthly snapshots that finish later.
 
-The previous published release is `1.5.1` from
+The previous Android version is `1.5.1` from
 [`v5.3.1`](https://github.com/tolstik/amigo/releases/tag/v5.3.1):
 [`Amigo-1.5.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.1/Amigo-1.5.1.apk),
 SHA-256 `0d171cdcc49a7e340f42bbc2c2c0f6fa4c095d1c70ce47eb1413b28f95a40f44`,

@@ -762,7 +762,7 @@ check_authenticated_json_api() {
         --output "${API_BODY}" \
         "${AMIGO_PUBLIC_URL}${path}"
     require_header '^cache-control:.*no-store' "${API_HEADERS}"
-    python3 - "${API_BODY}" "${contract}" <<'PY'
+    python3 - "${API_BODY}" "${contract}" "${EXPECTED_ANDROID_APK_SIZE_BYTES}" "${EXPECTED_ANDROID_APK_SHA256}" <<'PY'
 from pathlib import Path
 import json
 import re
@@ -1023,9 +1023,9 @@ elif contract == "update":
     if (
         payload.get("version_code") != 19
         or payload.get("version_name") != "1.5.2"
-        or payload.get("sha256") != "9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab"
+        or payload.get("sha256") != sys.argv[4]
         or payload.get("download_url") != "/amigo/api/v1/app-update/apk"
-        or payload.get("size_bytes") != 3530505
+        or payload.get("size_bytes") != int(sys.argv[3])
     ):
         raise SystemExit("Android update metadata contract is incomplete")
 else:

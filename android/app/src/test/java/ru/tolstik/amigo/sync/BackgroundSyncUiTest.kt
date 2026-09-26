@@ -27,5 +27,6 @@ class BackgroundSyncUiTest {
         assertEquals("Выполняется", backgroundResultLabel("running"))
         assertEquals("Остановлено системой", backgroundResultLabel("cancelled"))
         assertEquals("История загружается частями", backgroundResultLabel("backfill_continues"))
+        assertEquals("Ошибка Health Connect", backgroundResultLabel("health_connect_failed"))
     }
 }

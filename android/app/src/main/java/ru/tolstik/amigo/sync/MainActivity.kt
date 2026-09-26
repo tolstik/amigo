@@ -111,6 +111,7 @@ internal fun backgroundResultLabel(value: String?): String = when (value) {
     "not_paired" -> "Телефон не сопряжён"
     "not_ready" -> "Синхронизация ещё не настроена"
     "health_connect_unavailable" -> "Health Connect недоступен"
+    "health_connect_failed" -> "Ошибка Health Connect"
     "background_permission_missing" -> "Нет фонового разрешения"
     "permission_revoked" -> "Разрешение отозвано"
     "server_unavailable" -> "Сервер временно недоступен"

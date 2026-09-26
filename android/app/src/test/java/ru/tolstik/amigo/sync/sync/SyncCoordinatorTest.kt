@@ -667,6 +667,22 @@ class SyncCoordinatorTest {
     }
 
     @Test
+    fun changedHealthPageWithSameTokenGetsNewBatchIdentity() {
+        val planner = BatchPlanner()
+        val original = record("changing")
+        val corrected = original.copy(values = buildJsonObject { put("count", 125) })
+
+        val first = planner.changes(RecordType.STEPS, origin, "same-token", listOf(original)).single()
+        val replay = planner.changes(RecordType.STEPS, origin, "same-token", listOf(original)).single()
+        val changed = planner.changes(RecordType.STEPS, origin, "same-token", listOf(corrected)).single()
+
+        assertEquals(first.batchId, replay.batchId)
+        assertArrayEquals(CanonicalJson.encode(first.toJson()), CanonicalJson.encode(replay.toJson()))
+        assertTrue(first.batchId != changed.batchId)
+        assertTrue(planner.encodedSize(changed) < INGEST_BODY_LIMIT_BYTES)
+    }
+
+    @Test
     fun currentProviderIntervalUsesModificationTimeInsteadOfFutureEndBoundary() {
         val record = ExportRecord(
             recordId = "in-progress-steps",

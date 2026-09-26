@@ -102,6 +102,15 @@ internal class XiaomiSyncQueue(
         }
         val lanes = (listOf(preferred) + XiaomiCursorLane.entries).distinct()
         for (lane in lanes) {
+            // Finish the one-time step correction before rotating through unrelated
+            // monthly metrics. The persisted 8:1:1 lane allocation stays unchanged.
+            val correction = XiaomiPageWork(XiaomiMetric.STEPS, XiaomiCursorLane.REFRESH)
+            if (lane == XiaomiCursorLane.REFRESH && preferences.stepCorrectionTarget() != null &&
+                correction !in blocked && available(correction)
+            ) {
+                preferences.advancePageTurn()
+                return correction
+            }
             val start = preferences.nextMetricIndex(lane)
             for (offset in XiaomiMetric.entries.indices) {
                 val index = (start + offset).mod(XiaomiMetric.entries.size)

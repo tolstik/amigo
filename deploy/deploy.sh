@@ -7,6 +7,9 @@ readonly SCRIPT_DIR
 # shellcheck source=lib/common.sh
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/common.sh"
+# shellcheck source=lib/private-staging.sh
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/private-staging.sh"
 
 usage() {
     cat >&2 <<'USAGE'
@@ -139,6 +142,10 @@ EXISTING_INGEST_STOPPED=0
 EXISTING_INGEST_WAS_RUNNING=0
 EXISTING_LAB_PARSER_STOPPED=0
 EXISTING_LAB_PARSER_WAS_RUNNING=0
+BODY_FACE_STAGING_IMPORTED=0
+BODY_MODEL_STAGING_IMPORTED=0
+BODY_FACE_STAGING_ID=""
+BODY_MODEL_STAGING_ID=""
 
 deploy_error() {
     local status=$1
@@ -270,9 +277,23 @@ amigo_compose run --rm --no-deps worker python -m app.cli bootstrap
 # Optional private texture explicitly staged by the operator, outside Git/images.
 # The bounded reader rejects symlinks and requires a 0600 tolstik-owned file.
 if [[ -e /home/tolstik/amigo-body-face.png || -L /home/tolstik/amigo-body-face.png ]]; then
+    BODY_FACE_STAGING_ID="$(amigo_private_staging_identity /home/tolstik/amigo-body-face.png)" \
+        || amigo_die "private body texture staging is not a regular file"
     amigo_log "importing the explicitly staged private body texture"
     python3 "${SCRIPT_DIR}/read-body-face.py" \
         | amigo_compose run --rm --no-deps -T web python -m app.body_face
+    BODY_FACE_STAGING_IMPORTED=1
+fi
+
+# Optional private HTML is read without executing its scripts and imported as
+# validated geometry/PNG assets. Keep staging on failure for a safe retry.
+if [[ -e /home/tolstik/amigo-body-model.html || -L /home/tolstik/amigo-body-model.html ]]; then
+    BODY_MODEL_STAGING_ID="$(amigo_private_staging_identity /home/tolstik/amigo-body-model.html)" \
+        || amigo_die "private body model staging is not a regular file"
+    amigo_log "importing the explicitly staged private body model resources"
+    python3 "${SCRIPT_DIR}/read-body-model.py" \
+        | amigo_compose run --rm --no-deps -T web python -m app.body_model_assets
+    BODY_MODEL_STAGING_IMPORTED=1
 fi
 
 amigo_log "copying and verifying legacy laboratory originals in PostgreSQL"
@@ -395,6 +416,29 @@ CUTOVER_COMMITTED=1
 
 amigo_log "runtime cutover passed; writing mandatory documentation and memory checkpoint"
 bash "${SCRIPT_DIR}/checkpoint.sh" --verification-passed "${SNAPSHOT}"
+
+if [[ ${BODY_FACE_STAGING_IMPORTED} -eq 1 ]]; then
+    if amigo_remove_private_staging_if_same \
+        /home/tolstik/amigo-body-face.png "${BODY_FACE_STAGING_ID}"; then
+        :
+    else
+        staging_cleanup_status=$?
+        [[ ${staging_cleanup_status} -eq 1 ]] \
+            || amigo_die "could not remove imported private body texture staging"
+        amigo_log "private body texture staging changed during deploy; preserving its replacement"
+    fi
+fi
+if [[ ${BODY_MODEL_STAGING_IMPORTED} -eq 1 ]]; then
+    if amigo_remove_private_staging_if_same \
+        /home/tolstik/amigo-body-model.html "${BODY_MODEL_STAGING_ID}"; then
+        :
+    else
+        staging_cleanup_status=$?
+        [[ ${staging_cleanup_status} -eq 1 ]] \
+            || amigo_die "could not remove imported private body model staging"
+        amigo_log "private body model staging changed during deploy; preserving its replacement"
+    fi
+fi
 
 trap - ERR HUP INT TERM
 amigo_log "DEPLOYMENT COMPLETE: ${AMIGO_PUBLIC_URL}"

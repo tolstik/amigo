@@ -32,11 +32,15 @@ for script in \
     verify-production.sh \
     install-release-wrapper.sh \
     test-recovery-transitions.sh \
-    lib/common.sh; do
+    test-private-staging.sh \
+    lib/common.sh \
+    lib/private-staging.sh; do
     bash -n "${SCRIPT_DIR}/${script}"
 done
 php -l "${SCRIPT_DIR}/extract_legacy_secrets.php" >/dev/null
 bash "${SCRIPT_DIR}/test-recovery-transitions.sh"
+bash "${SCRIPT_DIR}/test-private-staging.sh"
+python3 "${SCRIPT_DIR}/test-read-body-model.py"
 
 for executable_script in \
     deploy.sh pre-cutover-backup.sh restore-previous-release.sh \
@@ -347,6 +351,7 @@ for queue_route in \
     'location = /amigo/api/v1/data-quality {' \
     'location = /amigo/api/v1/series/swimming {' \
     'location = /amigo/api/v1/profile/body-face {' \
+    'location = /amigo/api/v1/profile/body-model-assets {' \
     'location = /amigo/api/v1/reports/doctor {'; do
     grep --quiet --fixed-strings "${queue_route}" "${SCRIPT_DIR}/nginx/amigo.locations.conf" \
         || amigo_die "managed route is missing: ${queue_route}"
@@ -451,7 +456,9 @@ if command -v shellcheck >/dev/null 2>&1; then
         "${SCRIPT_DIR}/checkpoint.sh" \
         "${SCRIPT_DIR}/install-release-wrapper.sh" \
         "${SCRIPT_DIR}/test-recovery-transitions.sh" \
+        "${SCRIPT_DIR}/test-private-staging.sh" \
         "${SCRIPT_DIR}/lib/common.sh" \
+        "${SCRIPT_DIR}/lib/private-staging.sh" \
         "${SCRIPT_DIR}/amigo-release"
 else
     printf 'shellcheck unavailable; syntax and recovery-contract checks still passed\n' >&2

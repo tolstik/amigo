@@ -956,15 +956,26 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 }
 
 .body-model { margin-bottom: 22px; padding: 24px; }
-.body-model__figures { position: relative; min-width: 0; }
-.body-model__canvas { height: 430px; min-width: 0; position: relative; border-radius: 24px; background: radial-gradient(ellipse at 50% 65%, var(--green-soft), transparent 65%); }
-.body-model__canvas canvas { display: block; }
-.body-model__fallback { position: absolute; padding: 30px; }
-.body-model__labels { display: grid; grid-template-columns: repeat(3, 1fr); position: absolute; inset: 14px 4% auto; pointer-events: none; text-align: center; }
-.body-model__label { display: grid; gap: 3px; color: var(--text); }
-.body-model__label strong { font-size: 13px; }
-.body-model__label span { color: var(--text-soft); font-size: 12px; }
-.body-model__note { font-size: 11px; line-height: 1.6; margin-top: 22px; }
+.body-model__header { align-items: flex-start; flex-wrap: wrap; margin-bottom: 16px; }
+.body-model__toolbar { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; max-width: 760px; }
+.body-model__toolbar .button { min-height: 35px; padding: 7px 11px; border-radius: 99px; font-size: 11px; white-space: nowrap; }
+.body-model__toolbar .button[aria-pressed="true"] { color: var(--surface-solid); background: var(--green-deep); border-color: var(--green-deep); }
+.body-model__toolbar .button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.body-model__view-group { display: flex; border: 1px solid var(--line-strong); border-radius: 99px; padding: 2px; background: var(--surface-soft); }
+.body-model__view-group .button { border-color: transparent; }
+.body-model__stage { position: relative; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 18px; background: linear-gradient(180deg, var(--surface-solid), var(--surface-soft)); }
+.body-model__canvas { height: clamp(320px, 55vw, 580px); min-width: 0; }
+.body-model__canvas canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; cursor: grab; }
+.body-model__canvas canvas:active { cursor: grabbing; }
+.body-model__fallback { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; margin: 0; color: var(--text-soft); text-align: center; background: var(--surface-soft); }
+.body-model__hint { position: absolute; left: 16px; bottom: 10px; margin: 0; color: var(--text-soft); font-size: 11px; pointer-events: none; }
+.body-model__labels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 12px; border: 1px solid var(--line-strong); border-radius: 17px; background: var(--surface-solid); }
+.body-model__label { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 4px; padding: 14px 8px; text-align: center; }
+.body-model__label + .body-model__label { border-left: 1px solid var(--line-strong); }
+.body-model__label strong { color: var(--text-soft); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.body-model__label-weight { color: var(--text); font-size: clamp(17px, 3vw, 27px); font-weight: 750; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.body-model__label small { color: var(--text-faint); font-size: 10px; line-height: 1.35; }
+.body-model__note { color: var(--text-soft); font-size: 11px; line-height: 1.6; margin: 15px 0 0; }
 .weight-history { scroll-margin-top: 95px; margin-top: 28px; }
 .sleep-analysis { margin-bottom: 22px; padding: 24px; }
 .sleep-analysis__items { display: grid; gap: 18px; }
@@ -972,6 +983,12 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 .sleep-analysis__items p { margin: 0 0 10px; color: var(--text-soft); line-height: 1.65; }
 @media (max-width: 640px) {
   .body-model, .sleep-analysis { padding: 17px; }
-  .body-model__canvas { height: 330px; }
-  .body-model .panel__head { flex-wrap: wrap; gap: 12px; }
+  .body-model__header { gap: 12px; }
+  .body-model__toolbar { justify-content: flex-start; gap: 5px; }
+  .body-model__toolbar .button { min-height: 32px; padding: 6px 9px; font-size: 10px; }
+  .body-model__canvas { height: clamp(310px, 75vw, 430px); }
+  .body-model__hint { display: none; }
+  .body-model__label { padding: 11px 4px; }
+  .body-model__label-weight { font-size: 15px; }
+  .body-model__label small { font-size: 9px; }
 }

@@ -133,6 +133,7 @@ def test_health_and_new_private_routes_fail_closed_without_session(db):
             for path in (
                 "/api/v1/overview",
                 "/api/v1/profile/body-face",
+                "/api/v1/profile/body-model-assets",
                 "/api/v1/series/swimming?range=90d",
                 "/api/v1/series/circumference?range=30d",
                 "/api/v1/export/weight.csv?range=all",

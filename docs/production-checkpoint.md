@@ -4,23 +4,23 @@
 
 - Status: **deployed and verified**
 - Production URL: `https://amigo.tolstik.ru/amigo/`
-- Verified at: `2026-09-24T18:14:30Z` (`2026-09-24 21:14:30 MSK`)
-- Git SHA: `b1fb2f477c042046e3cc0503c72e6629471ac302`
-- Latest rollback snapshot: `/srv/amigo-rollbacks/20260924T180955Z`
-- Installed config SHA-256: Compose `53ef5a61c13cea392e77dac419ad82ecdfd666fd9233088d7f70937bd684a58f`; nginx locations `225143cd1054c7d48ad47e83ca84191e9ecc435cbfdd7d93f031db84b405feee`; nginx rate limit `4c873375261f5f33b8fa55374ebb24ddde16118ecd1e46e974ce389e128080fd`.
+- Verified at: `2026-09-26T14:47:53Z` (`2026-09-26 17:47:53 MSK`)
+- Git SHA: `bb25f2c135b2bb1748cde9bb38c161a95340444a`
+- Latest rollback snapshot: `/srv/amigo-rollbacks/20260926T144205Z`
+- Installed config SHA-256: Compose `53ef5a61c13cea392e77dac419ad82ecdfd666fd9233088d7f70937bd684a58f`; nginx locations `15a94d260d1536334f5e17e318eb14b1c583e7edc64e05a5f282165496936181`; nginx rate limit `4c873375261f5f33b8fa55374ebb24ddde16118ecd1e46e974ce389e128080fd`.
 - Pinned Codex: `0.148.0` (`sha256:ac2cfed85fb647d61e0150b8548102b330e4799d9d81ad5d354de701edf6b074`).
 - Release access SHA-256: wrapper `721eabf3e79806d3b4ffecaaba7d2105632016ba1e4c90ae99f41af361818527`; sudoers policy `c02cd113d07deac89aaac689777fcdb89deafb3f011135a17d04428d25dee8ea`.
-- Verification: all seven Compose services healthy; application services use the release image; PostgreSQL ready; the current worker completed a successful post-start Withings incremental job; web and ingest are bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; progress deviation/BMI/history/candles and overview month boundaries/3D assets and private authenticated body texture, per-metric recovery dates and weekly sleep evidence, retired task routes returning 404, overview plan/actual progress, finalized Xiaomi swimming API, removed laboratory comparison returning 404, database-owned originals, repaired laboratory dates, deterministic analyte guides, AI availability and published evidence contracts (live generation is not a release gate), signed Android updater/APK, laboratory and study queues, assistant/queue SSE, authentication, exact Origin/CSRF, authenticated API/CSV/upload checks, root-only laboratory storage, parser/gateway isolation and unpublished ports, container secret boundaries, pinned Codex hash, fixed `gpt-5.6-sol`/`amigo-health-v5` gateway health, root-owned least-privilege release access, signed-ingest rejection, origin proxy, HTTPS login shell, hidden health routes, immutable frontend assets, cron isolation, previous-release auth-floor recovery assets, and the explicit legacy disaster-fallback guard passed.
+- Verification: all seven Compose services healthy; application services use the release image; PostgreSQL ready; the current worker completed a successful post-start Withings incremental job; web and ingest are bound only to `127.0.0.1:18181` and `127.0.0.1:18182`; progress deviation/BMI/history/candles and overview month boundaries/3D scene and authenticated private body texture/model assets, per-metric recovery dates and weekly sleep evidence, retired task routes returning 404, overview plan/actual progress, finalized Xiaomi swimming API, removed laboratory comparison returning 404, database-owned originals, repaired laboratory dates, deterministic analyte guides, AI availability and published evidence contracts (live generation is not a release gate), signed Android updater/APK, laboratory and study queues, assistant/queue SSE, authentication, exact Origin/CSRF, authenticated API/CSV/upload checks, root-only laboratory storage, parser/gateway isolation and unpublished ports, container secret boundaries, pinned Codex hash, fixed `gpt-5.6-sol`/`amigo-health-v5` gateway health, root-owned least-privilege release access, signed-ingest rejection, origin proxy, HTTPS login shell, hidden health routes, immutable frontend assets, cron isolation, previous-release auth-floor recovery assets, and the explicit legacy disaster-fallback guard passed.
 - Installed image references and IDs:
 
-- `web`: `amigo:b1fb2f477c042046e3cc0503c72e6629471ac302` (`sha256:5cf7c98a81b6a8e5aec31d17375ee9f337dfb253122d439dfdd41fbde384f978`)
-- `worker`: `amigo:b1fb2f477c042046e3cc0503c72e6629471ac302` (`sha256:5cf7c98a81b6a8e5aec31d17375ee9f337dfb253122d439dfdd41fbde384f978`)
-- `ingest`: `amigo:b1fb2f477c042046e3cc0503c72e6629471ac302` (`sha256:5cf7c98a81b6a8e5aec31d17375ee9f337dfb253122d439dfdd41fbde384f978`)
-- `ai-worker`: `amigo:b1fb2f477c042046e3cc0503c72e6629471ac302` (`sha256:5cf7c98a81b6a8e5aec31d17375ee9f337dfb253122d439dfdd41fbde384f978`)
-- `ai-gateway`: `amigo:b1fb2f477c042046e3cc0503c72e6629471ac302` (`sha256:5cf7c98a81b6a8e5aec31d17375ee9f337dfb253122d439dfdd41fbde384f978`)
-- `lab-parser`: `amigo:b1fb2f477c042046e3cc0503c72e6629471ac302` (`sha256:5cf7c98a81b6a8e5aec31d17375ee9f337dfb253122d439dfdd41fbde384f978`)
+- `web`: `amigo:bb25f2c135b2bb1748cde9bb38c161a95340444a` (`sha256:9d7f5dedd6527b0f1fb55c9bc4094025b7e7145f7865440b9b1443d4c488dbe3`)
+- `worker`: `amigo:bb25f2c135b2bb1748cde9bb38c161a95340444a` (`sha256:9d7f5dedd6527b0f1fb55c9bc4094025b7e7145f7865440b9b1443d4c488dbe3`)
+- `ingest`: `amigo:bb25f2c135b2bb1748cde9bb38c161a95340444a` (`sha256:9d7f5dedd6527b0f1fb55c9bc4094025b7e7145f7865440b9b1443d4c488dbe3`)
+- `ai-worker`: `amigo:bb25f2c135b2bb1748cde9bb38c161a95340444a` (`sha256:9d7f5dedd6527b0f1fb55c9bc4094025b7e7145f7865440b9b1443d4c488dbe3`)
+- `ai-gateway`: `amigo:bb25f2c135b2bb1748cde9bb38c161a95340444a` (`sha256:9d7f5dedd6527b0f1fb55c9bc4094025b7e7145f7865440b9b1443d4c488dbe3`)
+- `lab-parser`: `amigo:bb25f2c135b2bb1748cde9bb38c161a95340444a` (`sha256:9d7f5dedd6527b0f1fb55c9bc4094025b7e7145f7865440b9b1443d4c488dbe3`)
 - `db`: `postgres:17-alpine` (`sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537`)
-- Previous-release recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh /srv/amigo-rollbacks/20260924T180955Z`
-- Legacy disaster fallback command: `sudo /srv/amigo/deploy/rollback.sh --to-legacy /srv/amigo-rollbacks/20260924T180955Z`
+- Previous-release recovery command: `sudo /srv/amigo/deploy/restore-previous-release.sh /srv/amigo-rollbacks/20260926T144205Z`
+- Legacy disaster fallback command: `sudo /srv/amigo/deploy/rollback.sh --to-legacy /srv/amigo-rollbacks/20260926T144205Z`
 
 The checkpoint contains no credentials. Commit these documentation changes back to the canonical repository before reporting the deployment complete.

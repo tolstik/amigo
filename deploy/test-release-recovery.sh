@@ -172,7 +172,7 @@ grep --quiet --fixed-strings 'cmp --silent "${LEGACY_IMPORT_CANDIDATE}"' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy rewrites unchanged legacy rollback exports"
 grep --quiet --fixed-strings \
-    'https://github.com/tolstik/amigo/releases/download/v5.3.2/Amigo-1.5.2.apk' \
+    'https://github.com/tolstik/amigo/releases/download/v5.3.3/Amigo-1.5.2.apk' \
     "${SCRIPT_DIR}/deploy.sh" \
     || amigo_die "deploy does not fetch the published signed Android update"
 grep --quiet --fixed-strings \
@@ -189,6 +189,12 @@ done
 grep --quiet --fixed-strings 'EXPECTED_ANDROID_APK_SIZE_BYTES=3520750' \
     "${SCRIPT_DIR}/verify-production.sh" \
     || amigo_die "production verification does not pin the signed Android update size"
+grep --quiet --fixed-strings 'payload.get("size_bytes") != int(sys.argv[3])' \
+    "${SCRIPT_DIR}/verify-production.sh" \
+    || amigo_die "update metadata size is not checked against the pinned APK size"
+grep --quiet --fixed-strings 'payload.get("sha256") != sys.argv[4]' \
+    "${SCRIPT_DIR}/verify-production.sh" \
+    || amigo_die "update metadata hash is not checked against the pinned APK hash"
 grep --quiet --fixed-strings \
     'needs: [backend, frontend, frontend-e2e, android, release-gates]' \
     "${PROJECT_ROOT}/.github/workflows/ci.yml" \

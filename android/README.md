@@ -7,26 +7,26 @@ Connect as rollback history, and sends only normalized signed/idempotent batches
 to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
-Current signed release `1.5.1` (`versionCode 18`) for project release
-[`v5.3.1`](https://github.com/tolstik/amigo/releases/tag/v5.3.1):
-[`Amigo-1.5.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.1/Amigo-1.5.1.apk),
+Signed release `1.5.2` (`versionCode 19`) for project release
+[`v5.3.2`](https://github.com/tolstik/amigo/releases/tag/v5.3.2):
+[`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.2/Amigo-1.5.2.apk),
 SHA-256
-`0d171cdcc49a7e340f42bbc2c2c0f6fa4c095d1c70ce47eb1413b28f95a40f44`, size
-`3,530,505` bytes.
-The signing-certificate SHA-256 is
+`9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab`, size
+`3,520,750` bytes. The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
 
-Version `1.5.1` separates recent three-day synchronization from monthly
-reconciliation and increases each run's budget to 40 provider pages, starting
-no new page after 90 seconds. Deploy the accompanying server coverage selector
-before installing the new APK: an older monthly snapshot must not overwrite a
-newer recent snapshot just because its final page arrived later.
+Version `1.5.2` reconciles overlapping Xiaomi step sources locally and queues
+one 30-day replacement snapshot after an update, while retaining unfinished
+cursors and pairing. Version `1.5.1` separated recent three-day synchronization
+from monthly reconciliation and increased each run's budget to 40 provider
+pages, starting no new page after 90 seconds. The server coverage selector
+prefers newer recent snapshots over older monthly snapshots that finish later.
 
-The previous published release is `1.5.0` from
-[`v5.3.0`](https://github.com/tolstik/amigo/releases/tag/v5.3.0):
-[`Amigo-1.5.0.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.0/Amigo-1.5.0.apk),
-SHA-256 `4ac0cf4035eb8b5b29df30de0c2bbe6b78c2d4e1caef1ee7fc348e994922ce2c`,
-size `3,520,750` bytes.
+The previous published release is `1.5.1` from
+[`v5.3.1`](https://github.com/tolstik/amigo/releases/tag/v5.3.1):
+[`Amigo-1.5.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.1/Amigo-1.5.1.apk),
+SHA-256 `0d171cdcc49a7e340f42bbc2c2c0f6fa4c095d1c70ce47eb1413b28f95a40f44`,
+size `3,530,505` bytes.
 
 ## Dashboard tab
 
@@ -204,6 +204,18 @@ reported as a generic cloud-response error. Xiaomi batch retries use the
 persisted range end as `data_as_of`, and `mi-v2` IDs bind the full canonical
 normalized content. While a snapshot is unfinished, its cursor persists at most
 20,000 SHA-256 record-ID hashes and filters overlap from later provider pages.
+Starting with version `1.5.2`, step snapshots collect bounded, locally normalised
+source/time/count samples across all Xiaomi provider pages before publishing any
+hourly result. The source identifier is hashed on the phone and never uploaded.
+Repeated source/time samples are counted once; when watch and phone streams
+cover the same hour, the larger source total is used instead of adding both.
+This conservative reconciliation prevents double counting even if the two
+sources use slightly different time bins. It may undercount a handoff between
+sources within one hour; compare the completed import with Mi Fitness before
+assuming exact agreement. Existing in-flight snapshots finish with their saved
+IDs, pages and hashes. The update then queues one 30-day correction from its
+installation time; it preserves pairing, credentials, unrelated cursors and
+historical watermarks. Only a completed new snapshot replaces published values.
 A legacy batch/sequence conflict rotates only that metric's unfinished snapshot
 and retries it exactly once; credentials, pairing, completed history, and other
 metric cursors are unchanged. The phone parses

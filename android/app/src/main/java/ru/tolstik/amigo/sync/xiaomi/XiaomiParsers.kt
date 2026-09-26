@@ -41,7 +41,7 @@ internal object XiaomiParsers {
         rangeStart: Instant,
         rangeEnd: Instant,
     ): List<ExportRecord> = when (metric) {
-        XiaomiMetric.STEPS -> hourlyTotals(metric, entries, "steps", integer = true, rangeStart, rangeEnd)
+        XiaomiMetric.STEPS -> XiaomiStepAccumulator.empty(requireSource = false).apply { add(entries, rangeStart, rangeEnd) }.records()
         XiaomiMetric.DISTANCE -> hourlyTotals(metric, entries, "distance", integer = false, rangeStart, rangeEnd)
         XiaomiMetric.ACTIVE_CALORIES -> hourlyTotals(
             metric,
@@ -95,12 +95,17 @@ internal object XiaomiParsers {
     ): List<ExportRecord> {
         data class Bucket(var total: Double = 0.0, var zoneOffset: Int? = null)
         val buckets = mutableMapOf<Long, Bucket>()
+        val seenSamples = mutableSetOf<Pair<Long, JsonObject>>()
         entries.forEach { entry ->
             val value = parseObject(entry.value) ?: return@forEach
             val timestamp = value.long("time") ?: entry.time
             if (!inside(timestamp, rangeStart, rangeEnd)) return@forEach
             val amount = value.double(field) ?: return@forEach
             if (amount <= 0.0 || !amount.isFinite()) return@forEach
+            // A repeated input must be removed before summing. Deduplicating the
+            // resulting hourly record IDs cannot undo an already inflated total.
+            // JsonObject equality also ignores JSON whitespace and key order.
+            if (!seenSamples.add(timestamp to value)) return@forEach
             val hour = timestamp / 3600 * 3600
             buckets.getOrPut(hour, ::Bucket).also { bucket ->
                 bucket.total += amount

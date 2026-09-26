@@ -9,10 +9,19 @@ internal class XiaomiSyncQueue(
     private val preferences: XiaomiSyncPreferences,
     private val historyFloor: Instant,
 ) {
-    fun prepare(target: Instant, refreshDays: Long, mode: XiaomiSyncMode) {
+    fun prepare(
+        target: Instant,
+        refreshDays: Long,
+        mode: XiaomiSyncMode,
+        stepCorrectionTarget: Instant? = null,
+    ) {
         preferences.migrateLegacyRefreshCursors()
         prepareLane(XiaomiCursorLane.RECENT, target, 3, mode, requested = true)
-        prepareLane(XiaomiCursorLane.REFRESH, target, 30, mode, requested = refreshDays > 3)
+        prepareLane(
+            XiaomiCursorLane.REFRESH, stepCorrectionTarget ?: target, 30, mode,
+            requested = refreshDays > 3 || stepCorrectionTarget != null,
+            forceCorrection = stepCorrectionTarget != null,
+        )
     }
 
     private fun prepareLane(
@@ -21,6 +30,7 @@ internal class XiaomiSyncQueue(
         days: Long,
         mode: XiaomiSyncMode,
         requested: Boolean,
+        forceCorrection: Boolean = false,
     ) {
         val inherited = XiaomiMetric.entries.firstNotNullOfOrNull { preferences.refreshCursor(it, lane) }
         // Never replace a round while any metric is still uploading. This also adopts
@@ -28,7 +38,7 @@ internal class XiaomiSyncQueue(
         val round = preferences.refreshRound(lane) ?: inherited?.let {
             XiaomiRefreshRound(it.rangeEnd, Duration.between(it.rangeStart, it.rangeEnd).toDays().coerceIn(3, 30))
         } ?: run {
-            val due = requested && XiaomiMetric.entries.any { metric ->
+            val due = forceCorrection || requested && XiaomiMetric.entries.any { metric ->
                 shouldStartXiaomiRefresh(
                     preferences.refreshStart(metric, lane),
                     preferences.refreshEnd(metric, lane),
@@ -51,6 +61,7 @@ internal class XiaomiSyncQueue(
                         "mi-${metric.type.wireName}-${UUID.randomUUID()}",
                         round.target.minus(Duration.ofDays(round.days)),
                         round.target,
+                        stepSamples = if (metric == XiaomiMetric.STEPS) "" else null,
                     ),
                     lane,
                 )

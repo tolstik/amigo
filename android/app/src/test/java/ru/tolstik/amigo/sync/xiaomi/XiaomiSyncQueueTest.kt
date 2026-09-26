@@ -59,6 +59,38 @@ class XiaomiSyncQueueTest {
     }
 
     @Test
+    fun stepUpgradeKeepsOldCursorAndForcesFixedThirtyDayCorrection() {
+        val old = XiaomiCursor(
+            "old-step-snapshot", now.minusSeconds(30 * 86_400L), now,
+            nextKey = "page-2", pageIndex = 3, seenRecordHashes = setOf("a".repeat(64)),
+        )
+        preferences.setRefreshCursor(XiaomiMetric.STEPS, old)
+        preferences.completeHistoryWindow(XiaomiMetric.STEPS, now.minusSeconds(60 * 86_400L), null)
+        preferences.prepareStepReconciliationUpgrade(now.plusSeconds(3600))
+        assertEquals(old, preferences.refreshCursor(XiaomiMetric.STEPS))
+        val target = preferences.stepCorrectionTarget()!!
+        preferences.prepareStepReconciliationUpgrade(now.plusSeconds(7200))
+        assertEquals(target, preferences.stepCorrectionTarget())
+
+        queue.prepare(now.plusSeconds(7200), 3, XiaomiSyncMode.ROUTINE, target)
+        assertEquals(old, preferences.refreshCursor(XiaomiMetric.STEPS))
+        preferences.completeRefreshWindow(XiaomiMetric.STEPS, old.rangeStart, old.rangeEnd, null)
+        XiaomiMetric.entries.filter { it != XiaomiMetric.STEPS }.forEach {
+            preferences.refreshCursor(it)?.let { cursor ->
+                preferences.completeRefreshWindow(it, cursor.rangeStart, cursor.rangeEnd, null)
+            }
+        }
+        queue.finishRounds()
+        queue.prepare(now.plusSeconds(10_800), 3, XiaomiSyncMode.ROUTINE, target)
+        val correction = preferences.refreshCursor(XiaomiMetric.STEPS)!!
+        assertEquals(target, correction.rangeEnd)
+        assertEquals(target.minusSeconds(30 * 86_400L), correction.rangeStart)
+        assertEquals("", correction.stepSamples)
+        preferences.completeStepCorrection(correction.rangeStart, correction.rangeEnd)
+        assertNull(preferences.stepCorrectionTarget())
+    }
+
+    @Test
     fun weeklyAndManualRequestsNeverMoveAnUnfinishedRecentTargetAfterRestart() {
         queue.prepare(now, 3, XiaomiSyncMode.ROUTINE)
         val first = preferences.refreshCursor(XiaomiMetric.STEPS, XiaomiCursorLane.RECENT)!!

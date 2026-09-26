@@ -225,6 +225,13 @@
   allowlisted records, aggregates ordinary heart rate by hour on the phone, and
   keeps those independent reconciliation rounds while the descending 30-day
   backfill proceeds to `2000-01-01`.
+- Android `1.5.2` (`versionCode 19`) reconciles Xiaomi step records by
+  source across every page of a snapshot before publication. Duplicate
+  source/time samples count once; overlapping source streams contribute the
+  larger hourly total instead of being summed. A one-time 30-day correction
+  round after upgrade preserves unfinished cursors, pairing and historical
+  watermarks. The server still receives only normalized hourly totals, never
+  Xiaomi source identifiers or raw provider records.
 - Deterministic heart, SpO2, and VO2 displays remain descriptive and never add
   severity colors or app-side diagnoses. The blood-pressure dashboard is the
   only deterministic display exception: it may show an explicitly labelled

@@ -133,6 +133,7 @@ internal class XiaomiSyncPreferences(private val values: android.content.SharedP
                     ?.toSet()
                     ?.also { require(it.size <= MAX_XIAOMI_SEEN_RECORD_HASHES) }
                     .orEmpty(),
+                stepSamples = item.optional("step_samples"),
             )
         }.getOrNull()
     }
@@ -220,6 +221,28 @@ internal class XiaomiSyncPreferences(private val values: android.content.SharedP
             ))
         }
         check(editor.commit()) { "Не удалось сохранить обновление истории тренировок" }
+    }
+
+    /** Preserve unfinished legacy pages; schedule a fresh 30-day step correction afterward. */
+    @Synchronized
+    fun prepareStepReconciliationUpgrade(target: Instant) {
+        if (values.getInt(KEY_STEP_FORMAT_VERSION, 0) >= 1) return
+        val priorSteps = historyEnd(XiaomiMetric.STEPS) != null ||
+            refreshEnd(XiaomiMetric.STEPS) != null ||
+            refreshCursor(XiaomiMetric.STEPS) != null ||
+            refreshCursor(XiaomiMetric.STEPS, XiaomiCursorLane.RECENT) != null
+        val editor = values.edit().putInt(KEY_STEP_FORMAT_VERSION, 1)
+        if (priorSteps) editor.putString(KEY_STEP_CORRECTION_TARGET, target.toString())
+        check(editor.commit()) { "Не удалось подготовить повторную сверку шагов Xiaomi" }
+    }
+
+    fun stepCorrectionTarget(): Instant? = instant(KEY_STEP_CORRECTION_TARGET)
+
+    fun completeStepCorrection(start: Instant, end: Instant) {
+        val target = stepCorrectionTarget() ?: return
+        if (start <= target.minusSeconds(30 * 86_400L) && end >= target) {
+            values.edit().remove(KEY_STEP_CORRECTION_TARGET).apply()
+        }
     }
 
     fun refreshStart(metric: XiaomiMetric, lane: XiaomiCursorLane = XiaomiCursorLane.REFRESH): Instant? =
@@ -315,6 +338,7 @@ internal class XiaomiSyncPreferences(private val values: android.content.SharedP
                 JsonArray(cursor.seenRecordHashes.sorted().map(::JsonPrimitive)),
             )
         }
+        cursor.stepSamples?.let { put("step_samples", it) }
         cursor.sourceDataAsOf?.let { put("source_data_as_of", it.toString()) }
     })
 
@@ -330,6 +354,8 @@ internal class XiaomiSyncPreferences(private val values: android.content.SharedP
         private const val KEY_NEXT_METRIC = "next_metric"
         private const val KEY_DISCOVERED_ACCOUNT = "region_discovered_account"
         private const val KEY_EXERCISE_DETAILS_VERSION = "exercise_details_version"
+        private const val KEY_STEP_FORMAT_VERSION = "step_format_version"
+        private const val KEY_STEP_CORRECTION_TARGET = "step_correction_target"
     }
 }
 

@@ -232,6 +232,14 @@
   round after upgrade preserves unfinished cursors, pairing and historical
   watermarks. The server still receives only normalized hourly totals, never
   Xiaomi source identifiers or raw provider records.
+- Android `1.5.4` (`versionCode 21`) keeps an already queued Xiaomi
+  continuation runnable when Health Connect fails; normal Health Connect retry
+  behavior remains when no Xiaomi continuation depends on success. Changes
+  batch identity includes the full canonical body so altered pages under the
+  same changes token do not collide. A pending one-time step correction takes
+  the monthly lane's share while preserving the 8:1:1 lane allocation.
+  Manual sync reports successful Xiaomi work alongside Health Connect errors.
+  The higher version code also upgrades the installed 1.5.3 candidate.
 - Deterministic heart, SpO2, and VO2 displays remain descriptive and never add
   severity colors or app-side diagnoses. The blood-pressure dashboard is the
   only deterministic display exception: it may show an explicitly labelled

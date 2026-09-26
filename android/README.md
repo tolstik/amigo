@@ -7,13 +7,19 @@ Connect as rollback history, and sends only normalized signed/idempotent batches
 to the Amigo server. It never requests write access, weight, blood pressure,
 location, or exercise routes.
 
-Signed release `1.5.2` (`versionCode 19`) for project release
-[`v5.3.3`](https://github.com/tolstik/amigo/releases/tag/v5.3.3):
-[`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.3/Amigo-1.5.2.apk),
+Signed release `1.5.4` (`versionCode 21`) for project release
+[`v5.3.4`](https://github.com/tolstik/amigo/releases/tag/v5.3.4):
+[`Amigo-1.5.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.4/Amigo-1.5.4.apk),
 SHA-256
-`9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab`, size
+`4e9fc3c31cdc211c7e7106a503b5b053c2031344860c12dd1e84effd3eef3c34`, size
 `3,520,750` bytes. The signing-certificate SHA-256 is
 `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
+
+Version `1.5.4` continues queued Xiaomi work through Health Connect failures,
+prioritizes the pending step correction within the monthly share, and binds
+Health Connect changes batch identity to its canonical content. Manual sync
+preserves a successful Xiaomi result if the Health Connect phase fails.
+Version code 21 also upgrades the privately installed 1.5.3 candidate (code 20).
 
 Version `1.5.2` reconciles overlapping Xiaomi step sources locally and queues
 one 30-day replacement snapshot after an update, while retaining unfinished
@@ -22,11 +28,11 @@ from monthly reconciliation and increased each run's budget to 40 provider
 pages, starting no new page after 90 seconds. The server coverage selector
 prefers newer recent snapshots over older monthly snapshots that finish later.
 
-The previous Android version is `1.5.1` from
-[`v5.3.1`](https://github.com/tolstik/amigo/releases/tag/v5.3.1):
-[`Amigo-1.5.1.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.1/Amigo-1.5.1.apk),
-SHA-256 `0d171cdcc49a7e340f42bbc2c2c0f6fa4c095d1c70ce47eb1413b28f95a40f44`,
-size `3,530,505` bytes.
+The previous published Android version is `1.5.2` from
+[`v5.3.3`](https://github.com/tolstik/amigo/releases/tag/v5.3.3):
+[`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.3/Amigo-1.5.2.apk),
+SHA-256 `9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab`,
+size `3,520,750` bytes.
 
 ## Dashboard tab
 

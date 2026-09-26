@@ -227,11 +227,11 @@ backup. Теперь checkpoint сам создаёт локальный documen
    `ghcr.io/tolstik/amigo:GIT_SHA` доступен production или root Docker уже
    авторизован только для чтения package. OCI label
    `org.opencontainers.image.revision` должен совпадать с `GIT_SHA`.
-9. Для Android `1.5.2` (`versionCode 19`) использовать signed
-   [`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.3/Amigo-1.5.2.apk)
+9. Для Android `1.5.4` (`versionCode 21`) использовать signed
+   [`Amigo-1.5.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.4/Amigo-1.5.4.apk)
    из GitHub release
-   [`v5.3.3`](https://github.com/tolstik/amigo/releases/tag/v5.3.3) и сверить SHA-256
-   `9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab`
+   [`v5.3.4`](https://github.com/tolstik/amigo/releases/tag/v5.3.4) и сверить SHA-256
+   `4e9fc3c31cdc211c7e7106a503b5b053c2031344860c12dd1e84effd3eef3c34`
    и размер `3 520 750` bytes.
    Signing certificate SHA-256 должен быть
    `25:CC:38:EC:B3:10:81:F6:82:6F:F0:49:B8:07:33:5A:05:E8:6E:E9:89:54:70:97:5E:85:21:AF:95:19:1C:02`.
@@ -410,7 +410,7 @@ sudo bash /srv/amigo/deploy/deploy.sh --skip-telegram-test
    MariaDB строку и импорт legacy-only весов из root-only TSV. Неизменившийся
    TSV не переписывается.
 6. Запуск `web` без workers, direct health на `127.0.0.1:18181` и атомарная
-   установка проверенного APK `1.5.2` в root-only Android directory.
+   установка проверенного APK `1.5.4` в root-only Android directory.
 7. Запуск изолированных `ai-gateway` и `lab-parser` с проверкой health.
    Live-генерация ИИ не является условием разработки или deployment.
    `python -m app.ai_smoke` остаётся отдельной необязательной диагностикой
@@ -619,9 +619,9 @@ steps в PDF явно обозначены как Xiaomi Cloud-only. Вес в e
 
 ## Android APK, pairing и backfill
 
-1. Установить проверенный signed Android `1.5.2` (`versionCode 19`) —
-   [`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.3/Amigo-1.5.2.apk)
-   из release [`v5.3.3`](https://github.com/tolstik/amigo/releases/tag/v5.3.3) —
+1. Установить проверенный signed Android `1.5.4` (`versionCode 21`) —
+   [`Amigo-1.5.4.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.4/Amigo-1.5.4.apk)
+   из release [`v5.3.4`](https://github.com/tolstik/amigo/releases/tag/v5.3.4) —
    или обновить предыдущий signed `1.5.1` из
    [`v5.3.1`](https://github.com/tolstik/amigo/releases/tag/v5.3.1):
 
@@ -629,8 +629,8 @@ steps в PDF явно обозначены как Xiaomi Cloud-only. Вес в e
    adb install -r <PATH_TO_SIGNED_APK>
    ```
 
-   SHA-256 asset `Amigo-1.5.2.apk`:
-   `9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab`;
+   SHA-256 asset `Amigo-1.5.4.apk`:
+   `4e9fc3c31cdc211c7e7106a503b5b053c2031344860c12dd1e84effd3eef3c34`;
    размер `3 520 750` bytes.
    Upgrade через `adb install -r` сохраняет pairing state, non-exportable
    Android Keystore key, выбранный Mi Fitness origin и курсоры остальных
@@ -674,7 +674,7 @@ steps в PDF явно обозначены как Xiaomi Cloud-only. Вес в e
    разрешать location/routes. Эти записи продолжают загружаться, но finalized
    Xiaomi coverage подавляет их только на совпадающем type/range.
 6. Нажать «Синхронизировать сейчас» и дождаться успешного status. В версии
-   Android `1.5.2` (`versionCode 19`) обновление последних 3 дней, еженедельная
+   Android `1.5.4` (`versionCode 21`) обновление последних 3 дней, еженедельная
    сверка 30 дней и историческая догрузка используют независимые очереди.
    В каждом раунде фиксируются общие границы для всех десяти метрик;
    ручной запуск не сдвигает незавершённый раунд. Старые курсоры продолжаются
@@ -687,7 +687,13 @@ steps в PDF явно обозначены как Xiaomi Cloud-only. Вес в e
    Перед публикацией APK требуется серверный выбор пересекающихся снимков
    по более поздней границе диапазона, затем времени завершения и ID: старая
    месячная догрузка не должна подменять более свежие шаги. Опубликованный
-   APK `1.5.2` публикуется с тем же сертификатом подписи, что и `1.5.0`.
+   APK `1.5.4` публикуется с тем же сертификатом подписи, что и `1.5.0`.
+   Версия `1.5.4` сохраняет продолжение Xiaomi при ошибке Health Connect;
+   вне такой зависимости обычные повторы Health Connect сохраняются. Changes
+   batch ID связан с каноническим содержимым; ручной запуск показывает
+   результат Xiaomi отдельно от ошибки Health Connect. Исправляющая загрузка
+   шагов получает приоритет в месячной доле очереди. `versionCode 21` позволяет
+   обновиться через приложение также с предварительной `1.5.3` (код 20).
    Историческая очередь идёт
    30-дневными окнами до `2000-01-01`; bounded continuation ставится через
    минуту. Проверить «Активность» и «Восстановление», включая свежие шаги и
@@ -832,7 +838,7 @@ sudo bash /srv/amigo/deploy/verify-production.sh
   counts фонового backfill без ожидания генерации и deterministic analyte guide contract,
   root-only dual-write lab storage, web RW/ai-worker RO/parser no-mount и
   внутренний parser health;
-- root-only signed APK `1.5.2`, точные hash/size, read-only web mount,
+- root-only signed APK `1.5.4`, точные hash/size, read-only web mount,
   authenticated metadata и повторно скачанный APK с тем же hash;
 - все три точных signed ingest route: unsigned empty Health Connect/Xiaomi
   batch и Xiaomi status отклоняются до создания записи;

@@ -69,8 +69,12 @@ internal class XiaomiSyncCoordinator(
                 credentials = discoverRegionWithOneRefresh(credentials)
             }
             preferences.prepareExerciseDetailsUpgrade(requestedRefreshTarget)
+            preferences.prepareStepReconciliationUpgrade(requestedRefreshTarget)
             val queue = XiaomiSyncQueue(preferences, historyFloor)
-            queue.prepare(requestedRefreshTarget, refreshDays, mode)
+            queue.prepare(
+                requestedRefreshTarget, refreshDays, mode,
+                preferences.stepCorrectionTarget(),
+            )
             val budget = XiaomiPageBudget(maxPages)
             val blocked = mutableSetOf<XiaomiPageWork>()
             var uploaded = 0
@@ -194,6 +198,9 @@ internal class XiaomiSyncCoordinator(
                 nextKey = cursor.nextKey,
             )
         }
+        if (metric == XiaomiMetric.STEPS && cursor.stepSamples != null) {
+            return syncSourceAwareSteps(cursor, lane, page)
+        }
         val parsedRecords = XiaomiParsers.records(metric, page.entries, cursor.rangeStart, cursor.rangeEnd)
         val records = unseenXiaomiRecords(parsedRecords, cursor.seenRecordHashes)
         val sourceDataAsOf = listOfNotNull(cursor.sourceDataAsOf, page.sourceDataAsOf).maxOrNull()
@@ -244,6 +251,52 @@ internal class XiaomiSyncCoordinator(
         return envelopes.size
     }
 
+    private suspend fun syncSourceAwareSteps(
+        cursor: XiaomiCursor,
+        lane: XiaomiCursorLane,
+        page: XiaomiCloudPage,
+    ): Int {
+        val accumulator = XiaomiStepAccumulator.decode(requireNotNull(cursor.stepSamples))
+        accumulator.add(page.entries, cursor.rangeStart, cursor.rangeEnd)
+        val sourceDataAsOf = listOfNotNull(cursor.sourceDataAsOf, page.sourceDataAsOf).maxOrNull()
+        if (page.nextKey != null) {
+            // Persist only locally normalised counts. No incomplete hourly sum is
+            // published, even when Xiaomi splits one hour across provider pages.
+            setCursor(
+                XiaomiMetric.STEPS, lane,
+                cursor.copy(
+                    nextKey = page.nextKey,
+                    sourceDataAsOf = sourceDataAsOf,
+                    stepSamples = accumulator.encode(),
+                ),
+            )
+            return 0
+        }
+        val envelopes = XiaomiBatchPlanner.plan(
+            metric = XiaomiMetric.STEPS,
+            records = accumulator.records(),
+            rangeStart = cursor.rangeStart,
+            rangeEnd = cursor.rangeEnd,
+            snapshotId = cursor.snapshotId,
+            firstPageIndex = cursor.pageIndex,
+            sourceFinalPage = true,
+            sourceDataAsOf = sourceDataAsOf,
+        )
+        envelopes.forEach { ingest.uploadMiFitness(it) }
+        when (lane) {
+            XiaomiCursorLane.RECENT, XiaomiCursorLane.REFRESH -> preferences.completeRefreshWindow(
+                XiaomiMetric.STEPS, cursor.rangeStart, cursor.rangeEnd, sourceDataAsOf, lane,
+            )
+            XiaomiCursorLane.HISTORY -> preferences.completeHistoryWindow(
+                XiaomiMetric.STEPS, cursor.rangeStart, sourceDataAsOf,
+            )
+        }
+        if (lane == XiaomiCursorLane.REFRESH) {
+            preferences.completeStepCorrection(cursor.rangeStart, cursor.rangeEnd)
+        }
+        return envelopes.size
+    }
+
     private fun newHistoryCursor(metric: XiaomiMetric): XiaomiCursor {
         val rangeEnd = requireNotNull(preferences.historyEnd(metric))
         val rangeStart = maxOf(historyFloor, rangeEnd.minus(Duration.ofDays(30)))
@@ -251,6 +304,7 @@ internal class XiaomiSyncCoordinator(
             snapshotId = freshSnapshotId(metric),
             rangeStart = rangeStart,
             rangeEnd = rangeEnd,
+            stepSamples = if (metric == XiaomiMetric.STEPS) "" else null,
         ).also { preferences.setHistoryCursor(metric, it) }
     }
 
@@ -385,6 +439,7 @@ internal fun restartXiaomiCursor(cursor: XiaomiCursor, snapshotId: String) = cur
     pageIndex = 0,
     sourceDataAsOf = null,
     seenRecordHashes = emptySet(),
+    stepSamples = cursor.stepSamples?.let { "" },
 )
 
 internal fun xiaomiRecordHash(recordId: String): String = MessageDigest.getInstance("SHA-256")

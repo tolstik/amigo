@@ -16,6 +16,47 @@ class XiaomiParsersTest {
     private val end = start.plusSeconds(86_400)
 
     @Test
+    fun repeatedSamplesAreRemovedBeforeAddingHourlyStepsDistanceAndCalories() {
+        val at = (start.epochSecond / 3600 + 1) * 3600 + 60
+        val first = XiaomiRawEntry(
+            "steps", at,
+            """{"time":$at,"steps":120,"distance":87.5,"calories":5.5}""",
+        )
+        val reordered = first.copy(
+            value = """{ "calories":5.5, "distance":87.5, "steps":120, "time":$at }""",
+        )
+        val later = first.copy(
+            time = at + 60,
+            value = """{"time":${at + 60},"steps":120,"distance":87.5,"calories":5.5}""",
+        )
+        listOf(
+            Triple(XiaomiMetric.STEPS, "count", "240"),
+            Triple(XiaomiMetric.DISTANCE, "meters", "175.0"),
+            Triple(XiaomiMetric.ACTIVE_CALORIES, "kilocalories", "11.0"),
+        ).forEach { (metric, field, expected) ->
+            listOf(
+                listOf(first, first, reordered, later),
+                listOf(later, reordered, first, first),
+            ).forEach { entries ->
+                val result = XiaomiParsers.records(metric, entries, start, end)
+                assertEquals(metric.name, 1, result.size)
+                assertEquals(metric.name, expected, result.single().values.getValue(field).jsonPrimitive.content)
+            }
+        }
+    }
+
+    @Test
+    fun identicalUntimedSamplesStillRemainDistinctAtDifferentEnvelopeTimes() {
+        val at = (start.epochSecond / 3600 + 1) * 3600 + 60
+        val first = XiaomiRawEntry("steps", at, """{"steps":120}""")
+        val later = first.copy(time = at + 60)
+        val result = XiaomiParsers.records(
+            XiaomiMetric.STEPS, listOf(first, first, later), start, end,
+        )
+        assertEquals("240", result.single().values.getValue("count").jsonPrimitive.content)
+    }
+
+    @Test
     fun heartRateIsHourlyAggregateAndNeverContainsRawSamples() {
         val first = start.epochSecond + 100
         val records = XiaomiParsers.records(

@@ -67,6 +67,8 @@ internal data class XiaomiCursor(
     val pageIndex: Int = 0,
     val sourceDataAsOf: Instant? = null,
     val seenRecordHashes: Set<String> = emptySet(),
+    // Non-null marks the source-aware step format. Old unfinished cursors remain intact.
+    val stepSamples: String? = null,
 )
 
 internal enum class XiaomiSyncMode {

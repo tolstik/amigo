@@ -106,8 +106,8 @@ bash "${SCRIPT_DIR}/install-release-wrapper.sh"
 export AMIGO_IMAGE_TAG="${RELEASE_SHA}"
 CANDIDATE_IMAGE_SOURCE="ghcr.io/tolstik/amigo:${RELEASE_SHA}"
 readonly CANDIDATE_IMAGE_SOURCE
-readonly ANDROID_APK_URL="https://github.com/tolstik/amigo/releases/download/v5.3.1/Amigo-1.5.1.apk"
-readonly ANDROID_APK_SHA256="0d171cdcc49a7e340f42bbc2c2c0f6fa4c095d1c70ce47eb1413b28f95a40f44"
+readonly ANDROID_APK_URL="https://github.com/tolstik/amigo/releases/download/v5.3.2/Amigo-1.5.2.apk"
+readonly ANDROID_APK_SHA256="9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab"
 amigo_log "candidate Git SHA: ${RELEASE_SHA}"
 amigo_log "automatic recovery target: ${PREVIOUS_RELEASE_SHA}"
 
@@ -379,7 +379,7 @@ amigo_compose up -d web
 amigo_wait_for_http "${AMIGO_DIRECT_HEALTH_URL}" 60 \
     || amigo_die "web health endpoint did not become ready"
 
-amigo_log "installing the verified signed Android 1.5.1 update"
+amigo_log "installing the verified signed Android 1.5.2 update"
 ANDROID_APK_INSTALL_CANDIDATE="${AMIGO_ANDROID_APK}.candidate.$$"
 install -o root -g root -m 0600 \
     "${ANDROID_APK_DOWNLOAD}" "${ANDROID_APK_INSTALL_CANDIDATE}"

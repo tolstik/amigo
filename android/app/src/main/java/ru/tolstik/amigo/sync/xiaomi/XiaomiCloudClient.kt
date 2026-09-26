@@ -42,6 +42,7 @@ internal data class XiaomiRawEntry(
     val time: Long,
     val value: String,
     val category: String? = null,
+    val sid: String? = null,
 )
 
 internal class XiaomiCloudClient(
@@ -225,6 +226,7 @@ internal class XiaomiCloudClient(
 
     private fun rawEntry(element: JsonElement): XiaomiRawEntry? {
         val item = runCatching { element.jsonObject }.getOrNull() ?: return null
+        if ((item["deleted"] as? JsonPrimitive)?.booleanOrNull == true) return null
         val valueElement = item["value"] ?: return null
         val value = if ((valueElement as? JsonPrimitive)?.isString == true) {
             valueElement.content
@@ -236,6 +238,7 @@ internal class XiaomiCloudClient(
             time = item["time"]?.jsonPrimitive?.longOrNull ?: 0,
             value = value,
             category = item["category"]?.asString(),
+            sid = item["sid"]?.asString(),
         )
     }
 

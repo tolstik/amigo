@@ -97,6 +97,9 @@ class SyncWorker(
             }
             cloudFailure?.let { throw it }
             if (healthFailure != null) {
+                // Preserve the usual retry policy when no Xiaomi continuation depends
+                // on this worker succeeding (including Health Connect-only setups).
+                if (!continuationScheduled) throw healthFailure
                 container.preferences.markBackgroundFinished(
                     runId,
                     if (healthFailure is SecurityException) "permission_revoked" else "health_connect_failed",

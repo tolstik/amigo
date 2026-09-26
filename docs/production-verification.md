@@ -78,8 +78,8 @@
       disabled-marker; после incremental sync свежая OAuth-пара без stdout возвращена в
       ровно одну legacy token row.
 - [ ] Android `1.5.2` (`versionCode 19`) получен как
-      [`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.2/Amigo-1.5.2.apk)
-      из release [`v5.3.2`](https://github.com/tolstik/amigo/releases/tag/v5.3.2);
+      [`Amigo-1.5.2.apk`](https://github.com/tolstik/amigo/releases/download/v5.3.3/Amigo-1.5.2.apk)
+      из release [`v5.3.3`](https://github.com/tolstik/amigo/releases/tag/v5.3.3);
       его SHA-256 равен
       `9c171bd1198a4d6ab3d4d841545c1e35d8bf434da3eb5029695ba31d2ad60eab`, размер
       равен `3 520 750` bytes, а
@@ -464,7 +464,7 @@
       services, SHA-256 установленных Compose/nginx/Codex, результаты
       verification, exact previous-release recovery command и отдельную
       `rollback.sh --to-legacy` disaster command без секретов.
-- [ ] Release `v5.3.2` указывает на deployed fix-forward commit; asset
+- [ ] Release `v5.3.3` указывает на deployed fix-forward commit; asset
       `Amigo-1.5.2.apk` скачивается, повторно даёт ожидаемые APK SHA-256/size и
       signing certificate, а verified App Link association остаётся доступна.
 - [ ] Изменения `AGENTS.md`, runbook и `production-checkpoint.md` перенесены в

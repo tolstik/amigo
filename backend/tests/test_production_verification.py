@@ -1,6 +1,7 @@
 """Exercise the actual release API probe without production data or inference."""
 
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -9,16 +10,25 @@ import pytest
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / "deploy" / "verify-production.sh"
-API_PROBE = SCRIPT.read_text().split(
-    "python3 - \"${API_BODY}\" \"${contract}\" <<'PY'\n", 1
+SCRIPT_TEXT = SCRIPT.read_text()
+API_PROBE = SCRIPT_TEXT.split(
+    "python3 - \"${API_BODY}\" \"${contract}\" "
+    "\"${EXPECTED_ANDROID_APK_SIZE_BYTES}\" "
+    "\"${EXPECTED_ANDROID_APK_SHA256}\" <<'PY'\n", 1
 )[1].split("\nPY\n", 1)[0]
+EXPECTED_APK_SIZE = int(re.search(
+    r"^readonly EXPECTED_ANDROID_APK_SIZE_BYTES=(\d+)$", SCRIPT_TEXT, re.MULTILINE,
+).group(1))
+EXPECTED_APK_SHA256 = re.search(
+    r'^readonly EXPECTED_ANDROID_APK_SHA256="([0-9a-f]{64})"$', SCRIPT_TEXT, re.MULTILINE,
+).group(1)
 
 
 def probe(tmp_path, contract, payload):
     body = tmp_path / "synthetic-api.json"
     body.write_text(json.dumps(payload))
     return subprocess.run(
-        [sys.executable, "-", str(body), contract],
+        [sys.executable, "-", str(body), contract, str(EXPECTED_APK_SIZE), EXPECTED_APK_SHA256],
         input=API_PROBE, text=True, capture_output=True, check=False,
     )
 
@@ -129,3 +139,19 @@ def test_weight_probe_rejects_averages_and_invalid_period_endpoints(tmp_path, pe
     payload = weight_payload()
     payload[period][-1][field] = value
     assert probe(tmp_path, "weight", payload).returncode != 0
+
+
+def test_update_probe_uses_the_installed_apk_size_and_hash(tmp_path):
+    payload = {
+        "version_code": 19,
+        "version_name": "1.5.2",
+        "sha256": EXPECTED_APK_SHA256,
+        "size_bytes": EXPECTED_APK_SIZE,
+        "download_url": "/amigo/api/v1/app-update/apk",
+    }
+    assert probe(tmp_path, "update", payload).returncode == 0
+    for field, value in (
+        ("size_bytes", EXPECTED_APK_SIZE + 1),
+        ("sha256", "0" * 64),
+    ):
+        assert probe(tmp_path, "update", {**payload, field: value}).returncode != 0

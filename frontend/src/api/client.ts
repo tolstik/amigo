@@ -51,6 +51,16 @@ import type {
   LabResult,
   LabResultInput,
   Medication,
+  MedicationPressureComparison,
+  MaintenanceState,
+  PlateauState,
+  DayNote,
+  NoteCategory,
+  DailyCheckin,
+  CheckinsResponse,
+  Milestone,
+  MilestonesResponse,
+  BestPeriod,
   UserProfile,
   StudyDocument,
   StudyModality,
@@ -173,6 +183,12 @@ function normalizeMedication(value: unknown): Medication | null {
     name,
     dosage,
     schedule: string(value, "schedule"),
+    started_on: string(value, "started_on"),
+    stopped_on: string(value, "stopped_on"),
+    is_current: typeof record(value).is_current === "boolean" ? (record(value).is_current as boolean) : null,
+    pressure_comparison: isRecord(record(value).pressure_comparison)
+      ? (record(value).pressure_comparison as MedicationPressureComparison)
+      : null,
     created_at: string(value, "created_at", "createdAt"),
     updated_at: string(value, "updated_at", "updatedAt"),
   };
@@ -184,10 +200,115 @@ function requiredMedication(value: unknown): Medication {
   return normalized;
 }
 
+function normalizePlateau(value: unknown): PlateauState {
+  return {
+    active: boolean(value, "active"),
+    windowDays: number(value, "window_days") ?? 14,
+    thresholdKg: number(value, "threshold_kg") ?? 0.2,
+    changeKg: number(value, "change_kg"),
+    from: string(value, "from"),
+    to: string(value, "to"),
+    reason: string(value, "reason"),
+  };
+}
+
+function normalizeMaintenance(value: unknown): MaintenanceState {
+  const status = string(value, "band_status");
+  return {
+    phase: string(value, "phase") === "maintenance" ? "maintenance" : "loss",
+    targetReachedOn: string(value, "target_reached_on"),
+    bandLowKg: number(value, "band_low_kg"),
+    bandHighKg: number(value, "band_high_kg"),
+    bandStatus: status === "inside" || status === "above" || status === "below" ? status : null,
+  };
+}
+
+const noteCategories: NoteCategory[] = ["illness", "holiday", "travel", "medication", "stress", "other"];
+
+function normalizeNote(value: unknown): DayNote | null {
+  const id = string(value, "id");
+  const day = string(value, "day");
+  const text = string(value, "text");
+  const category = string(value, "category") as NoteCategory | null;
+  if (!id || !day || !text || !category || !noteCategories.includes(category)) return null;
+  return { id, day, category, text, updatedAt: string(value, "updated_at") };
+}
+
+function requiredNote(value: unknown): DayNote {
+  const note = normalizeNote(value);
+  if (!note) throw new Error("Некорректный ответ заметки");
+  return note;
+}
+
+function score(value: unknown, key: string): number | null {
+  const result = number(value, key);
+  return result !== null && result >= 1 && result <= 5 ? result : null;
+}
+
+function normalizeCheckin(value: unknown): DailyCheckin | null {
+  const day = string(value, "day");
+  if (!day) return null;
+  return { day, energy: score(value, "energy"), hunger: score(value, "hunger"), mood: score(value, "mood") };
+}
+
+export function normalizeCheckins(payload: unknown): CheckinsResponse {
+  return {
+    today: string(payload, "today"),
+    items: list(payload, "items").map(normalizeCheckin).filter((item): item is DailyCheckin => item !== null),
+    correlations: list(payload, "correlations").flatMap((value) => {
+      const metric = string(value, "metric");
+      const target = string(value, "target");
+      const coefficient = number(value, "coefficient");
+      if (!metric || !target || coefficient === null) return [];
+      return [{
+        metric,
+        target,
+        coefficient,
+        pairedDays: number(value, "paired_days") ?? 0,
+        disclaimer: string(value, "disclaimer") ?? "Корреляция не доказывает причинность.",
+      }];
+    }),
+  };
+}
+
+function normalizeBestPeriod(value: unknown): BestPeriod | null {
+  const startDate = string(value, "start_date");
+  const endDate = string(value, "end_date");
+  const changeKg = number(value, "change_kg");
+  return startDate && endDate && changeKg !== null ? { startDate, endDate, changeKg } : null;
+}
+
+function normalizeMilestone(value: unknown): Milestone | null {
+  const id = string(value, "id");
+  const label = string(value, "label");
+  const thresholdKg = number(value, "threshold_kg");
+  const kind = string(value, "kind");
+  if (!id || !label || thresholdKg === null || (kind !== "weight_loss" && kind !== "target" && kind !== "bmi")) return null;
+  return { id, kind, label, thresholdKg, achievedOn: string(value, "achieved_on"), achievedKg: number(value, "achieved_kg") };
+}
+
+export function normalizeMilestones(payload: unknown): MilestonesResponse {
+  const next = normalizeMilestone(at(payload, "next"));
+  return {
+    items: list(payload, "items").map(normalizeMilestone).filter((item): item is Milestone => item !== null),
+    next: next ? { ...next, remainingKg: number(payload, "next.remaining_kg") } : null,
+    streaks: {
+      currentDays: number(payload, "streaks.current_days") ?? 0,
+      longestDays: number(payload, "streaks.longest_days") ?? 0,
+      longestEnd: string(payload, "streaks.longest_end"),
+    },
+    bestWeek: normalizeBestPeriod(at(payload, "best_week")),
+    bestMonth: normalizeBestPeriod(at(payload, "best_month")),
+    plateau: normalizePlateau(at(payload, "plateau")),
+  };
+}
+
 export function normalizeOverview(payload: unknown): Overview {
   const body = unbox(payload);
   return {
     generatedAt: string(body, "generated_at", "generatedAt", "as_of"),
+    maintenance: normalizeMaintenance(at(body, "maintenance")),
+    plateau: normalizePlateau(at(body, "plateau")),
     plan: {
       startDate: string(body, "plan.start_date", "plan.startDate") ?? "",
       startWeightKg: number(body, "plan.start_weight_kg", "plan.startWeightKg") ?? 0,
@@ -1048,6 +1169,21 @@ function queryRange(range: Period): string {
 }
 
 export const api = {
+  notes: async (range: "30d" | "90d" | "1y" | "all", signal?: AbortSignal) =>
+    list(await fetchJson(`/notes?${new URLSearchParams({ range })}`, signal), "items")
+      .map(normalizeNote)
+      .filter((item): item is DayNote => item !== null),
+  createNote: async (note: { day: string; category: NoteCategory; text: string }) =>
+    requiredNote(await requestJson("/notes", jsonBody(note))),
+  updateNote: async (id: string, note: Partial<{ day: string; category: NoteCategory; text: string }>) =>
+    requiredNote(await requestJson(`/notes/${encodeURIComponent(id)}`, { ...jsonBody(note), method: "PATCH" })),
+  deleteNote: async (id: string) => requestJson(`/notes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  checkins: async (range: "30d" | "90d" | "1y" | "all", signal?: AbortSignal) =>
+    normalizeCheckins(await fetchJson(`/checkins?${new URLSearchParams({ range })}`, signal)),
+  saveCheckin: async (day: string, values: { energy: number | null; hunger: number | null; mood: number | null }) =>
+    normalizeCheckin(await requestJson(`/checkins/${encodeURIComponent(day)}`, { ...jsonBody(values), method: "PUT" })),
+  deleteCheckin: async (day: string) => requestJson(`/checkins/${encodeURIComponent(day)}`, { method: "DELETE" }),
+  milestones: async (signal?: AbortSignal) => normalizeMilestones(await fetchJson("/milestones", signal)),
   swimming: async (period: Period, offset: number, signal?: AbortSignal) =>
     fetchJson(`/series/swimming?${new URLSearchParams({ range: period, offset: String(offset) })}`, signal) as Promise<SwimmingSeries>,
   session: async (signal?: AbortSignal) => requestJson("/auth/session", {}, signal) as Promise<AuthSession>,
@@ -1062,9 +1198,9 @@ export const api = {
       .map(normalizeMedication)
       .filter((item): item is Medication => item !== null);
   },
-  createMedication: async (medication: { name: string; dosage: string; schedule?: string | null }) =>
+  createMedication: async (medication: { name: string; dosage: string; schedule?: string | null; started_on?: string | null; stopped_on?: string | null }) =>
     requiredMedication(await requestJson("/medications", jsonBody(medication))),
-  updateMedication: async (id: string, medication: Partial<{ name: string; dosage: string; schedule: string | null }>) =>
+  updateMedication: async (id: string, medication: Partial<{ name: string; dosage: string; schedule: string | null; started_on: string | null; stopped_on: string | null }>) =>
     requiredMedication(await requestJson(`/medications/${encodeURIComponent(id)}`, { ...jsonBody(medication), method: "PATCH" })),
   deleteMedication: async (id: string) =>
     requestJson(`/medications/${encodeURIComponent(id)}`, { method: "DELETE" }),
@@ -1184,4 +1320,8 @@ export function studyDownloadUrl(documentId: string): string {
 
 export function csvUrl(kind: "weight" | "pressure" | "composition" | "circumference" | "activity" | "recovery", range: Period): string {
   return `${API_ROOT}/export/${kind}.csv?${new URLSearchParams({ range }).toString()}`;
+}
+
+export function archiveUrl(): string {
+  return `${API_ROOT}/export/archive.zip`;
 }

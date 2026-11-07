@@ -666,6 +666,10 @@ for protected_path in \
     'api/v1/data-quality?range=30d' \
     api/v1/export/weight.csv \
     api/v1/export/circumference.csv \
+    api/v1/export/archive.zip \
+    'api/v1/notes?range=30d' \
+    'api/v1/checkins?range=30d' \
+    api/v1/milestones \
     api/v1/series/circumference?range=30d \
     api/v1/labs/documents \
     api/v1/studies/documents \
@@ -696,6 +700,16 @@ CIRCUMFERENCE_PUT_STATUS="$(curl --silent --show-error --max-time 20 \
     "${AMIGO_PUBLIC_URL}api/v1/body-measurements/2026-08-28")"
 [[ "${CIRCUMFERENCE_PUT_STATUS}" == "401" ]] \
     || amigo_die "unauthenticated circumference PUT route did not return 401"
+[[ "$(public_status 'api/v1/notes' POST)" == "401" ]] \
+    || amigo_die "unauthenticated note POST route did not return 401"
+for journal_method in PATCH DELETE; do
+    [[ "$(public_status 'api/v1/notes/00000000-0000-0000-0000-000000000000' "${journal_method}")" == "401" ]] \
+        || amigo_die "unauthenticated note ${journal_method} route did not return 401"
+done
+for journal_method in PUT DELETE; do
+    [[ "$(public_status 'api/v1/checkins/2026-11-07' "${journal_method}")" == "401" ]] \
+        || amigo_die "unauthenticated check-in ${journal_method} route did not return 401"
+done
 for removed_method in GET POST; do
     [[ "$(public_status 'api/v1/labs/compare' "${removed_method}")" == "404" ]] \
         || amigo_die "removed laboratory comparison route did not return 404"
@@ -706,7 +720,7 @@ for removed_method in GET POST PATCH DELETE; do
             || amigo_die "removed task route did not return 404"
     done
 done
-amigo_log "PASS dashboard JSON, CSV, quality, swimming, doctor reports, updater, and assistant require authentication; removed comparison returns 404"
+amigo_log "PASS dashboard JSON, CSV, ZIP export, journal, milestones, quality, swimming, doctor reports, updater, and assistant require authentication; removed comparison returns 404"
 
 amigo_compose run --rm --no-deps --user 0 \
     --volume "${VERIFICATION_DIR}:/verification" \

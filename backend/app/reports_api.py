@@ -20,6 +20,7 @@ from .db import get_db
 from .feature_models import DoctorReportSnapshot
 from .health_analytics import activity_series, recovery_series
 from .lab_models import LabReport, LabResult, StudyDocument
+from .journal import is_current_medication
 from .medication_models import Medication
 from .service import circumference_series, overview, pressure_series, weight_series
 
@@ -91,10 +92,11 @@ def _lab_reference(row: LabResult) -> str | None:
     return None
 
 
-def _medication_payload(db: Session) -> list[dict[str, str | None]]:
+def _medication_payload(db: Session, today: date) -> list[dict[str, str | None]]:
     return [
         {"name": row.name, "dosage": row.dosage, "schedule": row.schedule}
         for row in db.scalars(select(Medication).order_by(Medication.name, Medication.id))
+        if is_current_medication(row, today)
     ]
 
 
@@ -126,10 +128,10 @@ def build_doctor_report_payload(
             "weight": source.get("weight"),
             "pressure": source.get("pressure"),
             "composition": source.get("composition"),
-            "medications": _medication_payload(db),
+            "medications": _medication_payload(db, local_today),
         }
     if "medications" in sections:
-        payload["sections"]["medications"] = _medication_payload(db)
+        payload["sections"]["medications"] = _medication_payload(db, local_today)
     if "weight" in sections:
         payload["sections"]["weight"] = weight_series(db, settings.tz, request.period, now)
     if "circumference" in sections:

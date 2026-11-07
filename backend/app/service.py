@@ -28,6 +28,7 @@ from .analytics import (
     weekly_weight_pressure_correlation,
 )
 from .body_measurements_models import BodyCircumference
+from .journal import maintenance_state, plateau_status
 from .models import Measurement, MeasurementGroup, Plan, SyncState
 
 
@@ -496,8 +497,16 @@ def overview(db: Session, tz: ZoneInfo, now: datetime | None = None) -> dict[str
         "latest_age_days": latest_age_days,
         "is_stale": weight_is_stale,
     }
+    clean_daily = [point for point in daily if not point.is_outlier]
+    maintenance = maintenance_state(clean_daily, plan, latest_weight)
+    plateau = plateau_status(clean_daily, today)
+    if maintenance["phase"] == "maintenance":
+        # Holding a stable weight is the goal once the target was reached.
+        plateau = {**plateau, "active": False, "reason": "maintenance"}
     return {
         "generated_at": _iso(current),
+        "maintenance": maintenance,
+        "plateau": plateau,
         "weight": nested_weight,
         "pressure": {
             "latest_systolic": latest_pressure["systolic"] if latest_pressure else None,

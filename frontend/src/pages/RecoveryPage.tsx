@@ -12,6 +12,7 @@ import { WatchHeartRateChart } from "../components/WatchHeartRateChart";
 import { useApi } from "../hooks/useApi";
 import { useChartPeriod } from "../hooks/useChartPeriod";
 import { formatDate, formatNumber } from "../lib/format";
+import { dailyTrend } from "../lib/trend";
 
 const metricLabels: Record<string, string> = {
   sleep_minutes: "Продолжительность сна",
@@ -46,6 +47,9 @@ export function RecoveryPage() {
   const points = series.data?.points ?? [];
   const hourlyHeartRate = series.data?.heartRateHourly ?? [];
   const summary = series.data?.summary;
+  const sleepTrend = dailyTrend(points, (point) => point.measuredAt, (point) => point.sleepMinutes, 14);
+  const restingTrend = dailyTrend(points, (point) => point.measuredAt, (point) => point.restingHeartRateBpm, 14);
+  const hrvTrend = dailyTrend(points, (point) => point.measuredAt, (point) => point.hrvRmssdMs, 14);
 
   return (
     <>
@@ -57,10 +61,10 @@ export function RecoveryPage() {
       />
 
       <section className="kpi-grid" aria-label="Показатели восстановления">
-        <KpiCard label="Последний сон" value={duration(summary?.sleepMinutes)} hint={summary?.sleepDate ? formatDate(summary.sleepDate) : "Нет данных"} icon="clock" tone="violet" featured />
+        <KpiCard label="Последний сон" value={duration(summary?.sleepMinutes)} hint={summary?.sleepDate ? formatDate(summary.sleepDate) : "Нет данных"} icon="moon" tone="violet" featured trend={sleepTrend} trendLabel="Сон за 14 дней" />
         <KpiCard label="Средний пульс с часов" value={summary?.averageHeartRateBpm == null ? "—" : `${formatNumber(summary.averageHeartRateBpm, 0)} уд/мин`} hint={`${summary?.heartRateDate ? formatDate(summary.heartRateDate) + " · " : ""}${heartRateRange(summary?.minimumHeartRateBpm, summary?.maximumHeartRateBpm)}`} icon="heart" tone="coral" />
-        <KpiCard label="Пульс покоя" value={summary?.restingHeartRateBpm == null ? "—" : `${formatNumber(summary.restingHeartRateBpm, 0)} уд/мин`} hint={`${summary?.restingHeartRateDate ? formatDate(summary.restingHeartRateDate) + " · " : ""}${baselineHint(summary?.restingHeartRateBpm, summary?.baselineRestingHeartRateBpm, "уд/мин")}`} icon="heart" tone="coral" />
-        <KpiCard label="HRV · RMSSD" value={summary?.hrvRmssdMs == null ? "—" : `${formatNumber(summary.hrvRmssdMs, 0)} мс`} hint={`${summary?.hrvDate ? formatDate(summary.hrvDate) + " · " : ""}${baselineHint(summary?.hrvRmssdMs, summary?.baselineHrvRmssdMs, "мс")}`} icon="activity" tone="green" />
+        <KpiCard label="Пульс покоя" value={summary?.restingHeartRateBpm == null ? "—" : `${formatNumber(summary.restingHeartRateBpm, 0)} уд/мин`} hint={`${summary?.restingHeartRateDate ? formatDate(summary.restingHeartRateDate) + " · " : ""}${baselineHint(summary?.restingHeartRateBpm, summary?.baselineRestingHeartRateBpm, "уд/мин")}`} icon="heart" tone="coral" trend={restingTrend} trendLabel="Пульс покоя за 14 дней" />
+        <KpiCard label="HRV · RMSSD" value={summary?.hrvRmssdMs == null ? "—" : `${formatNumber(summary.hrvRmssdMs, 0)} мс`} hint={`${summary?.hrvDate ? formatDate(summary.hrvDate) + " · " : ""}${baselineHint(summary?.hrvRmssdMs, summary?.baselineHrvRmssdMs, "мс")}`} icon="activity" tone="green" trend={hrvTrend} trendLabel="HRV за 14 дней" />
         <KpiCard label="SpO₂" value={summary?.spo2Pct == null ? "—" : `${formatNumber(summary.spo2Pct)}%`} hint={summary?.spo2Date ? `Замер ${formatDate(summary.spo2Date)}` : "Показывается только при наличии"} icon="progress" tone="blue" />
       </section>
 

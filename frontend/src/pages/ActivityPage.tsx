@@ -11,6 +11,7 @@ import { PeriodSwitcher } from "../components/PeriodSwitcher";
 import { useApi } from "../hooks/useApi";
 import { useChartPeriod } from "../hooks/useChartPeriod";
 import { formatDate, formatDateTime, formatNumber } from "../lib/format";
+import { dailyTrend } from "../lib/trend";
 
 const metricLabels: Record<string, string> = {
   steps: "Шаги",
@@ -34,6 +35,8 @@ export function ActivityPage() {
   const points = series.data?.points ?? [];
   const weekly = series.data?.weekly ?? [];
   const summary = series.data?.summary;
+  const stepsTrend = dailyTrend(points, (point) => point.measuredAt, (point) => point.steps, 14);
+  const minutesTrend = dailyTrend(points, (point) => point.measuredAt, (point) => point.activeMinutes, 14);
 
   return (
     <>
@@ -45,9 +48,9 @@ export function ActivityPage() {
       />
 
       <section className="kpi-grid" aria-label="Показатели активности">
-        <KpiCard label="Шаги" value={formatNumber(summary?.steps, 0)} hint={stepsComparison(summary?.steps ?? null, summary?.baselineSteps ?? null)} icon="activity" tone="green" featured />
+        <KpiCard label="Шаги" value={formatNumber(summary?.steps, 0)} hint={stepsComparison(summary?.steps ?? null, summary?.baselineSteps ?? null)} icon="steps" tone="green" featured trend={stepsTrend} trendLabel="Шаги за 14 дней" />
         <KpiCard label="Дистанция" value={summary?.distanceKm == null ? "—" : `${formatNumber(summary.distanceKm)} км`} hint={summary?.latestDate ? formatDate(summary.latestDate) : "Нет данных"} icon="progress" tone="blue" />
-        <KpiCard label="Активные минуты" value={summary?.activeMinutes == null ? "—" : `${formatNumber(summary.activeMinutes, 0)} мин`} hint="За последний доступный день" icon="clock" tone="violet" />
+        <KpiCard label="Активные минуты" value={summary?.activeMinutes == null ? "—" : `${formatNumber(summary.activeMinutes, 0)} мин`} hint="За последний доступный день" icon="clock" tone="violet" trend={minutesTrend} trendLabel="Активные минуты за 14 дней" />
         <KpiCard label="Тренировки, 7 дней" value={formatNumber(summary?.workouts7d ?? 0, 0)} hint={summary?.dataAsOf ? `Данные на ${formatDateTime(summary.dataAsOf)}` : "Ожидаем синхронизацию"} icon="calendar" tone="coral" />
       </section>
 

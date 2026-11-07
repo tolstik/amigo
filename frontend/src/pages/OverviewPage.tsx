@@ -10,7 +10,8 @@ import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { WeightTable } from "../components/DataTables";
 import { useApi } from "../hooks/useApi";
-import { clampProgress, formatDate, formatDateTime, formatDelta, formatKg, formatNumber, formatPercent } from "../lib/format";
+import { dailyTrend } from "../lib/trend";
+import { clampProgress, greeting, formatDate, formatDateTime, formatDelta, formatKg, formatNumber, formatPercent } from "../lib/format";
 
 const BodyModel = lazy(() => import("../components/BodyModel"));
 
@@ -37,11 +38,14 @@ export function OverviewPage() {
 
   const { weight, plan, pressure, composition } = overview.data;
   const progress = weight.progressPct;
+  const trendPoints = preview.data?.points.filter((point) => !point.isOutlier) ?? [];
+  const weightTrend = dailyTrend(trendPoints, (point) => point.measuredAt, (point) => point.weightKg, 30);
+  const smoothedTrend = dailyTrend(trendPoints, (point) => point.measuredAt, (point) => point.smoothed7dKg, 30);
   return (
     <>
       <PageHeader
         eyebrow="Ваш путь"
-        title="Добрый день! Вот как идут дела"
+        title={`${greeting()}! Вот как идут дела`}
         description={`План начался ${formatDate(plan.startDate)}. Все изменения и прогнозы считаются только от этой даты.`}
         actions={
           <a className="button button--secondary" href={csvUrl("weight", "program")} download>
@@ -58,6 +62,8 @@ export function OverviewPage() {
           icon="scale"
           tone="green"
           featured
+          trend={weightTrend}
+          trendLabel="Дневные медианы веса за 30 дней"
         />
         <KpiCard
           label="С начала программы"
@@ -72,6 +78,8 @@ export function OverviewPage() {
           hint="Медианный тренд за 7 дней"
           icon="activity"
           tone="violet"
+          trend={smoothedTrend}
+          trendLabel="Сглаженный вес за 30 дней"
         />
         <KpiCard
           label="Регулярность"

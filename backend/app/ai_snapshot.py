@@ -15,6 +15,7 @@ from .ai_queue import AnalysisTrigger, enqueue_analysis
 from .config import Settings
 from .health_analytics import activity_series, recovery_series
 from .lab_models import LabResult
+from .journal import is_current_medication
 from .medication_models import Medication
 from .service import overview, pressure_series, weight_series
 
@@ -345,9 +346,12 @@ def build_analysis_snapshot(
         _timestamp(activity.get("data_as_of")),
         _timestamp(recovery.get("data_as_of")),
     ]
-    medications = [] if db is None else list(
-        db.scalars(select(Medication).order_by(Medication.name, Medication.id))
-    )
+    medications = [] if db is None else [
+        row
+        for row in db.scalars(select(Medication).order_by(Medication.name, Medication.id))
+        # Stopped or not yet started medications are history, not current context.
+        if is_current_medication(row, today)
+    ]
     medication_context = [
         SnapshotMedication(
             name=row.name,

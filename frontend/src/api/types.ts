@@ -107,9 +107,29 @@ export interface Insight {
   createdAt: string | null;
 }
 
+export interface MaintenanceState {
+  phase: "loss" | "maintenance";
+  targetReachedOn: string | null;
+  bandLowKg: number | null;
+  bandHighKg: number | null;
+  bandStatus: "inside" | "above" | "below" | null;
+}
+
+export interface PlateauState {
+  active: boolean;
+  windowDays: number;
+  thresholdKg: number;
+  changeKg: number | null;
+  from: string | null;
+  to: string | null;
+  reason: string | null;
+}
+
 export interface Overview {
   generatedAt: string | null;
   plan: PlanSummary;
+  maintenance: MaintenanceState;
+  plateau: PlateauState;
   weight: WeightSummary;
   pressure: PressureSummary;
   composition: CompositionSummary;
@@ -406,11 +426,30 @@ export interface UserProfile {
   ai_data_consent_at: string | null;
 }
 
+export interface MedicationPressureWindow {
+  from: string;
+  to: string;
+  sessions: number;
+  systolic_mean: number | null;
+  diastolic_mean: number | null;
+  complete?: boolean;
+}
+
+export interface MedicationPressureComparison {
+  window_days: number;
+  before: MedicationPressureWindow;
+  after: MedicationPressureWindow;
+}
+
 export interface Medication {
   id: string;
   name: string;
   dosage: string;
   schedule: string | null;
+  started_on?: string | null;
+  stopped_on?: string | null;
+  is_current?: boolean | null;
+  pressure_comparison?: MedicationPressureComparison | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -643,4 +682,59 @@ export interface DoctorReport {
   downloadUrl: string;
   htmlDownloadUrl: string;
   htmlSizeBytes: number;
+}
+
+export type NoteCategory = "illness" | "holiday" | "travel" | "medication" | "stress" | "other";
+
+export interface DayNote {
+  id: string;
+  day: string;
+  category: NoteCategory;
+  text: string;
+  updatedAt: string | null;
+}
+
+export interface DailyCheckin {
+  day: string;
+  energy: number | null;
+  hunger: number | null;
+  mood: number | null;
+}
+
+export interface CheckinCorrelation {
+  metric: string;
+  target: string;
+  coefficient: number;
+  pairedDays: number;
+  disclaimer: string;
+}
+
+export interface CheckinsResponse {
+  today: string | null;
+  items: DailyCheckin[];
+  correlations: CheckinCorrelation[];
+}
+
+export interface Milestone {
+  id: string;
+  kind: "weight_loss" | "target" | "bmi";
+  label: string;
+  thresholdKg: number;
+  achievedOn: string | null;
+  achievedKg: number | null;
+}
+
+export interface BestPeriod {
+  startDate: string;
+  endDate: string;
+  changeKg: number;
+}
+
+export interface MilestonesResponse {
+  items: Milestone[];
+  next: (Milestone & { remainingKg: number | null }) | null;
+  streaks: { currentDays: number; longestDays: number; longestEnd: string | null };
+  bestWeek: BestPeriod | null;
+  bestMonth: BestPeriod | null;
+  plateau: PlateauState;
 }

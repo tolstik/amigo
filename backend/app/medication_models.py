@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import Date, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -22,6 +22,10 @@ class Medication(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     dosage: Mapped[str] = mapped_column(String(80), nullable=False)
     schedule: Mapped[str | None] = mapped_column(String(120))
+    # Optional Moscow calendar dates. A medication whose stop date has passed
+    # is history: it stays on charts but is no longer "current".
+    started_on: Mapped[date | None] = mapped_column(Date)
+    stopped_on: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )

@@ -311,3 +311,20 @@ describe("daily pressure category strip", () => {
     expect(tooltip).toContain("Сессий");
   });
 });
+
+describe("event markers", () => {
+  it("adds only in-range events as separate legend series", async () => {
+    const { withEventMarkers, eventTime } = await import("./options");
+    const base = { series: [{ type: "line", data: [] }] } as Parameters<typeof withEventMarkers>[0];
+    const result = withEventMarkers(base, [
+      { day: "2026-09-02", label: "Болезнь", kind: "note" },
+      { day: "2027-01-01", label: "Вне диапазона", kind: "note" },
+      { day: "2026-09-03", label: "Старт: препарат", kind: "medication" },
+    ], ["2026-09-01", "2026-09-05"]);
+    const series = result.series as Array<{ name?: string; markLine?: { data: Array<{ xAxis: number; name: string }> } }>;
+    expect(series.map((item) => item.name)).toEqual([undefined, "Заметки", "Препараты"]);
+    expect(series[1].markLine?.data).toHaveLength(1);
+    expect(series[1].markLine?.data[0].xAxis).toBe(eventTime("2026-09-02"));
+    expect(withEventMarkers(base, [], ["2026-09-01"])).toBe(base);
+  });
+});

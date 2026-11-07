@@ -1,6 +1,9 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api } from "../api/client";
-import type { Medication, UserProfile } from "../api/types";
+import { api, archiveUrl } from "../api/client";
+import type { Medication, MedicationPressureComparison, UserProfile } from "../api/types";
+import { Link } from "react-router-dom";
+import { Icon } from "../components/Icon";
+import { formatDate, formatNumber } from "../lib/format";
 import { ErrorState, LoadingState } from "../components/AsyncState";
 import { PageHeader } from "../components/PageHeader";
 import { useApi } from "../hooks/useApi";
@@ -11,7 +14,7 @@ export function ProfilePage({ onLogout }: { onLogout: () => void }) {
   const medications = useApi(useCallback((signal: AbortSignal) => api.medications(signal), []));
   const [form, setForm] = useState<UserProfile | null>(null);
   const [medicationDrafts, setMedicationDrafts] = useState<Record<string, Medication>>({});
-  const [newMedication, setNewMedication] = useState({ name: "", dosage: "", schedule: "" });
+  const [newMedication, setNewMedication] = useState({ name: "", dosage: "", schedule: "", started_on: "", stopped_on: "" });
   const [medicationBusy, setMedicationBusy] = useState<string | null>(null);
   const [medicationError, setMedicationError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -63,8 +66,13 @@ export function ProfilePage({ onLogout }: { onLogout: () => void }) {
     setMedicationBusy("new");
     setMedicationError(null);
     try {
-      await api.createMedication({ ...newMedication, schedule: newMedication.schedule || null });
-      setNewMedication({ name: "", dosage: "", schedule: "" });
+      await api.createMedication({
+        ...newMedication,
+        schedule: newMedication.schedule || null,
+        started_on: newMedication.started_on || null,
+        stopped_on: newMedication.stopped_on || null,
+      });
+      setNewMedication({ name: "", dosage: "", schedule: "", started_on: "", stopped_on: "" });
       medications.reload();
     } catch {
       setMedicationError("Не удалось добавить препарат.");
@@ -85,8 +93,11 @@ export function ProfilePage({ onLogout }: { onLogout: () => void }) {
         name: item.name,
         dosage: item.dosage,
         schedule: item.schedule || null,
+        started_on: item.started_on || null,
+        stopped_on: item.stopped_on || null,
       });
       if (updated) setMedicationDrafts((current) => ({ ...current, [item.id]: updated }));
+      medications.reload();
     } catch {
       setMedicationError("Не удалось сохранить препарат.");
     } finally {
@@ -138,7 +149,10 @@ export function ProfilePage({ onLogout }: { onLogout: () => void }) {
             <label>Препарат<input value={item.name} onChange={(event) => setMedicationDrafts((current) => ({ ...current, [item.id]: { ...item, name: event.target.value } }))} maxLength={120} /></label>
             <label>Дозировка<input value={item.dosage} onChange={(event) => setMedicationDrafts((current) => ({ ...current, [item.id]: { ...item, dosage: event.target.value } }))} maxLength={80} /></label>
             <label>Режим приёма <span className="label-hint">необязательно</span><input value={item.schedule ?? ""} onChange={(event) => setMedicationDrafts((current) => ({ ...current, [item.id]: { ...item, schedule: event.target.value || null } }))} maxLength={120} placeholder="например, утром" /></label>
-            <div className="medication-row__actions"><button className="button button--secondary" type="button" onClick={() => saveMedication(item)} disabled={medicationBusy === item.id}>{medicationBusy === item.id ? "Сохраняем…" : "Сохранить"}</button><button className="button button--ghost" type="button" onClick={() => removeMedication(item.id)} disabled={medicationBusy === item.id}>Удалить</button></div>
+            <label>Начало приёма <span className="label-hint">необязательно</span><input type="date" value={item.started_on ?? ""} onChange={(event) => setMedicationDrafts((current) => ({ ...current, [item.id]: { ...item, started_on: event.target.value || null } }))} /></label>
+            <label>Окончание <span className="label-hint">если завершён</span><input type="date" value={item.stopped_on ?? ""} min={item.started_on ?? undefined} onChange={(event) => setMedicationDrafts((current) => ({ ...current, [item.id]: { ...item, stopped_on: event.target.value || null } }))} /></label>
+            <div className="medication-row__actions"><button className="button button--secondary" type="button" onClick={() => saveMedication(item)} disabled={medicationBusy === item.id}>{medicationBusy === item.id ? "Сохраняем…" : "Сохранить"}</button><button className="button button--ghost" type="button" onClick={() => removeMedication(item.id)} disabled={medicationBusy === item.id}>Удалить</button>{item.is_current === false && <span className="medication-badge">Не принимается сейчас</span>}</div>
+            {item.pressure_comparison && <ComparisonNote comparison={item.pressure_comparison} />}
           </div>)}
           {!Object.keys(medicationDrafts).length && <p className="panel-note">Постоянные препараты пока не добавлены.</p>}
         </div>}
@@ -147,10 +161,37 @@ export function ProfilePage({ onLogout }: { onLogout: () => void }) {
           <label>Препарат<input value={newMedication.name} onChange={(event) => setNewMedication({ ...newMedication, name: event.target.value })} maxLength={120} placeholder="Название" /></label>
           <label>Дозировка<input value={newMedication.dosage} onChange={(event) => setNewMedication({ ...newMedication, dosage: event.target.value })} maxLength={80} placeholder="например, 5 мг" /></label>
           <label>Режим приёма <span className="label-hint">необязательно</span><input value={newMedication.schedule} onChange={(event) => setNewMedication({ ...newMedication, schedule: event.target.value })} maxLength={120} placeholder="например, 1 раз в день" /></label>
+          <label>Начало приёма <span className="label-hint">необязательно</span><input type="date" value={newMedication.started_on} onChange={(event) => setNewMedication({ ...newMedication, started_on: event.target.value })} /></label>
+          <label>Окончание <span className="label-hint">необязательно</span><input type="date" value={newMedication.stopped_on} min={newMedication.started_on || undefined} onChange={(event) => setNewMedication({ ...newMedication, stopped_on: event.target.value })} /></label>
           <button className="button button--primary" disabled={medicationBusy === "new"}>{medicationBusy === "new" ? "Добавляем…" : "Добавить"}</button>
         </form>
         {medicationError && <p className="form-error" role="alert">{medicationError}</p>}
       </section>
+      <section className="panel export-panel" aria-labelledby="export-title">
+        <div className="panel__head">
+          <div>
+            <span className="eyebrow">Ваши данные</span>
+            <h2 id="export-title">Экспорт и качество данных</h2>
+            <p>Один ZIP-архив со всеми CSV: вес, давление, состав тела, обхваты, активность, восстановление, заметки, самооценка, препараты и результаты анализов. Оригиналы документов, OCR, чат и идентификаторы устройств в архив не входят — оригиналы скачиваются со страницы документа.</p>
+          </div>
+        </div>
+        <div className="export-panel__actions">
+          <a className="button button--primary" href={archiveUrl()} download><Icon name="download" /> Скачать архив</a>
+          <Link className="button button--secondary" to="/data-quality"><Icon name="shield" /> Качество данных</Link>
+        </div>
+      </section>
     </>
+  );
+}
+
+function ComparisonNote({ comparison }: { comparison: MedicationPressureComparison }) {
+  const pair = (systolic: number | null, diastolic: number | null) =>
+    systolic === null || diastolic === null ? "нет замеров" : `${formatNumber(systolic, 0)}/${formatNumber(diastolic, 0)}`;
+  return (
+    <p className="medication-comparison">
+      Среднее домашнее давление за {comparison.window_days} дней до начала ({formatDate(comparison.before.from, false)} – {formatDate(comparison.before.to)}, сессий: {comparison.before.sessions}): <strong>{pair(comparison.before.systolic_mean, comparison.before.diastolic_mean)}</strong>
+      {" · "}после ({formatDate(comparison.after.from, false)} – {formatDate(comparison.after.to)}, сессий: {comparison.after.sessions}{comparison.after.complete === false ? ", окно ещё не завершено" : ""}): <strong>{pair(comparison.after.systolic_mean, comparison.after.diastolic_mean)}</strong>.
+      {" "}Это описание измерений, а не оценка действия препарата.
+    </p>
   );
 }

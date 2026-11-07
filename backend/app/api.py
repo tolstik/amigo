@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import csv
+import zipfile
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from io import StringIO
+from io import BytesIO, StringIO
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -18,6 +19,9 @@ from .ai_queue import public_analysis_payload
 from .auth import AuthContext, require_csrf
 from .health_analytics import activity_series, recovery_series
 from .body_measurements_models import BodyCircumference
+from .journal_models import DailyCheckin, DayNote
+from .lab_models import LabResult
+from .journal import is_current_medication, medication_pressure_comparison
 from .medication_models import Medication
 from .service import circumference_series, composition_series, overview, pressure_series, weight_series
 
@@ -45,6 +49,13 @@ class MedicationInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     dosage: str = Field(min_length=1, max_length=80)
     schedule: str | None = Field(default=None, max_length=120)
+    started_on: date | None = None
+    stopped_on: date | None = None
+
+    @model_validator(mode="after")
+    def ordered_dates(self) -> "MedicationInput":
+        _check_medication_dates(self.started_on, self.stopped_on)
+        return self
 
 
 class MedicationPatch(BaseModel):
@@ -53,6 +64,8 @@ class MedicationPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     dosage: str | None = Field(default=None, min_length=1, max_length=80)
     schedule: str | None = Field(default=None, max_length=120)
+    started_on: date | None = None
+    stopped_on: date | None = None
 
     @model_validator(mode="after")
     def has_value(self) -> "MedicationPatch":
@@ -61,12 +74,26 @@ class MedicationPatch(BaseModel):
         return self
 
 
-def _medication(row: Medication) -> dict[str, object]:
+def _check_medication_dates(started_on: date | None, stopped_on: date | None) -> None:
+    if started_on is not None and stopped_on is not None and stopped_on < started_on:
+        raise ValueError("stopped_on must not precede started_on")
+
+
+def _medication(
+    row: Medication,
+    *,
+    today: date | None = None,
+    pressure_comparison: dict[str, object] | None = None,
+) -> dict[str, object]:
     return {
         "id": row.id,
         "name": row.name,
         "dosage": row.dosage,
         "schedule": row.schedule,
+        "started_on": row.started_on,
+        "stopped_on": row.stopped_on,
+        "is_current": is_current_medication(row, today) if today is not None else None,
+        "pressure_comparison": pressure_comparison,
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -85,9 +112,29 @@ def _ensure_medication_capacity(db: Session) -> None:
 
 
 @router.get("/medications")
-def get_medications(db: Session = Depends(get_db)) -> dict[str, list[dict[str, object]]]:
+def get_medications(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, list[dict[str, object]]]:
     rows = db.scalars(select(Medication).order_by(Medication.name, Medication.id)).all()
-    return {"items": [_medication(row) for row in rows]}
+    today = datetime.now(timezone.utc).astimezone(settings.tz).date()
+    sessions = (
+        pressure_series(db, settings.tz, "all")["sessions"]
+        if any(row.started_on is not None for row in rows)
+        else []
+    )
+    return {
+        "items": [
+            _medication(
+                row,
+                today=today,
+                pressure_comparison=medication_pressure_comparison(
+                    sessions, row.started_on, settings.tz, today
+                ),
+            )
+            for row in rows
+        ]
+    }
 
 
 @router.post("/medications", status_code=status.HTTP_201_CREATED)
@@ -102,6 +149,8 @@ def create_medication(
         name=payload.name,
         dosage=payload.dosage,
         schedule=payload.schedule or None,
+        started_on=payload.started_on,
+        stopped_on=payload.stopped_on,
     )
     db.add(row)
     db.commit()
@@ -128,6 +177,15 @@ def patch_medication(
         row.dosage = values["dosage"]
     if "schedule" in values:
         row.schedule = values["schedule"] or None
+    if "started_on" in values:
+        row.started_on = values["started_on"]
+    if "stopped_on" in values:
+        row.stopped_on = values["stopped_on"]
+    try:
+        _check_medication_dates(row.started_on, row.stopped_on)
+    except ValueError:
+        db.rollback()
+        raise HTTPException(status_code=422, detail="medication_dates_out_of_order") from None
     db.commit()
     db.refresh(row)
     _enqueue_medication_analysis(db, settings)
@@ -342,17 +400,30 @@ def _csv_response(filename: str, header: list[str], rows: list[list[object]]) ->
     )
 
 
+ExportKind = Literal["weight", "pressure", "composition", "activity", "recovery", "circumference"]
+EXPORT_KINDS: tuple[ExportKind, ...] = ("weight", "pressure", "composition", "circumference", "activity", "recovery")
+
+
 @router.get("/export/{kind}.csv")
 def export_csv(
-    kind: Literal["weight", "pressure", "composition", "activity", "recovery", "circumference"],
+    kind: ExportKind,
     range: RangeParam = "all",
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> Response:
+    return _csv_response(*_export_table(kind, range, db, settings))
+
+
+def _export_table(
+    kind: ExportKind,
+    range: str,
+    db: Session,
+    settings: Settings,
+) -> tuple[str, list[str], list[list[object]]]:
     if kind == "weight":
         payload = weight_series(db, settings.tz, range)
         rows = [[row["measured_at"], row["value"], "kg"] for row in payload["raw"]]
-        return _csv_response("amigo-weight.csv", ["measured_at", "value", "unit"], rows)
+        return ("amigo-weight.csv", ["measured_at", "value", "unit"], rows)
     if kind == "pressure":
         payload = pressure_series(db, settings.tz, range)
         rows = [
@@ -366,7 +437,7 @@ def export_csv(
             ]
             for row in payload["sessions"]
         ]
-        return _csv_response(
+        return (
             "amigo-pressure.csv",
             ["measured_at", "systolic_mmHg", "diastolic_mmHg", "pulse_bpm", "pulse_pressure", "samples"],
             rows,
@@ -377,7 +448,7 @@ def export_csv(
             [row["measured_on"], row["waist_cm"], row["hip_cm"], "cm"]
             for row in payload["points"]
         ]
-        return _csv_response(
+        return (
             "amigo-circumference.csv",
             ["measured_on", "waist_cm", "hip_cm", "unit"],
             rows,
@@ -395,7 +466,7 @@ def export_csv(
             ]
             for row in payload["daily"]
         ]
-        return _csv_response(
+        return (
             "amigo-activity.csv",
             ["date", "steps", "distance_km", "active_calories_kcal", "active_minutes", "workouts"],
             rows,
@@ -418,7 +489,7 @@ def export_csv(
             ]
             for row in payload["daily"]
         ]
-        return _csv_response(
+        return (
             "amigo-recovery.csv",
             [
                 "date",
@@ -441,4 +512,97 @@ def export_csv(
         for measurement_kind, values in payload["series"].items()
         for row in values
     ]
-    return _csv_response("amigo-composition.csv", ["measured_at", "kind", "value", "unit"], rows)
+    return ("amigo-composition.csv", ["measured_at", "kind", "value", "unit"], rows)
+
+
+def _csv_bytes(header: list[str], rows: list[list[object]]) -> bytes:
+    output = StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(header)
+    writer.writerows(rows)
+    return output.getvalue().encode("utf-8")
+
+
+@router.get("/export/archive.zip")
+def export_archive(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """Return every structured series as CSV files in one ZIP.
+
+    Originals, filenames, OCR text, chat, AI output and device identity are
+    deliberately excluded; originals remain downloadable per document.
+    """
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for kind in EXPORT_KINDS:
+            filename, header, rows = _export_table(kind, "all", db, settings)
+            archive.writestr(filename, _csv_bytes(header, rows))
+        notes = db.scalars(select(DayNote).order_by(DayNote.day, DayNote.created_at, DayNote.id))
+        archive.writestr(
+            "amigo-notes.csv",
+            _csv_bytes(["day", "category", "text"], [[row.day, row.category, row.text] for row in notes]),
+        )
+        checkins = db.scalars(select(DailyCheckin).order_by(DailyCheckin.day))
+        archive.writestr(
+            "amigo-checkins.csv",
+            _csv_bytes(
+                ["day", "energy_1_5", "hunger_1_5", "mood_1_5"],
+                [[row.day, row.energy, row.hunger, row.mood] for row in checkins],
+            ),
+        )
+        medications = db.scalars(select(Medication).order_by(Medication.name, Medication.id))
+        archive.writestr(
+            "amigo-medications.csv",
+            _csv_bytes(
+                ["name", "dosage", "schedule", "started_on", "stopped_on"],
+                [[row.name, row.dosage, row.schedule, row.started_on, row.stopped_on] for row in medications],
+            ),
+        )
+        results = db.scalars(
+            select(LabResult)
+            .where(LabResult.deleted.is_(False))
+            .order_by(LabResult.observed_on, LabResult.analyte_name, LabResult.id)
+        )
+        archive.writestr(
+            "amigo-lab-results.csv",
+            _csv_bytes(
+                [
+                    "observed_on",
+                    "analyte",
+                    "comparator",
+                    "value",
+                    "value_text",
+                    "unit",
+                    "reference_low",
+                    "reference_high",
+                    "reference_text",
+                    "specimen",
+                    "method",
+                    "verification_status",
+                ],
+                [
+                    [
+                        row.observed_on,
+                        row.analyte_name,
+                        row.comparator,
+                        row.value_numeric,
+                        row.value_text,
+                        row.unit,
+                        row.reference_low,
+                        row.reference_high,
+                        row.reference_text,
+                        row.specimen,
+                        row.method,
+                        row.verification_status,
+                    ]
+                    for row in results
+                ],
+            ),
+        )
+    stamp = datetime.now(timezone.utc).astimezone(settings.tz).strftime("%Y%m%d")
+    return Response(
+        buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="amigo-export-{stamp}.zip"'},
+    )

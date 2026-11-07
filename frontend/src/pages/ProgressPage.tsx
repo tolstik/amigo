@@ -2,18 +2,21 @@ import { useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
 import type { OverviewContext } from "../App";
 import { api, csvUrl } from "../api/client";
-import { bmiChartOption, planDeviationChartOption, monthlyChangeChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightChartOption } from "../charts/options";
+import { bmiChartOption, planDeviationChartOption, monthlyChangeChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightChartOption, withEventMarkers, withMaintenanceBand } from "../charts/options";
 import { ErrorState, EmptyState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
 import { MonthlyWeightTable, WeeklyWeightTable, WeightTable } from "../components/DataTables";
 import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
+import { MilestonesPanel } from "../components/MilestonesPanel";
+import { RegularityCalendar } from "../components/RegularityCalendar";
 import { PageHeader } from "../components/PageHeader";
 import { WeightCandlestickChart } from "../components/WeightCandlestickChart";
 import { PeriodSwitcher } from "../components/PeriodSwitcher";
 import { useChartPeriod } from "../hooks/useChartPeriod";
 import { useApi } from "../hooks/useApi";
-import { formatDate, formatDelta, formatKg } from "../lib/format";
+import { useChartEvents } from "../hooks/useChartEvents";
+import { formatDate, formatDelta, formatKg, moscowToday } from "../lib/format";
 
 export function ProgressPage() {
   const overview = useOutletContext<OverviewContext>();
@@ -27,6 +30,9 @@ export function ProgressPage() {
   const raw = useApi(loadRaw);
   const loadProfile = useCallback((signal: AbortSignal) => api.profile(signal), []);
   const profile = useApi(loadProfile);
+  const loadMilestones = useCallback((signal: AbortSignal) => api.milestones(signal), []);
+  const milestones = useApi(loadMilestones);
+  const chartEvents = useChartEvents();
   const weight = overview.data?.weight;
   const plan = overview.data?.plan;
 
@@ -46,6 +52,9 @@ export function ProgressPage() {
         <KpiCard label="Цель по плану" value={formatDate(plan?.targetDate)} hint="Темп −4 кг за календарный месяц" icon="progress" tone="coral" />
       </section>
 
+      {milestones.data && milestones.data.items.length > 0 && <MilestonesPanel data={milestones.data} />}
+      {series.data && plan?.startDate ? <RegularityCalendar points={series.data.points} startDate={plan.startDate} today={moscowToday()} /> : null}
+
       {series.loading && !series.data ? <LoadingState /> : series.error && !series.data ? (
         <ErrorState message={series.error.message} onRetry={series.reload} />
       ) : series.data ? (
@@ -54,7 +63,10 @@ export function ProgressPage() {
             <ChartCard
               title="Вес относительно плана"
               subtitle={`${series.data.meta.count} дней с замерами · московское время`}
-              option={weightChartOption(series.data.points, true, series.data.projection, series.data.planProjection)}
+              option={withMaintenanceBand(
+                withEventMarkers(weightChartOption(series.data.points, true, series.data.projection, series.data.planProjection), chartEvents, series.data.points.map((point) => point.measuredAt)),
+                overview.data?.maintenance.phase === "maintenance" ? overview.data.maintenance : null,
+              )}
               ariaLabel={`График прогресса веса, плана и прогноза с ${formatDate(plan?.startDate)}`}
               height={450}
               footer={<WeightTable points={series.data.points} />}

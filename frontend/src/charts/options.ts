@@ -1135,3 +1135,78 @@ export function compositionChartOption(points: CompositionPoint[]): EChartsOptio
     ],
   };
 }
+
+export interface ChartEvent {
+  day: string;
+  label: string;
+  kind: "note" | "medication";
+}
+
+const MOSCOW_NOON_UTC_HOUR = 9;
+
+/** Moscow noon for a calendar day, so the marker sits inside that day on a time axis. */
+export function eventTime(day: string): number {
+  return Date.parse(`${day.slice(0, 10)}T${String(MOSCOW_NOON_UTC_HOUR).padStart(2, "0")}:00:00Z`);
+}
+
+/**
+ * Overlay owner-entered events (journal notes, medication starts/stops) as
+ * vertical markers. Events outside the plotted dates are dropped so markers
+ * never stretch the axis; labels appear on hover to avoid clutter.
+ */
+export function withEventMarkers(option: EChartsOption, events: ChartEvent[], dates: string[]): EChartsOption {
+  const times = dates.map(Date.parse).filter(Number.isFinite);
+  if (!events.length || !times.length) return option;
+  const first = Math.min(...times) - 12 * 3_600_000;
+  const last = Math.max(...times) + 12 * 3_600_000;
+  const byKind = (kind: ChartEvent["kind"]) => events
+    .filter((event) => event.kind === kind)
+    .map((event) => ({ ...event, time: eventTime(event.day) }))
+    .filter((event) => event.time >= first && event.time <= last);
+  const series = Array.isArray(option.series) ? [...option.series] : option.series ? [option.series] : [];
+  const kinds: Array<{ kind: ChartEvent["kind"]; name: string; color: string }> = [
+    { kind: "note", name: "Заметки", color: colors.amber },
+    { kind: "medication", name: "Препараты", color: colors.violet },
+  ];
+  for (const { kind, name, color } of kinds) {
+    const visible = byKind(kind);
+    if (!visible.length) continue;
+    series.push({
+      name,
+      type: "line",
+      data: [],
+      color,
+      tooltip: { show: false },
+      markLine: {
+        symbol: ["none", "circle"],
+        symbolSize: 6,
+        lineStyle: { color, type: "dashed", width: 1.1, opacity: 0.75 },
+        label: { show: false, formatter: "{b}", position: "insideEndTop", color, fontSize: 10 },
+        emphasis: { label: { show: true }, lineStyle: { width: 2, opacity: 1 } },
+        data: visible.map((event) => ({ xAxis: event.time, name: `${formatDate(event.day, false)} · ${event.label}` })),
+      },
+    } as LineSeriesOption);
+  }
+  return { ...option, series };
+}
+
+/** Shade the ±1.5 kg maintenance corridor once the target has been reached. */
+export function withMaintenanceBand(
+  option: EChartsOption,
+  maintenance: { bandLowKg: number | null; bandHighKg: number | null } | null,
+): EChartsOption {
+  if (!maintenance || maintenance.bandLowKg === null || maintenance.bandHighKg === null) return option;
+  const series = Array.isArray(option.series) ? [...option.series] : option.series ? [option.series] : [];
+  series.push({
+    name: "Коридор поддержания",
+    type: "line",
+    data: [],
+    color: colors.green,
+    markArea: {
+      silent: true,
+      itemStyle: { color: "rgba(45,147,101,.09)" },
+      data: [[{ yAxis: maintenance.bandLowKg }, { yAxis: maintenance.bandHighKg }]],
+    },
+  } as LineSeriesOption);
+  return { ...option, series };
+}

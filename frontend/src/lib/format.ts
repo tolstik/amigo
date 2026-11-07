@@ -115,3 +115,37 @@ export function clampProgress(value: number | null): number {
   if (value === null || !Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, value));
 }
+
+function moscowParts(now: Date): { hour: number; date: string } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    timeZone: "Europe/Moscow",
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return { hour: Number(get("hour")), date: `${get("year")}-${get("month")}-${get("day")}` };
+}
+
+/** Return today's Moscow calendar date as YYYY-MM-DD. */
+export function moscowToday(now: Date = new Date()): string {
+  return moscowParts(now).date;
+}
+
+/** Shift a YYYY-MM-DD calendar date by whole days without timezone drift. */
+export function shiftIsoDate(value: string, days: number): string {
+  const date = new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Greeting that follows the Moscow clock rather than the browser timezone. */
+export function greeting(now: Date = new Date()): string {
+  const { hour } = moscowParts(now);
+  if (hour >= 5 && hour < 12) return "Доброе утро";
+  if (hour >= 12 && hour < 18) return "Добрый день";
+  if (hour >= 18 && hour < 23) return "Добрый вечер";
+  return "Доброй ночи";
+}

@@ -1,4 +1,15 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function openSection(page: Page, name: string) {
+  const more = page.locator(".tabbar").getByRole("button", { name: "Ещё" });
+  if (await more.isVisible()) {
+    const tab = page.locator(".tabbar").getByRole("link", { name, exact: true });
+    if (await tab.count()) return tab.click();
+    await more.click();
+    return page.getByRole("dialog", { name: "Все разделы" }).getByRole("link", { name, exact: true }).click();
+  }
+  return page.locator(".main-nav").getByRole("link", { name, exact: true }).click();
+}
 
 const overview = {
   generated_at: "2026-09-02T08:00:00Z",
@@ -177,8 +188,23 @@ const assistantRecommendation = {
   evidence_ids: ["lab.ferritin.latest"],
 };
 
+const milestonesPayload = {
+  items: [
+    { id: "bmi-40", kind: "bmi", label: "ИМТ ниже 40", threshold_kg: 123.903, achieved_on: "2026-08-30", achieved_kg: 123.8 },
+    { id: "weight-5", kind: "weight_loss", label: "−5 кг от старта", threshold_kg: 122.03, achieved_on: null, achieved_kg: null },
+  ],
+  next: { id: "weight-5", kind: "weight_loss", label: "−5 кг от старта", threshold_kg: 122.03, achieved_on: null, achieved_kg: null, remaining_kg: 3.47 },
+  streaks: { current_days: 2, longest_days: 5, longest_end: "2026-08-30" },
+  best_week: { start_date: "2026-08-17", end_date: "2026-08-23", change_kg: -0.9 },
+  best_month: null,
+  plateau: { active: false, window_days: 14, threshold_kg: 0.2, change_kg: -0.6, from: "2026-08-18", to: "2026-09-01", reason: null },
+};
+
+let journalNotes: Array<Record<string, unknown>> = [];
+
 test.beforeEach(async ({ page }) => {
   let assistantSent = false;
+  journalNotes = [{ id: "30000000-0000-4000-8000-000000000001", day: "2026-08-29", category: "illness", text: "Простуда", updated_at: "2026-08-29T08:00:00Z" }];
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     const method = route.request().method();
@@ -187,6 +213,18 @@ test.beforeEach(async ({ page }) => {
     if (path.endsWith("/auth/logout")) return route.fulfill({ status: 204 });
     if (path.endsWith("/profile/body-model-assets")) return route.fulfill({ status: 404, json: { detail: "body_model_assets_unavailable" } });
     if (path.endsWith("/profile")) return route.fulfill({ json: profile });
+    if (path.endsWith("/notes") && method === "GET") return route.fulfill({ json: { range: "all", items: journalNotes } });
+    if (path.endsWith("/notes") && method === "POST") {
+      const body = route.request().postDataJSON();
+      const created = { id: "30000000-0000-4000-8000-000000000002", ...body, updated_at: "2026-09-02T08:00:00Z" };
+      journalNotes.unshift(created);
+      return route.fulfill({ status: 201, json: created });
+    }
+    if (path.endsWith("/checkins") && method === "GET") return route.fulfill({ json: { today: "2026-09-02", items: [], correlations: [
+      { metric: "energy", target: "sleep_minutes", coefficient: 0.42, paired_days: 21, disclaimer: "Корреляция не доказывает причинность." },
+    ] } });
+    if (path.includes("/checkins/") && method === "PUT") return route.fulfill({ json: { day: path.split("/").at(-1), ...route.request().postDataJSON() } });
+    if (path.endsWith("/milestones")) return route.fulfill({ json: milestonesPayload });
     if (path.endsWith("/series/circumference")) return route.fulfill({ json: {
       range: "1y", unit: "cm", points: [{ measured_on: "2026-09-01", waist_cm: 96.5, hip_cm: 108.0 }, { measured_on: "2026-09-02", waist_cm: null, hip_cm: 107.5 }], meta: { range: "1y", from: "2026-09-01", to: "2026-09-02", count: 2, timezone: "Europe/Moscow" },
     } });
@@ -317,12 +355,12 @@ test.beforeEach(async ({ page }) => {
 
 test("renders the overview and navigates to pressure", async ({ page }) => {
   await page.goto("./");
-  await expect(page.getByRole("heading", { name: "Добрый день! Вот как идут дела" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Вот как идут дела/ })).toBeVisible();
   await expect(page.getByLabel("Главные показатели").getByText("125,50 кг")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Модель тела", exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: "График веса за последние 90 дней" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Задачи", exact: true })).toHaveCount(0);
-  await page.getByRole("link", { name: "Давление", exact: true }).click();
+  await openSection(page, "Давление");
   await expect(page.getByRole("heading", { name: "Статистика давления" })).toBeVisible();
   await expect(page.getByText("122 / 78").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Дневной визуальный ориентир" })).toBeVisible();
@@ -335,7 +373,7 @@ test("renders the overview and navigates to pressure", async ({ page }) => {
 
 test("renders weekly and monthly plan/fact charts with accessible tables", async ({ page }, testInfo) => {
   await page.goto("./");
-  await page.getByRole("link", { name: "Прогресс", exact: true }).click();
+  await openSection(page, "Прогресс");
 
   await expect(page.getByRole("heading", { name: "Вес по неделям" })).toBeVisible();
   await expect(page.getByRole("img", { name: /Недельный график последнего веса/ })).toBeVisible();
@@ -380,14 +418,14 @@ test("renders activity baseline and recovery without AI narrative", async ({ pag
   await page.goto("./");
   await expect(page.getByRole("heading", { name: "ИИ-анализ" })).toHaveCount(0);
 
-  await page.getByRole("link", { name: "Активность", exact: true }).click();
+  await openSection(page, "Активность");
   await expect(page.getByRole("heading", { name: "Активность", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Недели: факт и личная база" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Совместная динамика" })).toBeVisible();
   await expect(page.getByText(/r — коэффициент линейной корреляции Пирсона от −1 до 1/)).toBeVisible();
   await expect(page.getByText("Слабая обратная линейная связь.")).toBeVisible();
 
-  await page.getByRole("link", { name: "Восстановление", exact: true }).click();
+  await openSection(page, "Восстановление");
   await expect(page.getByRole("heading", { name: "Восстановление", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Сон", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Пульс с часов" })).toBeVisible();
@@ -412,7 +450,7 @@ test("persists one chart period across reloads and chart pages", async ({ page }
     page.getByRole("group", { name: "Период графика" }).getByRole("button", { name: "Год", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
 
-  await page.getByRole("link", { name: "Давление", exact: true }).click();
+  await openSection(page, "Давление");
   await expect(
     page.getByRole("group", { name: "Период графика" }).getByRole("button", { name: "Год", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -441,7 +479,7 @@ test("keeps narrow mobile layouts usable and the active navigation item visible"
     await expect(page.getByRole("heading", { name: "анализы.pdf" })).toBeVisible();
     const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(hasOverflow).toBe(false);
-    const active = page.locator(".main-nav a.active");
+    const active = page.locator(".tabbar .active");
     const bounds = await active.boundingBox();
     expect(bounds).not.toBeNull();
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -563,7 +601,7 @@ test("edits privacy profile and renders the persistent assistant", async ({ page
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByRole("status")).toHaveText("Профиль сохранён.");
 
-  await page.getByRole("link", { name: "Ассистент", exact: true }).click();
+  await openSection(page, "Ассистент");
   await expect(page.getByRole("heading", { name: "Ассистент здоровья" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Актуальные рекомендации" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Создать задачу" })).toHaveCount(0);
@@ -844,4 +882,53 @@ test("body model remains usable across themes and page visits", async ({ page })
   await expect(page.locator(".body-model")).toBeVisible({ timeout: 20000 });
   await page.locator(".body-model__stage").scrollIntoViewIfNeeded();
   await expect(page.locator(".body-model canvas")).toBeVisible({ timeout: 20000 });
+});
+
+test("keeps a journal with one-tap self-assessment and notes", async ({ page }) => {
+  await page.goto("./journal");
+  await expect(page.getByRole("heading", { name: "Дневник", exact: true })).toBeVisible();
+  await expect(page.getByText("Простуда")).toBeVisible();
+  const checkin = page.waitForRequest((request) => request.url().includes("/checkins/") && request.method() === "PUT");
+  await page.getByRole("button", { name: "Энергия 4 из 5" }).first().click();
+  expect((await checkin).postDataJSON()).toEqual({ energy: 4, hunger: null, mood: null });
+  await expect(page.getByRole("button", { name: "Энергия 4 из 5" }).first()).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".loading-popup")).toHaveCount(0);
+
+  await page.getByText("Поездка", { exact: true }).click();
+  await page.getByLabel("Текст").fill("Командировка, другой режим");
+  const created = page.waitForRequest((request) => request.url().endsWith("/notes") && request.method() === "POST");
+  await page.getByRole("button", { name: "Добавить" }).click();
+  expect((await created).postDataJSON()).toMatchObject({ category: "travel", text: "Командировка, другой режим" });
+  await expect(page.getByText("Командировка, другой режим")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Самочувствие и данные" })).toBeVisible();
+  await expect(page.getByText("21 дней с обоими значениями")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
+
+test("shows milestones and the regularity calendar on progress", async ({ page }) => {
+  await page.goto("./progress");
+  await expect(page.getByRole("heading", { name: "Вехи программы" })).toBeVisible();
+  await expect(page.getByText("ИМТ ниже 40")).toBeVisible();
+  await expect(page.getByText("−0,90 кг")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Календарь программы" })).toBeVisible();
+  await expect(page.getByRole("grid", { name: "Календарь замеров веса относительно плана" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
+
+test("groups navigation and reaches every section from the mobile sheet", async ({ page, isMobile }) => {
+  await page.goto("./");
+  if (isMobile) {
+    await page.locator(".tabbar").getByRole("button", { name: "Ещё" }).click();
+    const sheet = page.getByRole("dialog", { name: "Все разделы" });
+    await expect(sheet.getByText("Медицина")).toBeVisible();
+    await expect(sheet.getByRole("link", { name: "Качество данных" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+  } else {
+    await expect(page.locator(".main-nav").getByText("Активность и сердце")).toBeVisible();
+    await expect(page.locator(".main-nav").getByRole("link", { name: "Качество данных" })).toHaveCount(0);
+    await page.getByRole("link", { name: /Качество данных/ }).first().click();
+    await expect(page.getByRole("heading", { name: "Качество данных" })).toBeVisible();
+  }
+  await expect(page.getByRole("button", { name: "Выйти", exact: true })).toHaveCount(0);
 });

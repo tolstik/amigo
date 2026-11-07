@@ -2,15 +2,18 @@ import { lazy, Suspense, useCallback } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import type { OverviewContext } from "../App";
 import { api, csvUrl } from "../api/client";
-import { weightChartOption } from "../charts/options";
+import { weightChartOption, withEventMarkers, withMaintenanceBand } from "../charts/options";
 import { ChartCard } from "../components/ChartCard";
+import { CheckinCard } from "../components/CheckinCard";
 import { ErrorState, LoadingState } from "../components/AsyncState";
 import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader } from "../components/PageHeader";
 import { WeightTable } from "../components/DataTables";
 import { useApi } from "../hooks/useApi";
-import { clampProgress, formatDate, formatDateTime, formatDelta, formatKg, formatNumber, formatPercent } from "../lib/format";
+import { useChartEvents } from "../hooks/useChartEvents";
+import { dailyTrend } from "../lib/trend";
+import { clampProgress, greeting, moscowToday, formatDate, formatDateTime, formatDelta, formatKg, formatNumber, formatPercent } from "../lib/format";
 
 const BodyModel = lazy(() => import("../components/BodyModel"));
 
@@ -30,18 +33,26 @@ export function OverviewPage() {
   const recovery = useApi(loadRecovery);
   const loadProfile = useCallback((signal: AbortSignal) => api.profile(signal), []);
   const profile = useApi(loadProfile);
+  const loadCheckins = useCallback((signal: AbortSignal) => api.checkins("30d", signal), []);
+  const checkins = useApi(loadCheckins);
+  const chartEvents = useChartEvents();
+  const today = moscowToday();
 
   if (overview.loading && !overview.data) return <LoadingState />;
   if (overview.error && !overview.data) return <ErrorState message={overview.error.message} onRetry={overview.reload} />;
   if (!overview.data) return null;
 
-  const { weight, plan, pressure, composition } = overview.data;
+  const { weight, plan, pressure, composition, maintenance, plateau } = overview.data;
+  const inMaintenance = maintenance.phase === "maintenance";
   const progress = weight.progressPct;
+  const trendPoints = preview.data?.points.filter((point) => !point.isOutlier) ?? [];
+  const weightTrend = dailyTrend(trendPoints, (point) => point.measuredAt, (point) => point.weightKg, 30);
+  const smoothedTrend = dailyTrend(trendPoints, (point) => point.measuredAt, (point) => point.smoothed7dKg, 30);
   return (
     <>
       <PageHeader
         eyebrow="Ваш путь"
-        title="Добрый день! Вот как идут дела"
+        title={`${greeting()}! Вот как идут дела`}
         description={`План начался ${formatDate(plan.startDate)}. Все изменения и прогнозы считаются только от этой даты.`}
         actions={
           <a className="button button--secondary" href={csvUrl("weight", "program")} download>
@@ -49,6 +60,24 @@ export function OverviewPage() {
           </a>
         }
       />
+
+      {inMaintenance ? (
+        <aside className="maintenance-banner" aria-label="Режим поддержания">
+          <Icon name="trophy" />
+          <div>
+            <strong>Цель достигнута {formatDate(maintenance.targetReachedOn)} — режим поддержания</strong>
+            <p>Коридор поддержания {formatKg(maintenance.bandLowKg)} – {formatKg(maintenance.bandHighKg)} (цель ±1,5 кг). {maintenance.bandStatus === "inside" ? "Последний вес внутри коридора." : maintenance.bandStatus === "above" ? "Последний вес выше коридора." : maintenance.bandStatus === "below" ? "Последний вес ниже коридора." : ""}</p>
+          </div>
+        </aside>
+      ) : plateau.active && !weight.isStale ? (
+        <aside className="plateau-banner" aria-label="Плато">
+          <Icon name="pause" />
+          <div>
+            <strong>Плато: тренд не снижается {plateau.windowDays} дней</strong>
+            <p>Сглаженный вес изменился на {formatDelta(plateau.changeKg, "кг", 2)} с {formatDate(plateau.from, false)} по {formatDate(plateau.to)}. Порог снижения — {formatNumber(plateau.thresholdKg)} кг. Это описание данных, а не оценка.</p>
+          </div>
+        </aside>
+      ) : null}
 
       <section className="kpi-grid" aria-label="Главные показатели">
         <KpiCard
@@ -58,6 +87,8 @@ export function OverviewPage() {
           icon="scale"
           tone="green"
           featured
+          trend={weightTrend}
+          trendLabel="Дневные медианы веса за 30 дней"
         />
         <KpiCard
           label="С начала программы"
@@ -72,6 +103,8 @@ export function OverviewPage() {
           hint="Медианный тренд за 7 дней"
           icon="activity"
           tone="violet"
+          trend={smoothedTrend}
+          trendLabel="Сглаженный вес за 30 дней"
         />
         <KpiCard
           label="Регулярность"
@@ -124,12 +157,12 @@ export function OverviewPage() {
             <Icon name="arrow" />
           </Link>
           <Link className="today-row" to="/activity">
-            <span className="today-row__icon today-row__icon--green"><Icon name="activity" /></span>
+            <span className="today-row__icon today-row__icon--green"><Icon name="steps" /></span>
             <span><small>Шаги · Xiaomi Cloud</small><strong>{activity.data?.summary.steps == null ? "—" : `${formatNumber(activity.data.summary.steps, 0)} шагов`}</strong><em>{activity.data?.summary.steps == null ? "Нет данных Xiaomi Cloud" : activity.data.summary.latestDate ? formatDate(activity.data.summary.latestDate) : "Дата Xiaomi Cloud неизвестна"}</em></span>
             <Icon name="arrow" />
           </Link>
           <Link className="today-row" to="/recovery">
-            <span className="today-row__icon today-row__icon--blue"><Icon name="clock" /></span>
+            <span className="today-row__icon today-row__icon--blue"><Icon name="moon" /></span>
             <span><small>Сон</small><strong>{recovery.data?.summary.sleepMinutes == null ? "—" : `${Math.floor(recovery.data.summary.sleepMinutes / 60)} ч ${Math.round(recovery.data.summary.sleepMinutes % 60)} мин`}</strong><em>{recovery.data?.summary.sleepDate ? formatDate(recovery.data.summary.sleepDate) : "Нет данных сна"}</em></span>
             <Icon name="arrow" />
           </Link>
@@ -141,7 +174,11 @@ export function OverviewPage() {
         <ChartCard
           title="Последние 90 дней"
           subtitle="Дневные медианы, сглаженный тренд и линия плана · необычные замеры скрыты"
-          option={weightChartOption(preview.data.points.filter((point) => !point.isOutlier), false, preview.data.projection, preview.data.planProjection, true)}
+          option={withMaintenanceBand(withEventMarkers(
+            weightChartOption(preview.data.points.filter((point) => !point.isOutlier), false, preview.data.projection, preview.data.planProjection, true),
+            chartEvents,
+            preview.data.points.map((point) => point.measuredAt),
+          ), inMaintenance ? maintenance : null)}
           ariaLabel="График веса за последние 90 дней"
           height={330}
           aside={<Link className="text-link" to="/progress#history">Вся история <Icon name="arrow" /></Link>}
@@ -150,6 +187,11 @@ export function OverviewPage() {
       ) : preview.loading ? <LoadingState compact /> : preview.error ? (
         <ErrorState message={preview.error.message} onRetry={preview.reload} />
       ) : null}
+      {checkins.data && (
+        <div className="overview-checkin">
+          <CheckinCard day={today} initial={checkins.data.items.find((item) => item.day === today) ?? null} compact />
+        </div>
+      )}
       {profile.data && <Suspense fallback={<LoadingState compact />}><BodyModel latestKg={weight.latestKg} latestAt={weight.latestAt} heightCm={profile.data.height_cm} startKg={plan.startWeightKg} targetKg={plan.targetWeightKg} /></Suspense>}
     </>
   );

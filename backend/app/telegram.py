@@ -553,6 +553,18 @@ class TelegramNotifier:
                 lines.append(f"⚠️ Последние данные восстановления: {recovery_label}.")
         return lines
 
+    @staticmethod
+    def _plateau_lines(summary: dict[str, Any], weight_is_stale: bool) -> list[str]:
+        """Report a deterministic plateau fact; never add advice or narrative."""
+        plateau = summary.get("plateau") or {}
+        if weight_is_stale or not plateau.get("active") or plateau.get("change_kg") is None:
+            return []
+        return [
+            f"⏸ Плато: тренд веса за {int(plateau['window_days'])} дней "
+            f"изменился на {float(plateau['change_kg']):+.2f} кг "
+            f"(снижение меньше {float(plateau['threshold_kg']):.1f} кг)"
+        ]
+
     def _daily_digest_text(self, now: datetime) -> str:
         summary = overview(self.db, self.settings.tz, now)
         lines = ["<b>☀️ Утренняя сводка Amigo</b>"]
@@ -574,6 +586,7 @@ class TelegramNotifier:
             lines.append(f"Тренд веса: {summary['rolling_7d_kg']:.2f} кг")
         if not weight_is_stale and summary["plan_delta_kg"] is not None:
             lines.append(f"Отклонение от плана: {summary['plan_delta_kg']:+.2f} кг")
+        lines.extend(self._plateau_lines(summary, weight_is_stale))
         pressure = summary.get("pressure") or {}
         if pressure.get("latest_systolic") is not None and pressure.get("latest_diastolic") is not None:
             lines.append(
@@ -608,6 +621,7 @@ class TelegramNotifier:
             lines.append(f"Отклонение от плана: {summary['plan_delta_kg']:+.2f} кг")
         if not weight_is_stale and summary["change_28d_kg"] is not None:
             lines.append(f"Изменение за 28 дней: {summary['change_28d_kg']:+.2f} кг")
+        lines.extend(self._plateau_lines(summary, weight_is_stale))
         composition = summary["composition"]
         if composition["fat_pct"] is not None:
             lines.append(f"Доля жира: {composition['fat_pct']:.1f}% (BIA-оценка)")

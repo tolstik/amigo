@@ -1,10 +1,16 @@
 import { Icon } from "./Icon";
 
 export function LoadingState({ compact = false }: { compact?: boolean }) {
+  // Skeleton blocks keep the page geometry stable while requests settle.
   return (
-    <div className={`loading-state${compact ? " loading-state--compact" : ""}`} aria-live="polite" aria-busy="true">
-      <span className="spinner" />
-      <span>Собираем показатели…</span>
+    <div className={`skeleton-state${compact ? " skeleton-state--compact" : ""}`} aria-live="polite" aria-busy="true">
+      <span className="visually-hidden">Собираем показатели…</span>
+      {!compact && (
+        <div className="skeleton-row" aria-hidden="true">
+          {[0, 1, 2, 3].map((index) => <span key={index} className="skeleton skeleton--card" />)}
+        </div>
+      )}
+      <span className="skeleton skeleton--block" aria-hidden="true" />
     </div>
   );
 }

@@ -411,6 +411,28 @@
   `umask`, so build-context file modes must never be trusted for container
   runtime access.
 
+## Navigation, journal and milestones
+
+- Navigation is grouped (weight/body, activity/heart, medicine, personal) with
+  a distinct icon per section; data quality opens from the header sync
+  indicator. Up to 820 px a bottom tab bar (overview, progress, journal, labs,
+  "more" sheet) replaces the sidebar. Logout is only in the profile.
+- Journal notes and daily 1–5 check-ins (`day_notes`, `daily_checkins`) are
+  private dashboard data. Never send them to AI inference, Telegram, or doctor
+  reports. Notes render only as chart markers; check-in correlations are
+  same-day Pearson with at least 14 paired days and the causality disclaimer.
+- Medication `started_on`/`stopped_on` are optional. Only current medications
+  enter the AI snapshot and doctor report. The 14-day before/after pressure
+  comparison is descriptive and must never claim a treatment effect.
+- Milestones, streaks, best periods, plateau (14-day 7-day-median drop under
+  0.2 kg, ≥ 6 measured days, data ≤ 3 days old) and the sticky maintenance
+  phase (target ±1.5 kg) are deterministic. Telegram adds only a factual
+  plateau line, never advice; plateau is suppressed in maintenance.
+- `GET /api/v1/export/archive.zip` contains structured CSV only; never add
+  originals, filenames, OCR, chat, AI output, or device identity.
+- Mutating journal routes need managed nginx locations (`/notes`,
+  `/notes/<uuid>`, `/checkins/<date>`) in the `amigo_mutation` zone.
+
 ## Progress, body model and recovery
 
 - Progress contains separate daily actual-minus-plan and BMI charts, the 90-day

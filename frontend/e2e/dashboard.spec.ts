@@ -1,8 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
 async function openSection(page: Page, name: string) {
+  // Decide by viewport, not by a racy visibility probe before the shell renders.
+  await page.locator(".app-bar").waitFor();
   const more = page.locator(".tabbar").getByRole("button", { name: "Ещё" });
-  if (await more.isVisible()) {
+  if ((page.viewportSize()?.width ?? 1280) <= 820) {
     const tab = page.locator(".tabbar").getByRole("link", { name, exact: true });
     if (await tab.count()) return tab.click();
     await more.click();

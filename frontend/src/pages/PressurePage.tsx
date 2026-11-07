@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { api, csvUrl } from "../api/client";
 import type { PressurePoint, PressureStats } from "../api/types";
-import { pressureCategoryChartOption, pressurePulseChartOption, pressureTrendChartOption } from "../charts/options";
+import { pressureCategoryChartOption, pressurePulseChartOption, pressureTrendChartOption, withEventMarkers } from "../charts/options";
 import { ErrorState, EmptyState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
 import { PressureTable } from "../components/DataTables";
@@ -12,6 +12,7 @@ import { PeriodSwitcher } from "../components/PeriodSwitcher";
 import { PressureCategoryGuide } from "../components/PressureCategoryGuide";
 import { useApi } from "../hooks/useApi";
 import { useChartPeriod } from "../hooks/useChartPeriod";
+import { useChartEvents } from "../hooks/useChartEvents";
 import { formatDateTime, formatNumber } from "../lib/format";
 import { aggregateDailyPressureCategories } from "../lib/pressureCategories";
 
@@ -60,6 +61,7 @@ function byPeriod(points: PressurePoint[], period: "morning" | "evening") {
 }
 
 export function PressurePage() {
+  const chartEvents = useChartEvents({ medications: true });
   const [period, setPeriod] = useChartPeriod("90d");
   const loadSeries = useCallback((signal: AbortSignal) => api.pressure(period, signal), [period]);
   const series = useApi(loadSeries);
@@ -97,8 +99,8 @@ export function PressurePage() {
         <>
           <ChartCard
             title="Динамика показателей"
-            subtitle={`${series.data?.meta.count ?? points.length} сессий · пунктиром отмечены границы повышенного и критически высокого давления`}
-            option={pressureTrendChartOption(points)}
+            subtitle={`${series.data?.meta.count ?? points.length} сессий · пунктиром отмечены границы повышенного и критически высокого давления, вертикальными линиями — заметки и препараты`}
+            option={withEventMarkers(pressureTrendChartOption(points), chartEvents, points.map((point) => point.measuredAt))}
             ariaLabel="График систолического и диастолического давления"
             height={460}
             footer={<PressureTable points={points} />}

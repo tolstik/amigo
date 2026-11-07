@@ -188,8 +188,23 @@ const assistantRecommendation = {
   evidence_ids: ["lab.ferritin.latest"],
 };
 
+const milestonesPayload = {
+  items: [
+    { id: "bmi-40", kind: "bmi", label: "ИМТ ниже 40", threshold_kg: 123.903, achieved_on: "2026-08-30", achieved_kg: 123.8 },
+    { id: "weight-5", kind: "weight_loss", label: "−5 кг от старта", threshold_kg: 122.03, achieved_on: null, achieved_kg: null },
+  ],
+  next: { id: "weight-5", kind: "weight_loss", label: "−5 кг от старта", threshold_kg: 122.03, achieved_on: null, achieved_kg: null, remaining_kg: 3.47 },
+  streaks: { current_days: 2, longest_days: 5, longest_end: "2026-08-30" },
+  best_week: { start_date: "2026-08-17", end_date: "2026-08-23", change_kg: -0.9 },
+  best_month: null,
+  plateau: { active: false, window_days: 14, threshold_kg: 0.2, change_kg: -0.6, from: "2026-08-18", to: "2026-09-01", reason: null },
+};
+
+let journalNotes: Array<Record<string, unknown>> = [];
+
 test.beforeEach(async ({ page }) => {
   let assistantSent = false;
+  journalNotes = [{ id: "30000000-0000-4000-8000-000000000001", day: "2026-08-29", category: "illness", text: "Простуда", updated_at: "2026-08-29T08:00:00Z" }];
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     const method = route.request().method();
@@ -198,6 +213,18 @@ test.beforeEach(async ({ page }) => {
     if (path.endsWith("/auth/logout")) return route.fulfill({ status: 204 });
     if (path.endsWith("/profile/body-model-assets")) return route.fulfill({ status: 404, json: { detail: "body_model_assets_unavailable" } });
     if (path.endsWith("/profile")) return route.fulfill({ json: profile });
+    if (path.endsWith("/notes") && method === "GET") return route.fulfill({ json: { range: "all", items: journalNotes } });
+    if (path.endsWith("/notes") && method === "POST") {
+      const body = route.request().postDataJSON();
+      const created = { id: "30000000-0000-4000-8000-000000000002", ...body, updated_at: "2026-09-02T08:00:00Z" };
+      journalNotes.unshift(created);
+      return route.fulfill({ status: 201, json: created });
+    }
+    if (path.endsWith("/checkins") && method === "GET") return route.fulfill({ json: { today: "2026-09-02", items: [], correlations: [
+      { metric: "energy", target: "sleep_minutes", coefficient: 0.42, paired_days: 21, disclaimer: "Корреляция не доказывает причинность." },
+    ] } });
+    if (path.includes("/checkins/") && method === "PUT") return route.fulfill({ json: { day: path.split("/").at(-1), ...route.request().postDataJSON() } });
+    if (path.endsWith("/milestones")) return route.fulfill({ json: milestonesPayload });
     if (path.endsWith("/series/circumference")) return route.fulfill({ json: {
       range: "1y", unit: "cm", points: [{ measured_on: "2026-09-01", waist_cm: 96.5, hip_cm: 108.0 }, { measured_on: "2026-09-02", waist_cm: null, hip_cm: 107.5 }], meta: { range: "1y", from: "2026-09-01", to: "2026-09-02", count: 2, timezone: "Europe/Moscow" },
     } });
@@ -855,4 +882,53 @@ test("body model remains usable across themes and page visits", async ({ page })
   await expect(page.locator(".body-model")).toBeVisible({ timeout: 20000 });
   await page.locator(".body-model__stage").scrollIntoViewIfNeeded();
   await expect(page.locator(".body-model canvas")).toBeVisible({ timeout: 20000 });
+});
+
+test("keeps a journal with one-tap self-assessment and notes", async ({ page }) => {
+  await page.goto("./journal");
+  await expect(page.getByRole("heading", { name: "Дневник", exact: true })).toBeVisible();
+  await expect(page.getByText("Простуда")).toBeVisible();
+  const checkin = page.waitForRequest((request) => request.url().includes("/checkins/") && request.method() === "PUT");
+  await page.getByRole("button", { name: "Энергия 4 из 5" }).first().click();
+  expect((await checkin).postDataJSON()).toEqual({ energy: 4, hunger: null, mood: null });
+  await expect(page.getByRole("button", { name: "Энергия 4 из 5" }).first()).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".loading-popup")).toHaveCount(0);
+
+  await page.getByText("Поездка", { exact: true }).click();
+  await page.getByLabel("Текст").fill("Командировка, другой режим");
+  const created = page.waitForRequest((request) => request.url().endsWith("/notes") && request.method() === "POST");
+  await page.getByRole("button", { name: "Добавить" }).click();
+  expect((await created).postDataJSON()).toMatchObject({ category: "travel", text: "Командировка, другой режим" });
+  await expect(page.getByText("Командировка, другой режим")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Самочувствие и данные" })).toBeVisible();
+  await expect(page.getByText("21 дней с обоими значениями")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
+
+test("shows milestones and the regularity calendar on progress", async ({ page }) => {
+  await page.goto("./progress");
+  await expect(page.getByRole("heading", { name: "Вехи программы" })).toBeVisible();
+  await expect(page.getByText("ИМТ ниже 40")).toBeVisible();
+  await expect(page.getByText("−0,90 кг")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Календарь программы" })).toBeVisible();
+  await expect(page.getByRole("grid", { name: "Календарь замеров веса относительно плана" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
+
+test("groups navigation and reaches every section from the mobile sheet", async ({ page, isMobile }) => {
+  await page.goto("./");
+  if (isMobile) {
+    await page.locator(".tabbar").getByRole("button", { name: "Ещё" }).click();
+    const sheet = page.getByRole("dialog", { name: "Все разделы" });
+    await expect(sheet.getByText("Медицина")).toBeVisible();
+    await expect(sheet.getByRole("link", { name: "Качество данных" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+  } else {
+    await expect(page.locator(".main-nav").getByText("Активность и сердце")).toBeVisible();
+    await expect(page.locator(".main-nav").getByRole("link", { name: "Качество данных" })).toHaveCount(0);
+    await page.getByRole("link", { name: /Качество данных/ }).first().click();
+    await expect(page.getByRole("heading", { name: "Качество данных" })).toBeVisible();
+  }
+  await expect(page.getByRole("button", { name: "Выйти", exact: true })).toHaveCount(0);
 });

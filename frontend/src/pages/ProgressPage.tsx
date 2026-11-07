@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
 import type { OverviewContext } from "../App";
 import { api, csvUrl } from "../api/client";
-import { bmiChartOption, planDeviationChartOption, monthlyChangeChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightChartOption } from "../charts/options";
+import { bmiChartOption, planDeviationChartOption, monthlyChangeChartOption, weeklyChangeChartOption, weeklyWeightChartOption, weightChartOption, withEventMarkers, withMaintenanceBand } from "../charts/options";
 import { ErrorState, EmptyState, LoadingState } from "../components/AsyncState";
 import { ChartCard } from "../components/ChartCard";
 import { MonthlyWeightTable, WeeklyWeightTable, WeightTable } from "../components/DataTables";
@@ -15,6 +15,7 @@ import { WeightCandlestickChart } from "../components/WeightCandlestickChart";
 import { PeriodSwitcher } from "../components/PeriodSwitcher";
 import { useChartPeriod } from "../hooks/useChartPeriod";
 import { useApi } from "../hooks/useApi";
+import { useChartEvents } from "../hooks/useChartEvents";
 import { formatDate, formatDelta, formatKg, moscowToday } from "../lib/format";
 
 export function ProgressPage() {
@@ -31,6 +32,7 @@ export function ProgressPage() {
   const profile = useApi(loadProfile);
   const loadMilestones = useCallback((signal: AbortSignal) => api.milestones(signal), []);
   const milestones = useApi(loadMilestones);
+  const chartEvents = useChartEvents();
   const weight = overview.data?.weight;
   const plan = overview.data?.plan;
 
@@ -61,7 +63,10 @@ export function ProgressPage() {
             <ChartCard
               title="Вес относительно плана"
               subtitle={`${series.data.meta.count} дней с замерами · московское время`}
-              option={weightChartOption(series.data.points, true, series.data.projection, series.data.planProjection)}
+              option={withMaintenanceBand(
+                withEventMarkers(weightChartOption(series.data.points, true, series.data.projection, series.data.planProjection), chartEvents, series.data.points.map((point) => point.measuredAt)),
+                overview.data?.maintenance.phase === "maintenance" ? overview.data.maintenance : null,
+              )}
               ariaLabel={`График прогресса веса, плана и прогноза с ${formatDate(plan?.startDate)}`}
               height={450}
               footer={<WeightTable points={series.data.points} />}

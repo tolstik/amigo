@@ -389,15 +389,15 @@ button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visib
 .medication-panel { max-width: 980px; margin-top: 18px; padding: 25px; }
 .medication-panel .panel__head p { max-width: 700px; margin: 7px 0 0; color: var(--text-soft); font-size: 11px; line-height: 1.55; }
 .medication-list { display: grid; margin-top: 18px; gap: 11px; }
-.medication-row { display: grid; grid-template-columns: 1.2fr .75fr 1fr auto; padding: 14px; align-items: end; gap: 11px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-soft); }
+.medication-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 14px; align-items: end; gap: 11px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-soft); }
 .medication-row label, .medication-add label { display: grid; gap: 6px; color: var(--text-soft); font-size: 10px; font-weight: 650; }
 .medication-row input, .medication-add input { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 10px; outline: none; background: var(--bg-elevated); color: var(--text); font: inherit; }
 .medication-row input:focus, .medication-add input:focus { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
 .label-hint { color: var(--text-faint); font-size: 9px; font-weight: 450; }
 .medication-row__actions { display: flex; align-items: center; gap: 7px; }
 .medication-row__actions .button { min-height: 40px; padding-inline: 11px; font-size: 10px; }
-.medication-add { display: grid; grid-template-columns: 1.2fr .75fr 1fr auto; margin-top: 14px; padding-top: 17px; align-items: end; gap: 11px; border-top: 1px solid var(--line); }
-.medication-add__title { display: grid; align-self: center; gap: 4px; }
+.medication-add { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; padding-top: 17px; align-items: end; gap: 11px; border-top: 1px solid var(--line); }
+.medication-add__title { display: grid; grid-column: 1 / -1; align-self: center; gap: 4px; }
 .medication-add__title strong { font-size: 12px; }
 .medication-add__title small { color: var(--text-faint); font-size: 9px; line-height: 1.4; }
 .medication-add > .button { min-height: 40px; }

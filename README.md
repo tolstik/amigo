@@ -192,6 +192,58 @@ or plan line. The pressure chart contains only systolic and diastolic values;
 watch heart rate is shown in a separate chart as daily minimum, weighted
 average, and maximum.
 
+## Navigation, journal, milestones, and export
+
+The sidebar groups sections as *Weight and body*, *Activity and heart*,
+*Medicine*, and *Personal*; every section has its own icon. Data quality is
+opened from the header synchronization indicator (and from the profile). On
+screens up to 820 px a fixed bottom tab bar shows Overview, Progress, Journal,
+Labs, and a "More" sheet with every section. Logout lives only in the profile.
+The overview greeting follows the Moscow clock.
+
+KPI cards may show a gap-preserving sparkline (weight and 7-day trend for 30
+days on the overview; steps, active minutes, sleep, resting heart rate, and HRV
+for 14 days on their pages). Loading states are fixed-size skeletons.
+
+- **Journal** (`/journal`): owner-entered day notes (`illness`, `holiday`,
+  `travel`, `medication`, `stress`, `other`, ≤ 280 characters, at most 2,000
+  rows, no future days) and a one-tap 1–5 self-assessment of energy, hunger,
+  and mood per Moscow day. Notes appear as hover-labelled vertical markers on
+  the overview/progress weight charts and the pressure trend. Same-day Pearson
+  correlations between self-assessment and published sleep/steps require at
+  least 14 paired days and keep the causality disclaimer. Journal rows are
+  private dashboard data: they are never sent to AI inference, Telegram, or
+  doctor reports.
+- **Medication dates**: optional `started_on`/`stopped_on`. A medication whose
+  stop date has passed (or whose start is in the future) is not "current" and
+  is excluded from the AI snapshot and the doctor-report medication list. With
+  a start date, the profile shows mean home pressure in the 14 days before and
+  after the start day (start day excluded) as a description, never as an
+  estimated treatment effect; start/stop dates are marked on the pressure trend.
+- **Milestones** (`GET /api/v1/milestones`, progress page): every 5 kg below the
+  program start, the target, and BMI thresholds 40/35/30/25 from the profile
+  height, achieved on the first non-outlier daily median at or below the
+  threshold; current/longest weighing streaks (any weighing day); best complete
+  week/month by observed endpoint change.
+- **Regularity calendar**: Monday-first grid of program days coloured against
+  the same-day plan (±0.3 kg is "near plan"); outliers and missing days are
+  distinct.
+- **Plateau**: active when the 7-day median trend fell by less than 0.2 kg over
+  14 days, with at least six measured days in the window and data no older than
+  three days. The overview shows a descriptive banner and the daily/weekly
+  Telegram digests add one factual line. It is suppressed in maintenance.
+- **Maintenance**: once any non-outlier program daily median reaches the target
+  the phase becomes `maintenance` (sticky) with a target ±1.5 kg corridor,
+  shaded on the weight charts.
+- **Export archive** (`GET /api/v1/export/archive.zip`): all structured series
+  as CSV (weight, pressure, composition, circumference, activity, recovery,
+  notes, check-ins, medications, laboratory results). Originals, filenames,
+  OCR, chat, AI output, and device identity are excluded. The Android WebView
+  download allowlist does not include this route; use a browser.
+
+`frontend/public/echarts.min.js` is not loaded by the SPA (which bundles ECharts
+from npm). The backend inlines it into the self-contained doctor-report HTML.
+
 ## Android app and Xiaomi/Health Connect companion
 
 Amigo `1.5.0` (`versionCode 17`, package `ru.tolstik.amigo.sync`) opens the full

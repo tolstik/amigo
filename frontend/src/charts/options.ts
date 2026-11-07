@@ -1189,3 +1189,24 @@ export function withEventMarkers(option: EChartsOption, events: ChartEvent[], da
   }
   return { ...option, series };
 }
+
+/** Shade the ±1.5 kg maintenance corridor once the target has been reached. */
+export function withMaintenanceBand(
+  option: EChartsOption,
+  maintenance: { bandLowKg: number | null; bandHighKg: number | null } | null,
+): EChartsOption {
+  if (!maintenance || maintenance.bandLowKg === null || maintenance.bandHighKg === null) return option;
+  const series = Array.isArray(option.series) ? [...option.series] : option.series ? [option.series] : [];
+  series.push({
+    name: "Коридор поддержания",
+    type: "line",
+    data: [],
+    color: colors.green,
+    markArea: {
+      silent: true,
+      itemStyle: { color: "rgba(45,147,101,.09)" },
+      data: [[{ yAxis: maintenance.bandLowKg }, { yAxis: maintenance.bandHighKg }]],
+    },
+  } as LineSeriesOption);
+  return { ...option, series };
+}

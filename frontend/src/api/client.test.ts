@@ -305,3 +305,33 @@ describe("API normalization", () => {
     expect(result.downloadUrl).toMatch(/\/api\/v1\/reports\/doctor\/report-1\.pdf$/);
   });
 });
+
+describe("journal and milestone normalizers", () => {
+  it("normalizes milestones, plateau and best periods defensively", async () => {
+    const { normalizeMilestones, normalizeCheckins, normalizeOverview } = await import("./client");
+    const milestones = normalizeMilestones({
+      items: [
+        { id: "weight-5", kind: "weight_loss", label: "−5 кг от старта", threshold_kg: 122.03, achieved_on: "2026-09-20", achieved_kg: 121.9 },
+        { id: "broken", kind: "unknown", label: "x", threshold_kg: 1 },
+      ],
+      next: { id: "weight-10", kind: "weight_loss", label: "−10 кг от старта", threshold_kg: 117.03, achieved_on: null, remaining_kg: 4.5 },
+      streaks: { current_days: 3, longest_days: 9, longest_end: "2026-09-10" },
+      best_week: { start_date: "2026-09-07", end_date: "2026-09-13", change_kg: -1.4 },
+      best_month: null,
+      plateau: { active: true, window_days: 14, threshold_kg: 0.2, change_kg: -0.05, from: "2026-10-01", to: "2026-10-15" },
+    });
+    expect(milestones.items.map((item) => item.id)).toEqual(["weight-5"]);
+    expect(milestones.next?.remainingKg).toBe(4.5);
+    expect(milestones.bestWeek?.changeKg).toBe(-1.4);
+    expect(milestones.bestMonth).toBeNull();
+    expect(milestones.plateau.active).toBe(true);
+
+    const checkins = normalizeCheckins({ items: [{ day: "2026-09-01", energy: 4, hunger: 9, mood: null }], correlations: [{ metric: "energy", target: "sleep_minutes", coefficient: 0.5, paired_days: 20 }] });
+    expect(checkins.items[0]).toEqual({ day: "2026-09-01", energy: 4, hunger: null, mood: null });
+    expect(checkins.correlations[0].pairedDays).toBe(20);
+
+    const overview = normalizeOverview({ maintenance: { phase: "maintenance", band_low_kg: 75, band_high_kg: 78, band_status: "inside" } });
+    expect(overview.maintenance.phase).toBe("maintenance");
+    expect(overview.plateau.active).toBe(false);
+  });
+});

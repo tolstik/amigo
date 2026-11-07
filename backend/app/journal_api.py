@@ -16,6 +16,7 @@ from .config import Settings, get_settings
 from .db import get_db
 from .health_analytics import activity_series, recovery_series
 from .journal import (
+    CHECKIN_CORRELATION_MINIMUM_DAYS,
     checkin_correlations,
     checkin_payload,
     list_checkins,
@@ -160,7 +161,9 @@ def get_checkins(
     # cannot hide a sufficiently long paired sample.
     all_rows = rows if start is None else list_checkins(db)
     correlations = []
-    if all_rows:
+    # Skip the full recovery/activity reads until a correlation is possible;
+    # the overview loads this route on every visit on a weak host.
+    if len(all_rows) >= CHECKIN_CORRELATION_MINIMUM_DAYS:
         correlations = checkin_correlations(
             all_rows,
             recovery_series(db, settings.tz, "all")["daily"],

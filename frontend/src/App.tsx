@@ -25,6 +25,7 @@ import { GlobalLoadingPopup } from "./components/GlobalLoadingPopup";
 import { DataQualityPage } from "./pages/DataQualityPage";
 import { DoctorReportPage } from "./pages/DoctorReportPage";
 import { CircumferencePage } from "./pages/CircumferencePage";
+import { JournalPage } from "./pages/JournalPage";
 
 export type OverviewContext = ApiState<Overview>;
 
@@ -68,6 +69,7 @@ function PrivateApp({ session, onLogout }: { session: AuthSession; onLogout: () 
         <Route path="studies/:id/view" element={<DocumentViewerPage kind="study" />} />
         <Route path="assistant" element={<AssistantPage />} />
         <Route path="reports/doctor" element={<DoctorReportPage />} />
+        <Route path="journal" element={<JournalPage />} />
         <Route path="profile" element={<ProfilePage onLogout={onLogout} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

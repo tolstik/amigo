@@ -8,12 +8,14 @@ import { ChartCard } from "../components/ChartCard";
 import { MonthlyWeightTable, WeeklyWeightTable, WeightTable } from "../components/DataTables";
 import { Icon } from "../components/Icon";
 import { KpiCard } from "../components/KpiCard";
+import { MilestonesPanel } from "../components/MilestonesPanel";
+import { RegularityCalendar } from "../components/RegularityCalendar";
 import { PageHeader } from "../components/PageHeader";
 import { WeightCandlestickChart } from "../components/WeightCandlestickChart";
 import { PeriodSwitcher } from "../components/PeriodSwitcher";
 import { useChartPeriod } from "../hooks/useChartPeriod";
 import { useApi } from "../hooks/useApi";
-import { formatDate, formatDelta, formatKg } from "../lib/format";
+import { formatDate, formatDelta, formatKg, moscowToday } from "../lib/format";
 
 export function ProgressPage() {
   const overview = useOutletContext<OverviewContext>();
@@ -27,6 +29,8 @@ export function ProgressPage() {
   const raw = useApi(loadRaw);
   const loadProfile = useCallback((signal: AbortSignal) => api.profile(signal), []);
   const profile = useApi(loadProfile);
+  const loadMilestones = useCallback((signal: AbortSignal) => api.milestones(signal), []);
+  const milestones = useApi(loadMilestones);
   const weight = overview.data?.weight;
   const plan = overview.data?.plan;
 
@@ -45,6 +49,9 @@ export function ProgressPage() {
         <KpiCard label="Прогноз цели" value={weight?.forecastDate ? formatDate(weight.forecastDate) : "Пока рано"} hint="Показывается только при устойчивом снижении" icon="calendar" tone="violet" />
         <KpiCard label="Цель по плану" value={formatDate(plan?.targetDate)} hint="Темп −4 кг за календарный месяц" icon="progress" tone="coral" />
       </section>
+
+      {milestones.data && milestones.data.items.length > 0 && <MilestonesPanel data={milestones.data} />}
+      {series.data && plan?.startDate ? <RegularityCalendar points={series.data.points} startDate={plan.startDate} today={moscowToday()} /> : null}
 
       {series.loading && !series.data ? <LoadingState /> : series.error && !series.data ? (
         <ErrorState message={series.error.message} onRetry={series.reload} />

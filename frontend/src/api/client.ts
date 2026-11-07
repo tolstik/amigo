@@ -1120,7 +1120,7 @@ function csrfToken(): string | null {
   return value ? decodeURIComponent(value.slice(prefix.length)) : null;
 }
 
-async function requestJson(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<unknown> {
+async function requestJson(path: string, init: RequestInit = {}, signal?: AbortSignal, options: { quiet?: boolean } = {}): Promise<unknown> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   const method = (init.method ?? "GET").toUpperCase();
@@ -1128,7 +1128,8 @@ async function requestJson(path: string, init: RequestInit = {}, signal?: AbortS
     const csrf = csrfToken();
     if (csrf) headers.set("X-CSRF-Token", csrf);
   }
-  const blocking = !["GET", "HEAD", "OPTIONS"].includes(method);
+  // One-tap inline mutations (check-ins) show their own status instead of the modal.
+  const blocking = !options.quiet && !["GET", "HEAD", "OPTIONS"].includes(method);
   if (blocking) window.dispatchEvent(new Event("amigo:loading:start"));
   let response: Response;
   try {
@@ -1181,8 +1182,8 @@ export const api = {
   checkins: async (range: "30d" | "90d" | "1y" | "all", signal?: AbortSignal) =>
     normalizeCheckins(await fetchJson(`/checkins?${new URLSearchParams({ range })}`, signal)),
   saveCheckin: async (day: string, values: { energy: number | null; hunger: number | null; mood: number | null }) =>
-    normalizeCheckin(await requestJson(`/checkins/${encodeURIComponent(day)}`, { ...jsonBody(values), method: "PUT" })),
-  deleteCheckin: async (day: string) => requestJson(`/checkins/${encodeURIComponent(day)}`, { method: "DELETE" }),
+    normalizeCheckin(await requestJson(`/checkins/${encodeURIComponent(day)}`, { ...jsonBody(values), method: "PUT" }, undefined, { quiet: true })),
+  deleteCheckin: async (day: string) => requestJson(`/checkins/${encodeURIComponent(day)}`, { method: "DELETE" }, undefined, { quiet: true }),
   milestones: async (signal?: AbortSignal) => normalizeMilestones(await fetchJson("/milestones", signal)),
   swimming: async (period: Period, offset: number, signal?: AbortSignal) =>
     fetchJson(`/series/swimming?${new URLSearchParams({ range: period, offset: String(offset) })}`, signal) as Promise<SwimmingSeries>,
